@@ -1,0 +1,14 @@
+<div class="remote-videos">
+
+  <div class="remote-video-container" *ngFor="let remote of remoteStreams">
+
+    <video #remoteVideo autoplay playsinline>
+    </video>
+
+    <div class="user-name">
+      {{ remote.userId }}
+    </div>
+
+  </div>
+
+</div>

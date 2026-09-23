@@ -1,0 +1,71 @@
+<div class="container-fluid video-call-container" *ngIf="callInProgress">
+    <div class="video-grid">
+
+        <div class="remote-video-container">
+            <video #userVideo autoplay playsinline class="remote-video" (playing)="onRemoteVideoPlaying()"></video>
+            <div class="profile-fallback" *ngIf="!remoteVideoActive">
+                <img [src]="remoteUserAvatar" alt="User profile" class="profile-image">
+                <div class="profile-name">{{ remoteUserName }}</div>
+            </div>
+        </div>
+    
+        <div class="local-video-container" id="localVideo">
+            <video #myVideo autoplay playsinline class="local-video" muted  (playing)="onLocalVideoPlaying()"></video>
+            <div class="profile-fallback" *ngIf="!localVideoActive">
+                <img [src]="localUserAvatar" alt="Your profile" class="profile-image">
+                <div class="profile-name">You</div>
+            </div>
+        </div>
+    </div>
+    <div class="share-float" *ngIf="isScreenSharing">
+      <span>Sharing your screen</span>
+      <button class="btn btn-sm btn-light" (click)="toggleMute()" [disabled]="!hasAudioDevice">
+        <i class="fa-solid" [class.fa-microphone]="!isMuted" [class.fa-microphone-slash]="isMuted"></i>
+      </button>
+      <button class="btn btn-sm btn-primary" (click)="toggleScreenShare()">Stop share</button>
+      <button class="btn btn-sm btn-danger" (click)="endCall()">Leave</button>
+    </div>
+
+    <div class="call-controls">
+
+        <button class="btn control-btn  btn-sm" (click)="toggleVideo()" data-bs-toggle="tooltip"
+            [title]="hasVideoDevice ? 'Video' : 'No camera'"
+            [disabled]="!hasVideoDevice || isScreenSharing"
+            [ngClass]="{'btn-secondary': isVideoEnabled && hasVideoDevice, 'btn-danger': !isVideoEnabled || !hasVideoDevice}">
+            <i class="fa-solid" [class.fa-video]="isVideoEnabled && hasVideoDevice" [class.fa-video-slash]="!isVideoEnabled || !hasVideoDevice"></i>
+        </button>
+
+        <button class="btn control-btn btn-sm" (click)="toggleMute()" data-bs-toggle="tooltip"
+            [title]="hasAudioDevice ? 'Microphone' : 'No microphone'"
+            [disabled]="!hasAudioDevice"
+            [ngClass]="{'btn-secondary': !isMuted && hasAudioDevice, 'btn-danger': isMuted || !hasAudioDevice}">
+            <i class="fa-solid" [class.fa-microphone]="!isMuted && hasAudioDevice" [class.fa-microphone-slash]="isMuted || !hasAudioDevice"></i>
+        </button>
+
+        <button class="btn control-btn btn-sm" (click)="toggleScreenShare()" data-bs-toggle="tooltip"
+            [title]="canStartScreenShare || isScreenSharing ? 'Screen Share' : 'Someone else is sharing'"
+            [disabled]="!canStartScreenShare && !isScreenSharing"
+            [ngClass]="{'btn-secondary': !isScreenSharing, 'btn-primary': isScreenSharing}">
+            <i class="fa-solid" [class.fa-display]="!isScreenSharing" [class.fa-xmark]="isScreenSharing"></i>
+        </button>
+
+        <button class="btn control-btn btn-sm" (click)="toggleRecording()" data-bs-toggle="tooltip" title="Recording"
+            [ngClass]="{'btn-secondary': !isRecording, 'btn-dark': isRecording}">
+            <i class="fa-solid" [class.fa-circle]="!isRecording" [class.fa-square]="isRecording" [class.fa-xs]="true"
+                [style.color]="isRecording ? '#ec0909' : ''"></i>
+        </button>
+
+        <button class="btn control-btn btn-danger btn-sm end-call" (click)="endCall()" data-bs-toggle="tooltip"
+            title="End Call">
+            <i class="fa-solid fa-phone-slash"></i>
+        </button>
+
+    </div>
+
+
+    <div *ngIf="isRecording" class="recording-indicator">
+        <span class="recording-dot"></span>
+        REC
+    </div>
+
+</div>

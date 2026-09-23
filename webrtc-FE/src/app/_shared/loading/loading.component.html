@@ -1,0 +1,11 @@
+<div class="loading-container">
+  <div class="loading-spinner" *ngIf="loading">
+    <div class="d-flex justify-content-center align-items-center">
+      <div class="blockui">
+        <span>{{loadingText}}</span>
+        <span class="spinner spinner-primary"></span>
+      </div>
+    </div>
+  </div>
+  <ng-content></ng-content>
+</div>

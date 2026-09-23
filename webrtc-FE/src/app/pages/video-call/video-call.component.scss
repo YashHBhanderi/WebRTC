@@ -1,0 +1,198 @@
+.video-call-container {
+  height: 100vh;
+  height: 100dvh;
+  background:
+    radial-gradient(1000px 500px at 0% 0%, rgba(37, 99, 235, 0.25), transparent 55%),
+    radial-gradient(800px 400px at 100% 0%, rgba(14, 165, 233, 0.18), transparent 50%),
+    #0b1220;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  overflow: hidden;
+
+  .share-float {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: rgba(20, 20, 20, 0.92);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .video-grid {
+    position: relative;
+    width: 100%;
+    max-width: 1600px;
+    height: 89vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    .remote-video-container {
+      width: 100%;
+      height: 100%;
+      border-radius: 12px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.05);
+      box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.2);
+
+      video {
+        width: 100%;
+        height: 100%;
+      }
+    }
+
+    .local-video-container {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 44%;
+      max-width: 310px;
+      aspect-ratio: 16 / 9;
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.3);
+      cursor: grab;
+      transition: transform 0.2s;
+
+      &:hover {
+        transform: scale(1.05);
+      }
+
+      video {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        object-fit: contain;
+      }
+    }
+  }
+
+  .call-controls {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: rgba(15, 23, 42, 0.88);
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    backdrop-filter: blur(10px);
+    box-shadow: 0px 2px 10px rgba(0, 0, 0, 0.2);
+    margin: 10px;
+
+    .control-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px;
+      height: 52px;
+      padding: 0;
+      font-size: 16px;
+      border-radius: 50%;
+      color: white;
+      border: none;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+  }
+
+  .recording-indicator {
+    position: absolute;
+    top: 25px;
+    left: 25px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(231, 76, 60, 0.2);
+    backdrop-filter: blur(5px);
+    border-radius: 20px;
+    border: 1px solid rgba(231, 76, 60, 0.4);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    z-index: 10;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    animation: pulse-border 2s infinite;
+
+    .recording-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      background: #e74c3c;
+      border-radius: 50%;
+      animation: pulse-opacity 1.5s infinite;
+    }
+
+    @keyframes pulse-opacity {
+      0% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.3;
+      }
+      100% {
+        opacity: 1;
+      }
+    }
+
+    @keyframes pulse-border {
+      0% {
+        box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4);
+      }
+      70% {
+        box-shadow: 0 0 0 6px rgba(231, 76, 60, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(231, 76, 60, 0);
+      }
+    }
+  }
+  
+  .remote-video-container,
+  .local-video-container {
+    position: relative;
+
+    .profile-fallback {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(105deg, #828386, #c1c6cf);
+      border-radius: inherit;
+
+      .profile-image {
+        width: 40%;
+        height: auto;
+        aspect-ratio: 1/1;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .profile-name {
+        color: white;
+        font-size: 1.2rem;
+        font-weight: 500;
+      }
+    }
+  }
+}

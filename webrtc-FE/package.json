@@ -1,0 +1,53 @@
+{
+  "name": "frontend",
+  "version": "0.0.0",
+  "scripts": {
+    "ng": "ng",
+    "start": "ng serve --configuration=development --host 0.0.0.0 --port 4200 --ssl true --proxy-config proxy.conf.js --disable-host-check",
+    "dev": "ng serve --configuration=development --host 0.0.0.0 --port 4200 --ssl true --proxy-config proxy.conf.js --disable-host-check",
+    "build": "ng build --configuration=production",
+    "watch": "ng build --watch --configuration=development",
+    "test": "ng test"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/animations": "^16.2.0",
+    "@angular/common": "^16.2.0",
+    "@angular/compiler": "^16.2.0",
+    "@angular/core": "^16.2.0",
+    "@angular/forms": "^16.2.0",
+    "@angular/platform-browser": "^16.2.0",
+    "@angular/platform-browser-dynamic": "^16.2.0",
+    "@angular/router": "^16.2.0",
+    "@angular/service-worker": "^16.2.0",
+    "@ctrl/ngx-emoji-mart": "^9.2.0",
+    "@fortawesome/fontawesome-free": "^6.5.2",
+    "@ng-bootstrap/ng-bootstrap": "^15.0.0",
+    "bootstrap": "^5.3.3",
+    "mediasoup-client": "^3.23.1",
+    "ngx-skeleton-loader": "^8.1.0",
+    "ngx-socket-io": "^4.8.4",
+    "rxjs": "~7.8.0",
+    "simplebar-angular": "^2.3.5",
+    "socket.io-client": "^4.8.1",
+    "sweetalert2": "^11.17.2",
+    "tslib": "^2.3.0",
+    "zone.js": "~0.13.0"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^16.2.0",
+    "@angular/cli": "~16.2.0",
+    "@angular/compiler-cli": "^16.2.0",
+    "@types/bootstrap": "^5.2.10",
+    "@types/jasmine": "~4.3.0",
+    "@types/jitsi-meet": "^2.0.5",
+    "@types/node": "^22.14.1",
+    "jasmine-core": "~4.6.0",
+    "karma": "~6.4.0",
+    "karma-chrome-launcher": "~3.2.0",
+    "karma-coverage": "~2.2.0",
+    "karma-jasmine": "~5.1.0",
+    "karma-jasmine-html-reporter": "~2.1.0",
+    "typescript": "~5.1.3"
+  }
+}

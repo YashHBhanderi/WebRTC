@@ -1,0 +1,158 @@
+<div class="meet-stage" [class.sidebar-mode]="useSidebarLayout" [class.screen-focus]="!!activeScreenStream">
+  <div *ngIf="isJoining" class="joining-overlay">
+    <div class="spinner-border text-light" role="status"></div>
+    <p class="mt-3 mb-0">Joining call...</p>
+  </div>
+
+  <div class="meet-body">
+    <div class="meet-main">
+      <div class="screen-stage" *ngIf="activeScreenStream as screen">
+        <video #screenVideo autoplay playsinline class="screen-video"></video>
+        <div class="screen-badge">{{ activeScreenUsername || 'User' }} is sharing</div>
+      </div>
+
+      <div class="tile-grid" [attr.data-count]="displayCount" *ngIf="!useSidebarLayout">
+        <div class="tile self-tile" [class.audio-only]="!isVideoEnabled">
+          <video
+            #localVideo
+            autoplay
+            playsinline
+            muted
+            class="tile-media mirror"
+            [class.is-hidden]="!isVideoEnabled"
+          ></video>
+          <div class="audio-avatar" *ngIf="!isVideoEnabled">
+            <div class="avatar-circle">You</div>
+          </div>
+          <div class="tile-label">You <span *ngIf="isScreenSharing">(sharing)</span></div>
+        </div>
+
+        <div
+          class="tile"
+          *ngFor="let participant of participants; trackBy: trackByUserId"
+          [class.audio-only]="!hasVideoTrack(participant)"
+        >
+          <video
+            #remoteVideo
+            autoplay
+            playsinline
+            muted
+            class="tile-media"
+            [class.is-hidden]="!hasVideoTrack(participant)"
+          ></video>
+          <div class="audio-avatar" *ngIf="!hasVideoTrack(participant)">
+            <div class="avatar-circle">{{ (participant.username || 'U').charAt(0) }}</div>
+            <span>{{ participant.username || 'User' }}</span>
+          </div>
+          <audio #remoteAudio autoplay playsinline></audio>
+          <div class="tile-label">{{ participant.username || 'User' }}</div>
+        </div>
+
+        <div class="waiting-tile" *ngIf="!participants.length && !isJoining">
+          Waiting for others to join...
+        </div>
+      </div>
+
+      <div class="focus-layout" *ngIf="useSidebarLayout">
+        <div class="focus-pane" *ngIf="focusedParticipant as focus; else selfFocus">
+          <div class="tile focus-tile" [class.audio-only]="!hasVideoTrack(focus)">
+            <video #focusVideo autoplay playsinline muted class="tile-media" [class.is-hidden]="!hasVideoTrack(focus)"></video>
+            <div class="audio-avatar" *ngIf="!hasVideoTrack(focus)">
+              <div class="avatar-circle lg">{{ (focus.username || 'U').charAt(0) }}</div>
+              <span>{{ focus.username || 'User' }}</span>
+            </div>
+            <div class="tile-label">{{ focus.username || 'User' }}</div>
+          </div>
+        </div>
+        <ng-template #selfFocus>
+          <div class="tile focus-tile self-tile" [class.audio-only]="!isVideoEnabled">
+            <video #localVideo autoplay playsinline muted class="tile-media mirror" [class.is-hidden]="!isVideoEnabled"></video>
+            <div class="audio-avatar" *ngIf="!isVideoEnabled">
+              <div class="avatar-circle lg">You</div>
+            </div>
+            <div class="tile-label">You</div>
+          </div>
+        </ng-template>
+
+        <div class="pip-self" *ngIf="focusedParticipant">
+          <video #localVideoPip autoplay playsinline muted class="tile-media mirror" [class.is-hidden]="!isVideoEnabled"></video>
+          <div class="audio-avatar" *ngIf="!isVideoEnabled">
+            <div class="avatar-circle">You</div>
+          </div>
+          <div class="tile-label">You</div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="meet-sidebar" *ngIf="useSidebarLayout">
+      <div class="sidebar-title">In call · {{ totalCount }}</div>
+      <button type="button" class="sidebar-item" [class.active]="!focusedUserId" (click)="selectParticipant(null)">
+        <span class="dot self"></span> You
+      </button>
+      <button
+        type="button"
+        class="sidebar-item"
+        *ngFor="let p of participants; trackBy: trackByUserId"
+        [class.active]="focusedUserId === p.userId"
+        (click)="selectParticipant(p.userId)"
+      >
+        <span class="dot"></span>
+        {{ p.username || 'User' }}
+      </button>
+    </aside>
+  </div>
+
+  <div class="hidden-audio" *ngIf="useSidebarLayout">
+    <ng-container *ngFor="let participant of participants; trackBy: trackByUserId">
+      <audio #remoteAudio autoplay playsinline></audio>
+    </ng-container>
+  </div>
+
+  <div class="share-float" *ngIf="isScreenSharing">
+    <span class="share-float-label">You are sharing your screen</span>
+    <button class="btn btn-sm btn-light" (click)="toggleMute()" [disabled]="!hasAudioDevice">
+      <i class="fa-solid" [class.fa-microphone]="!isMuted" [class.fa-microphone-slash]="isMuted"></i>
+    </button>
+    <button class="btn btn-sm btn-primary" (click)="toggleScreenShare()">Stop share</button>
+    <button class="btn btn-sm btn-danger" (click)="leaveCall()">Leave</button>
+  </div>
+
+  <div class="call-controls">
+    <button
+      type="button"
+      (click)="toggleMute()"
+      class="ctrl"
+      [disabled]="!hasAudioDevice"
+      [class.off]="isMuted || !hasAudioDevice"
+      [title]="hasAudioDevice ? (isMuted ? 'Unmute' : 'Mute') : 'No microphone'"
+    >
+      <i class="fa-solid" [class.fa-microphone]="!isMuted && hasAudioDevice" [class.fa-microphone-slash]="isMuted || !hasAudioDevice"></i>
+    </button>
+
+    <button
+      type="button"
+      (click)="toggleVideo()"
+      class="ctrl"
+      [class.off]="!isVideoEnabled"
+      [disabled]="isScreenSharing"
+      [title]="callType === 'audio' && !isVideoEnabled ? 'Switch to video' : 'Camera'"
+    >
+      <i class="fa-solid" [class.fa-video]="isVideoEnabled" [class.fa-video-slash]="!isVideoEnabled"></i>
+    </button>
+
+    <button
+      type="button"
+      (click)="toggleScreenShare()"
+      class="ctrl"
+      [disabled]="!canStartScreenShare && !isScreenSharing"
+      [class.on]="isScreenSharing"
+      [title]="canStartScreenShare || isScreenSharing ? 'Share screen' : 'Someone else is sharing'"
+    >
+      <i class="fa-solid" [class.fa-display]="!isScreenSharing" [class.fa-xmark]="isScreenSharing"></i>
+    </button>
+
+    <button type="button" (click)="leaveCall()" class="ctrl hangup" title="Leave">
+      <i class="fa-solid fa-phone-slash"></i>
+    </button>
+  </div>
+</div>
