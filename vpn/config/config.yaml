@@ -1,0 +1,51 @@
+# Headscale - fully open-source Tailscale control server
+# Docs: https://github.com/juanfont/headscale
+
+# Public URL remotes use (Cloudflare Tunnel). Local server PC can still use http://127.0.0.1:8080
+server_url: https://electronics-massive-moss-country.trycloudflare.com
+
+listen_addr: 0.0.0.0:8080
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: true
+
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+
+# Embedded DERP needs a public UDP STUN port; without router access use
+# Tailscale's public DERP map (open protocol) so remotes can join the mesh.
+derp:
+  server:
+    enabled: false
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  paths: []
+  auto_update_enabled: true
+  update_frequency: 24h
+
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+log:
+  level: info
+
+dns:
+  magic_dns: true
+  base_domain: chat.vpn
+  nameservers:
+    global:
+      - 1.1.1.1
+      - 8.8.8.8
+
+policy:
+  mode: file
+  path: /etc/headscale/acl.json

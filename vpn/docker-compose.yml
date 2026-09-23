@@ -1,0 +1,17 @@
+services:
+  headscale:
+    image: headscale/headscale:0.25.1
+    container_name: chat-headscale
+    restart: unless-stopped
+    command: serve
+    ports:
+      - "8080:8080"
+      - "3478:3478/udp"
+    volumes:
+      - ./config:/etc/headscale
+      - headscale-data:/var/lib/headscale
+      - headscale-run:/var/run/headscale
+
+volumes:
+  headscale-data:
+  headscale-run:
