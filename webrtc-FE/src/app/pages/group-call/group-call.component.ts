@@ -164,8 +164,14 @@ export class GroupCallComponent implements OnInit, AfterViewInit, OnDestroy {
 
   selectParticipant(userId: string | null): void {
     this.focusedUserId = userId;
+    this.syncLayerFocus();
     this.cdr.detectChanges();
     setTimeout(() => this.bindFocusAndLocal(), 40);
+  }
+
+  /** Sidebar: focused tile gets the top simulcast layer, thumbnails the lowest. */
+  private syncLayerFocus(): void {
+    this.mediasoupService.setFocusedUser(this.useSidebarLayout ? this.focusedUserId : null);
   }
 
   ngAfterViewInit(): void {
@@ -215,6 +221,7 @@ export class GroupCallComponent implements OnInit, AfterViewInit, OnDestroy {
           this.focusedUserId = data.userId;
         }
       }
+      this.syncLayerFocus();
       this.cdr.detectChanges();
       this.bindRemoteMedia();
       this.bindFocusAndLocal();
@@ -249,6 +256,7 @@ export class GroupCallComponent implements OnInit, AfterViewInit, OnDestroy {
         if (this.focusedUserId === data.userId) {
           this.focusedUserId = this.participants[0]?.userId || null;
         }
+        this.syncLayerFocus();
         if (this.activeScreenUserId === data.userId) {
           this.clearActiveScreen();
         }

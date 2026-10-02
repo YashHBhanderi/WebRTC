@@ -5,7 +5,6 @@ import ConversationController from "../controllers/conversationController";
 import uploadCloudnary from "../utils/cloudinary";
 import MessageController  from "../controllers/message.controller";
 import JitsiCallController from "../controllers/jitsiCall.Controller";
-import { getVpnJoinInfo } from "../utils/network";
 
 const router = Router();
 
@@ -31,10 +30,6 @@ router.delete('/conversations/:conversationId', verifyToken, ConversationControl
 router.delete('/messages/:messageId', verifyToken, MessageController.deleteMessage);
 
 router.get('/jitsi-room/:roomName', verifyToken, JitsiCallController.generateJitsiToken);
-
-router.get('/media/vpn', (_req, res) => {
-  res.json({ success: true, data: getVpnJoinInfo() });
-});
 
 router.get('/conversations/:conversationId/media', verifyToken, ConversationController.getSharedMedia);
 router.patch('/web/user/profile', verifyToken, uploadCloudnary.single('image'), UserController.updateProfile);

@@ -13,18 +13,22 @@ function isMobileClient(): boolean {
 }
 
 /**
- * Minimal capture processing = less algorithmic delay.
- * AEC/NS/AGC each add tens of ms; turn off for call latency.
+ * Voice-call capture. Browser AEC/NS/AGC run on 10 ms frames and add no meaningful
+ * buffering; without AEC the far end hears its own voice back from laptop speakers.
  */
-const LOW_LATENCY_AUDIO = {
-  echoCancellation: false,
-  noiseSuppression: false,
-  autoGainControl: false,
+const CALL_AUDIO = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
   channelCount: 1,
   sampleRate: 48000,
   latency: 0,
 } as MediaTrackConstraints;
 
+/**
+ * Capture size drives simulcast: Chrome only emits 3 layers from ≥ 960x540,
+ * 2 layers from 640x360. The encoder/BWE scales down under load.
+ */
 function videoConstraints(): MediaTrackConstraints {
   if (isMobileClient()) {
     return {
@@ -36,9 +40,9 @@ function videoConstraints(): MediaTrackConstraints {
   }
 
   return {
-    width: { ideal: 640, max: 960 },
-    height: { ideal: 360, max: 540 },
-    frameRate: { ideal: 24, max: 24 },
+    width: { ideal: 1280, max: 1280 },
+    height: { ideal: 720, max: 720 },
+    frameRate: { ideal: 30, max: 30 },
   };
 }
 
@@ -53,7 +57,7 @@ export async function getCallMedia(wantVideo: boolean): Promise<CallMediaResult>
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: LOW_LATENCY_AUDIO,
+      audio: CALL_AUDIO,
       video: wantVideo ? videoConstraints() : false,
     });
     await tightenTracks(stream);
@@ -72,7 +76,7 @@ export async function getCallMedia(wantVideo: boolean): Promise<CallMediaResult>
 
   try {
     const audioStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       video: false,
     });
     audioStream.getAudioTracks().forEach((track) => stream.addTrack(track));
@@ -116,9 +120,9 @@ async function tightenTracks(stream: MediaStream): Promise<void> {
       track.contentHint = 'speech';
       track.enabled = true;
       await track.applyConstraints({
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
         channelCount: 1,
       } as MediaTrackConstraints);
     } catch {

@@ -52,23 +52,8 @@ export class VideoCallComponent implements OnInit, OnDestroy {
   private endingLocally = false;
   private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private servers = {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      // Public TURN fallback for cross-network 1:1 (legacy path)
-      {
-        urls: [
-          'turn:openrelay.metered.ca:80',
-          'turn:openrelay.metered.ca:80?transport=tcp',
-          'turn:openrelay.metered.ca:443',
-          'turns:openrelay.metered.ca:443',
-        ],
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-    ]
-  };
+  /** STUN/TURN from the server (env-driven, short-lived TURN creds). */
+  private servers: RTCConfiguration = { iceServers: [] };
 
   constructor(
     public authService: AuthService,
@@ -226,7 +211,12 @@ export class VideoCallComponent implements OnInit, OnDestroy {
   }
 
   private async prepareLocalMedia(wantVideo: boolean): Promise<void> {
-    const media = await getCallMedia(wantVideo);
+    // ICE config is fetched alongside getUserMedia so it adds no setup latency
+    const [media, iceConfig] = await Promise.all([
+      getCallMedia(wantVideo),
+      this.socketService.getIceConfig(),
+    ]);
+    this.servers = iceConfig;
     this.myStream = media.stream;
     this.hasAudioDevice = media.hasAudio;
     this.hasVideoDevice = media.hasVideo;

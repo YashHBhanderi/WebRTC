@@ -191,6 +191,18 @@ class CallService {
         return call;
     }
 
+    /** True when the user is listed on a call that is still ringing/active. */
+    async isActiveParticipant(callId: string, userId: string): Promise<boolean> {
+        if (!mongoose.isValidObjectId(callId)) {
+            return false;
+        }
+        const call = await Call.findById(callId).select('callStatus participants.userId').lean();
+        if (!call || (call.callStatus !== 'ringing' && call.callStatus !== 'active')) {
+            return false;
+        }
+        return call.participants.some((p) => p.userId.toString() === userId.toString());
+    }
+
     countJoined(call: { participants: { status: string }[] }): number {
         return call.participants.filter((p) => p.status === "joined").length;
     }

@@ -19,7 +19,7 @@ import callService from "./services/call.service";
 import dns from "dns";
 import mediasoupService from "./services/mediasoup.service";
 import * as mediasoup from 'mediasoup';
-import { rewriteIceCandidates } from "./utils/network";
+import { getClientIceConfig, mediaConfig, withTestTunnelCandidate } from "./utils/network";
 
 dotenv.config();
 dns.setDefaultResultOrder('ipv4first');
@@ -28,6 +28,26 @@ const app = express();
 const port = process.env.PORT ?? 8080;
 const server = http.createServer(app);
 const userSockets = new Map<string, string>();
+
+// Comma-separated allow-list, e.g. CORS_ORIGINS=https://app.example.com. Unset = allow all (dev).
+const corsOrigins = (process.env.CORS_ORIGINS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const corsOrigin: string[] | '*' = corsOrigins.length ? corsOrigins : '*';
+if (mediaConfig.isProduction && corsOrigin === '*') {
+  console.warn('CORS_ORIGINS is not set — API and socket accept any origin');
+}
+
+/** Transport params for mediasoup-client, including short-lived TURN credentials. */
+async function transportParams(transport: mediasoup.types.WebRtcTransport, userId: string, reused = false) {
+  return {
+    id: transport.id,
+    iceParameters: transport.iceParameters,
+    // No-op unless the dev-only MEDIA_TEST_TCP_TUNNEL_* vars are set
+    iceCandidates: await withTestTunnelCandidate(transport.iceCandidates),
+    dtlsParameters: transport.dtlsParameters,
+    ...getClientIceConfig(userId),
+    ...(reused ? { reused: true } : {}),
+  };
+}
 /** One screen sharer per call room key */
 const screenShareByCall = new Map<string, { userId: string; socketId: string }>();
 
@@ -55,7 +75,7 @@ function releaseScreenShare(
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: corsOrigin,
     methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"]
   },
@@ -65,7 +85,7 @@ const io = new Server(server, {
 app.use(logger);
 app.use(express.json({ limit: "1000mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1000mb" }));
-app.use(cors());
+app.use(cors({ origin: corsOrigin }));
 app.use("/", router);
 
 app.post("/upload", uploadCloudnary.single("file"), async (req: Request, res: Response) => {
@@ -145,8 +165,12 @@ io.on("connection", async (socket) => {
   );
 
   console.log(`User connected: ${userId} (Socket ID: ${socket.id})`);
-  await User.findByIdAndUpdate(userId, { isOnline: true });
   userSockets.set(userId, socket.id);
+  // Not awaited: handlers below must be registered synchronously, otherwise events the
+  // client emits right after connecting (e.g. call:accept) arrive before any listener and are dropped.
+  User.findByIdAndUpdate(userId, { isOnline: true }).catch((error) =>
+    console.error(`Failed to mark ${userId} online:`, error)
+  );
 
   socket.on("joinConversation", async (conversationId) => {
     socket.join(conversationId);
@@ -669,15 +693,12 @@ io.on("connection", async (socket) => {
           peer = mediasoupService.createPeer(socket.data.userId, socket.id);
         }
 
-        // Never tear down a transport that still has live producers (kills remote A/V)
-        if (peer.sendTransport && !peer.sendTransport.closed && peer.producers.size > 0) {
-          return callback({
-            id: peer.sendTransport.id,
-            iceParameters: peer.sendTransport.iceParameters,
-            iceCandidates: rewriteIceCandidates(peer.sendTransport.iceCandidates),
-            dtlsParameters: peer.sendTransport.dtlsParameters,
-            reused: true,
-          });
+        // A client only asks for a transport when it has none. Reuse is safe only for one it
+        // never connected (duplicate request); a connected one belongs to a previous page
+        // (refresh / quick rejoin) and connect() on it fails, so replace it. Closing it fires
+        // producer 'transportclose' → other peers get mediasoup:producerClosed and resubscribe.
+        if (peer.sendTransport && !peer.sendTransport.closed && peer.sendTransport.dtlsState === 'new') {
+          return callback(await transportParams(peer.sendTransport, socket.data.userId, true));
         }
 
         if (peer.sendTransport && !peer.sendTransport.closed) {
@@ -689,12 +710,7 @@ io.on("connection", async (socket) => {
 
         peer.sendTransport = transport;
 
-        callback({
-          id: transport.id,
-          iceParameters: transport.iceParameters,
-          iceCandidates: rewriteIceCandidates(transport.iceCandidates),
-          dtlsParameters: transport.dtlsParameters,
-        });
+        callback(await transportParams(transport, socket.data.userId));
 
       } catch (error) {
         console.error(
@@ -718,14 +734,13 @@ io.on("connection", async (socket) => {
           peer = mediasoupService.createPeer(socket.data.userId, socket.id);
         }
 
+        // Same rule as the send side: only an unconnected transport can be handed out again
+        if (peer.recvTransport && !peer.recvTransport.closed && peer.recvTransport.dtlsState === 'new') {
+          return callback(await transportParams(peer.recvTransport, socket.data.userId, true));
+        }
+
         if (peer.recvTransport && !peer.recvTransport.closed) {
-          return callback({
-            id: peer.recvTransport.id,
-            iceParameters: peer.recvTransport.iceParameters,
-            iceCandidates: rewriteIceCandidates(peer.recvTransport.iceCandidates),
-            dtlsParameters: peer.recvTransport.dtlsParameters,
-            reused: true,
-          });
+          try { peer.recvTransport.close(); } catch { /* ignore */ }
         }
 
         const transport =
@@ -733,12 +748,7 @@ io.on("connection", async (socket) => {
 
         peer.recvTransport = transport;
 
-        callback({
-          id: transport.id,
-          iceParameters: transport.iceParameters,
-          iceCandidates: rewriteIceCandidates(transport.iceCandidates),
-          dtlsParameters: transport.dtlsParameters,
-        });
+        callback(await transportParams(transport, socket.data.userId));
 
       } catch (error) {
         console.error(
@@ -771,17 +781,7 @@ io.on("connection", async (socket) => {
           });
         }
 
-        let transport:
-          | mediasoup.types.WebRtcTransport
-          | undefined;
-
-        if (peer.sendTransport?.id === transportId) {
-          transport = peer.sendTransport;
-        }
-
-        if (peer.recvTransport?.id === transportId) {
-          transport = peer.recvTransport;
-        }
+        const transport = mediasoupService.getTransport(peer, transportId);
 
         if (!transport) {
           return callback({
@@ -816,6 +816,27 @@ io.on("connection", async (socket) => {
       }
     }
   );
+
+  // Network change (Wi-Fi ↔ 4G, VPN toggle) → client asks for fresh ICE credentials
+  socket.on('mediasoup:restartIce', async ({ transportId } = {} as any, callback) => {
+    try {
+      const peer = mediasoupService.getPeer(socket.id);
+      const transport = peer && mediasoupService.getTransport(peer, transportId);
+      if (!transport || transport.closed) {
+        return callback?.({ error: 'Transport not found' });
+      }
+      const iceParameters = await transport.restartIce();
+      callback?.({ iceParameters, ...getClientIceConfig(socket.data.userId) });
+    } catch (error) {
+      console.error('Failed to restart ICE:', error);
+      callback?.({ error: 'Failed to restart ICE' });
+    }
+  });
+
+  // ICE servers for the legacy 1:1 P2P call page (same TURN, short-lived creds)
+  socket.on('ice:getServers', (_: unknown, callback) => {
+    callback?.(getClientIceConfig(socket.data.userId));
+  });
 
   socket.on('mediasoup:getRouterRtpCapabilities', (_, callback) => {
     try {
@@ -876,12 +897,24 @@ io.on("connection", async (socket) => {
           });
         }
 
+        if (kind !== 'audio' && kind !== 'video') {
+          return callback({
+            error: 'Invalid kind'
+          });
+        }
+
+        // Only a known source label is stored/forwarded — never arbitrary client appData
+        const source: 'camera' | 'screen' =
+          kind === 'video' && appData?.source === 'screen' ? 'screen' : 'camera';
+
         // Create producer
         const producer =
           await peer.sendTransport.produce({
             kind,
             rtpParameters,
-            appData
+            // Coalesce PLI/FIR bursts from many consumers into one keyframe per window
+            ...(kind === 'video' ? { keyFrameRequestDelay: mediaConfig.keyFrameRequestDelayMs } : {}),
+            appData: { source },
           });
 
         // Store producer
@@ -891,57 +924,17 @@ io.on("connection", async (socket) => {
         );
 
         console.log(
-          `Producer created: ${producer.id} (${kind})`
+          `Producer created: ${producer.id} (${kind}/${source}, ${producer.type}, ` +
+          `${producer.rtpParameters.encodings?.length ?? 1} encoding(s))`
         );
 
-        if (producer.kind === 'audio') {
-          const producerStatsInterval = setInterval(async () => {
-            try {
-              if (producer.closed) {
-                clearInterval(producerStatsInterval);
-                return;
-              }
-
-              const stats = await producer.getStats();
-              const s = stats[0];
-
-              console.log('🎤 PRODUCER', {
-                id: producer.id,
-                user: userId,
-
-                packets: s?.packetCount ?? 0,
-                lost: s?.packetsLost ?? 0,
-                jitter_ms: s?.jitter ?? 0,
-
-                bitrateKbps: s?.bitrate
-                  ? Math.round(s.bitrate / 1000)
-                  : 0,
-
-                rtt_ms: s?.roundTripTime
-                  ? Math.round(s.roundTripTime * 1000)
-                  : 0,
-
-                score: s?.score,
-              });
-            } catch {
-              // ignore debug errors
-            }
-          }, 2000);
-
-          producer.on('transportclose', () => {
-            clearInterval(producerStatsInterval);
-          });
-
-          producer.on('@close', () => {
-            clearInterval(producerStatsInterval);
-          });
-        }
+        mediasoupService.watchProducer(producer, userId);
 
         const payload = {
           producerId: producer.id,
           userId: peer.userId,
           kind: producer.kind,
-          source: appData?.source || 'camera',
+          source,
         };
 
         const callKey = String(peer.callId);
@@ -969,10 +962,10 @@ io.on("connection", async (socket) => {
             producer.id
           );
 
-          io.to(peer.callId!.toString()).emit('mediasoup:producerClosed', {
+          io.to(callKey).emit('mediasoup:producerClosed', {
             producerId: producer.id,
             userId: peer.userId,
-            source: appData?.source || 'camera',
+            source,
           });
         });
 
@@ -1034,17 +1027,19 @@ io.on("connection", async (socket) => {
           });
         }
 
-        let producerSource = 'camera';
-        let producerUserId = '';
-        for (const p of mediasoupService.getPeersByCallId(peer.callId || '')) {
-          const prod = p.producers.get(producerId);
-          if (prod) {
-            producerSource = (prod.appData as any)?.source || 'camera';
-            producerUserId = p.userId;
-            break;
-          }
+        // Only producers from the caller's own call can be consumed
+        const found = mediasoupService.findProducerInCall(peer.callId, producerId);
+        if (!found) {
+          return callback({
+            error: 'Producer not found in this call'
+          });
         }
+        const producerSource: string = (found.producer.appData as any)?.source || 'camera';
+        const producerUserId = found.ownerUserId;
 
+        // Created paused: client resumes after its track is wired up, then mediasoup
+        // sends a keyframe. Simulcast/SVC consumers start at the highest layer and
+        // mediasoup's BWE steps them down/up automatically.
         const consumer =
           await peer.recvTransport.consume({
             producerId,
@@ -1056,61 +1051,12 @@ io.on("connection", async (socket) => {
             },
           });
 
-        if (consumer.kind === 'audio') {
-          console.log('🔊 CONSUMER CREATED', {
-            consumerId: consumer.id,
-            producerId: consumer.producerId,
-            userId,
-          });
-
-          const consumerStatsInterval = setInterval(async () => {
-            try {
-              if (consumer.closed) {
-                clearInterval(consumerStatsInterval);
-                return;
-              }
-
-              const stats = await consumer.getStats();
-
-              const inbound = stats.find(
-                (s: any) => s.type === 'inbound-rtp',
-              );
-
-              if (!inbound) {
-                return;
-              }
-
-              console.log('🔊 CONSUMER', {
-                id: consumer.id,
-                producerId: consumer.producerId,
-
-                packets: inbound.packetCount ?? 0,
-                lost: inbound.packetsLost ?? 0,
-                jitter_ms: inbound.jitter ?? 0,
-
-                bitrateKbps: inbound.bitrate
-                  ? Math.round(inbound.bitrate / 1000)
-                  : 0,
-
-                score: inbound.score,
-              });
-            } catch {
-              // ignore debug errors
-            }
-          }, 2000);
-
-          consumer.on('transportclose', () => {
-            clearInterval(consumerStatsInterval);
-          });
-
-          consumer.on('producerclose', () => {
-            clearInterval(consumerStatsInterval);
-          }); 
-
-          consumer.on('@close', () => {
-            clearInterval(consumerStatsInterval);
-          });
+        // Screen share gets bandwidth before camera tiles when the link is constrained
+        if (consumer.kind === 'video' && producerSource === 'screen') {
+          await consumer.setPriority(2);
         }
+
+        mediasoupService.watchConsumer(consumer, userId);
 
         peer.consumers.set(
           consumer.id,
@@ -1156,6 +1102,7 @@ io.on("connection", async (socket) => {
           producerId,
           kind: consumer.kind,
           rtpParameters: consumer.rtpParameters,
+          type: consumer.type,
           source: producerSource,
         });
 
@@ -1201,26 +1148,16 @@ io.on("connection", async (socket) => {
 
         await consumer.resume();
 
-        // Force a keyframe so remote tiles show immediately (avoids stuck black frames)
+        // One explicit keyframe request for the first frame. Repeated PLIs made every
+        // producer re-send keyframes for each joiner (bitrate spikes → loss → freezes);
+        // the producer's keyFrameRequestDelay coalesces concurrent joins.
         if (consumer.kind === 'video') {
-          const pump = async () => {
-            try {
-              await consumer.requestKeyFrame();
-            } catch {
-              // ignore
-            }
-          };
-          await pump();
-          // Extra keyframes help late joiners / multi-party tiles unstick
-          setTimeout(() => void pump(), 400);
-          setTimeout(() => void pump(), 1200);
-          setTimeout(() => void pump(), 2500);
+          consumer.requestKeyFrame().catch(() => undefined);
         }
 
         callback({
           success: true
         });
-
       } catch (error) {
         console.error(
           'Failed to resume consumer:',
@@ -1230,6 +1167,33 @@ io.on("connection", async (socket) => {
         callback({
           error: 'Failed to resume consumer'
         });
+      }
+    }
+  );
+
+  // Client-driven layer cap (tile size / focus / tab visibility). BWE still adapts below it.
+  socket.on(
+    'mediasoup:setPreferredLayers',
+    async ({ consumerId, spatialLayer, temporalLayer } = {} as any, callback) => {
+      try {
+        const peer = mediasoupService.getPeer(socket.id);
+        const consumer = peer?.consumers.get(consumerId);
+        if (!consumer || consumer.closed) {
+          return callback?.({ error: 'Consumer not found' });
+        }
+        if (consumer.type !== 'simulcast' && consumer.type !== 'svc') {
+          return callback?.({ success: true, ignored: true });
+        }
+        const s = Number(spatialLayer);
+        const t = temporalLayer == null ? undefined : Number(temporalLayer);
+        if (!Number.isInteger(s) || s < 0 || s > 3 || (t !== undefined && (!Number.isInteger(t) || t < 0 || t > 3))) {
+          return callback?.({ error: 'Invalid layers' });
+        }
+        await consumer.setPreferredLayers({ spatialLayer: s, temporalLayer: t });
+        callback?.({ success: true });
+      } catch (error) {
+        console.error('Failed to set preferred layers:', error);
+        callback?.({ error: 'Failed to set preferred layers' });
       }
     }
   );
@@ -1250,6 +1214,12 @@ io.on("connection", async (socket) => {
         ) {
           return callback({
             error: 'Invalid callType'
+          });
+        }
+
+        if (!(await callService.isActiveParticipant(String(callId), socket.data.userId))) {
+          return callback({
+            error: 'Not a participant of this call'
           });
         }
 

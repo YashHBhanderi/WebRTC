@@ -258,4 +258,29 @@ export class SocketService {
   ): void {
     this.socket.emit(event, data, callback);
   }
+
+  private iceConfigCache: { value: RTCConfiguration; fetchedAt: number } | null = null;
+
+  /**
+   * STUN/TURN config from the server (short-lived TURN creds, never baked into the bundle).
+   * Resolves to an empty config after 5s so a slow socket never blocks call setup.
+   */
+  getIceConfig(): Promise<RTCConfiguration> {
+    const cached = this.iceConfigCache;
+    if (cached && Date.now() - cached.fetchedAt < 10 * 60 * 1000) {
+      return Promise.resolve(cached.value);
+    }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ iceServers: [] }), 5000);
+      this.socket.emit('ice:getServers', {}, (response: any) => {
+        clearTimeout(timer);
+        const value: RTCConfiguration = {
+          iceServers: response?.iceServers || [],
+          iceTransportPolicy: response?.iceTransportPolicy === 'relay' ? 'relay' : 'all',
+        };
+        this.iceConfigCache = { value, fetchedAt: Date.now() };
+        resolve(value);
+      });
+    });
+  }
 }

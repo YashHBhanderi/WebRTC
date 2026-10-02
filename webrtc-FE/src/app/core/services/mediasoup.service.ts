@@ -17,6 +17,43 @@ interface JoinCallResponse {
 
 type RemoteProducerInfo = JoinCallResponse['producers'][number];
 
+interface RemoteVideoConsumer {
+  consumer: any;
+  userId: string;
+  source: string;
+  applied?: string;
+}
+
+/** TS 5.1 DOM lib predates `scalabilityMode` (supported by Chrome/Edge/Safari). */
+type CameraEncoding = RTCRtpEncodingParameters & { scalabilityMode?: string };
+
+const isMobileUa = (): boolean =>
+  typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+/**
+ * Camera simulcast layers (VP8). L1T3 adds temporal layers so the SFU can drop
+ * frame rate before resolution on a weak downlink.
+ * Chrome caps layer count by capture size (720p → 3, 360p → 2), so mobile uses 2.
+ *
+ * Desktop caps match libwebrtc's own VP8 simulcast defaults (200k / 700k / 2.5M).
+ * Lower caps starved the encoder: with camera-like content the 720p layer sat pinned
+ * at its cap at QP≈41 while ~4 Mbps was available. These are ceilings only —
+ * congestion control still lowers the rate, so no buffering or latency is added.
+ */
+function cameraEncodings(): CameraEncoding[] {
+  if (isMobileUa()) {
+    return [
+      { scaleResolutionDownBy: 2, maxBitrate: 150_000, maxFramerate: 15, scalabilityMode: 'L1T3' },
+      { scaleResolutionDownBy: 1, maxBitrate: 700_000, maxFramerate: 30, scalabilityMode: 'L1T3' },
+    ];
+  }
+  return [
+    { scaleResolutionDownBy: 4, maxBitrate: 200_000, maxFramerate: 15, scalabilityMode: 'L1T3' },
+    { scaleResolutionDownBy: 2, maxBitrate: 700_000, maxFramerate: 30, scalabilityMode: 'L1T3' },
+    { scaleResolutionDownBy: 1, maxBitrate: 2_500_000, maxFramerate: 30, scalabilityMode: 'L1T3' },
+  ];
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -31,8 +68,11 @@ export class MediasoupService {
   private screenStream: MediaStream | null = null;
   private remoteStreams = new Map<string, MediaStream>();
   private remoteScreenStreams = new Map<string, MediaStream>();
-  private activeConsumers = new Set<any>();
-  private jitterClampTimer: ReturnType<typeof setInterval> | null = null;
+  private remoteVideoConsumers = new Map<string, RemoteVideoConsumer>();
+  private focusedUserId: string | null = null;
+  private layerTimer: ReturnType<typeof setTimeout> | null = null;
+  private iceRestartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private lastIceRestart = new Map<string, number>();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private activeCallId: string | null = null;
   private remoteStreamSubject = new Subject<{ userId: string; stream: MediaStream; source?: string }>();
@@ -48,6 +88,8 @@ export class MediasoupService {
   hasAudioDevice = false;
   hasVideoDevice = false;
 
+  private readonly onVisibilityChange = () => this.scheduleLayerUpdate(0);
+
   constructor(
     private socketService: SocketService,
     private authService: AuthService,
@@ -55,6 +97,14 @@ export class MediasoupService {
 
   private myUserId(): string {
     return this.authService.getLoggedInUser()?._id || '';
+  }
+
+  private debugEnabled(): boolean {
+    try {
+      return localStorage.getItem('mediasoup:debug') === '1';
+    } catch {
+      return false;
+    }
   }
 
   async initialize(): Promise<void> {
@@ -68,23 +118,41 @@ export class MediasoupService {
     await this.createSendTransport();
     await this.createRecvTransport();
 
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+      document.addEventListener('visibilitychange', this.onVisibilityChange);
+    }
+
     this.initialized = true;
   }
 
   private getRouterRtpCapabilities(): Promise<any> {
+    return this.request('mediasoup:getRouterRtpCapabilities', {}).then((r) => r.rtpCapabilities);
+  }
+
+  /** emitWithAck as a promise; rejects on `{ error }` responses. */
+  private request(event: string, data: any): Promise<any> {
     return new Promise((resolve, reject) => {
-      this.socketService.emitWithAck(
-        'mediasoup:getRouterRtpCapabilities',
-        {},
-        (response: any) => {
-          if (response?.error) {
-            reject(new Error(response.error));
-            return;
-          }
-          resolve(response.rtpCapabilities);
+      this.socketService.emitWithAck(event, data, (response: any) => {
+        if (response?.error) {
+          reject(new Error(response.error));
+          return;
         }
-      );
+        resolve(response);
+      });
     });
+  }
+
+  /** Server params → mediasoup-client options (TURN creds are short-lived, issued per user). */
+  private toTransportOptions(params: any): any {
+    return {
+      id: params.id,
+      iceParameters: params.iceParameters,
+      iceCandidates: params.iceCandidates,
+      dtlsParameters: params.dtlsParameters,
+      iceServers: params.iceServers || [],
+      iceTransportPolicy: params.iceTransportPolicy || 'all',
+    };
   }
 
   private async createSendTransport(): Promise<void> {
@@ -93,7 +161,7 @@ export class MediasoupService {
       return;
     }
     const params = await this.createTransport('mediasoup:createSendTransport');
-    this.sendTransport = this.device.createSendTransport(params);
+    this.sendTransport = this.device.createSendTransport(this.toTransportOptions(params));
 
     this.sendTransport.on('connect', async ({ dtlsParameters }: any, callback: any, errback: any) => {
       try {
@@ -104,9 +172,7 @@ export class MediasoupService {
       }
     });
 
-    this.sendTransport.on('connectionstatechange', (state: string) => {
-      console.log('mediasoup send transport:', state);
-    });
+    this.watchTransportConnection(this.sendTransport);
 
     this.sendTransport.on('produce', async ({ kind, rtpParameters, appData }: any, callback: any, errback: any) => {
       try {
@@ -137,7 +203,7 @@ export class MediasoupService {
       return;
     }
     const params = await this.createTransport('mediasoup:createRecvTransport');
-    this.recvTransport = this.device.createRecvTransport(params);
+    this.recvTransport = this.device.createRecvTransport(this.toTransportOptions(params));
 
     this.recvTransport.on('connect', async ({ dtlsParameters }: any, callback: any, errback: any) => {
       try {
@@ -148,105 +214,68 @@ export class MediasoupService {
       }
     });
 
-    this.recvTransport.on('connectionstatechange', (state: string) => {
-      console.log('mediasoup recv transport:', state);
-    });
-  }
-
-  private createTransport(event: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      this.socketService.emitWithAck(event, {}, (response: any) => {
-        if (response?.error) {
-          reject(new Error(response.error));
-          return;
-        }
-        resolve(response);
-      });
-    });
-  }
-
-  private connectTransport(transportId: string, dtlsParameters: any): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.socketService.emitWithAck(
-        'mediasoup:connectTransport',
-        { transportId, dtlsParameters },
-        (response: any) => {
-          if (response?.error) {
-            reject(new Error(response.error));
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    this.watchTransportConnection(this.recvTransport);
   }
 
   /**
-   * Returns true when ICE selected a mesh/LAN UDP path (normal-call latency).
-   * Returns false when still connecting, failed, or only a slow relay remains.
+   * Recover from network changes (Wi-Fi ↔ cellular, sleep/wake) with an ICE restart.
+   * 'disconnected' often self-heals, so wait briefly; 'failed' restarts immediately.
    */
-  async hasLowLatencyMediaPath(timeoutMs = 8000): Promise<boolean> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const ok = await this.inspectIcePath();
-      if (ok === true) {
-        return true;
+  private watchTransportConnection(transport: any): void {
+    transport.on('connectionstatechange', (state: string) => {
+      console.log(`mediasoup ${transport.direction} transport:`, state);
+
+      const pending = this.iceRestartTimers.get(transport.id);
+      if (pending) {
+        clearTimeout(pending);
+        this.iceRestartTimers.delete(transport.id);
       }
-      if (ok === false) {
-        // connected but not low-latency
-        return false;
+
+      if (state === 'failed') {
+        void this.restartIce(transport);
+      } else if (state === 'disconnected') {
+        this.iceRestartTimers.set(
+          transport.id,
+          setTimeout(() => {
+            this.iceRestartTimers.delete(transport.id);
+            if (transport.connectionState === 'disconnected') {
+              void this.restartIce(transport);
+            }
+          }, 2500)
+        );
       }
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    return false;
+    });
   }
 
-  /** null = not ready yet, true = low latency, false = high latency / failed */
-  private async inspectIcePath(): Promise<boolean | null> {
-    const transports = [this.sendTransport, this.recvTransport].filter(Boolean);
-    if (!transports.length) {
-      return null;
+  private async restartIce(transport: any): Promise<void> {
+    if (!transport || transport.closed) {
+      return;
     }
+    const last = this.lastIceRestart.get(transport.id) || 0;
+    if (Date.now() - last < 5000) {
+      return;
+    }
+    this.lastIceRestart.set(transport.id, Date.now());
 
-    let sawConnected = false;
-    for (const transport of transports) {
-      try {
-        const stats: Map<string, any> = await transport.getStats();
-        let selectedRemoteIp = '';
-        let selectedProtocol = '';
-
-        stats.forEach((report) => {
-          if (
-            report.type === 'candidate-pair' &&
-            (report.nominated || report.selected || report.state === 'succeeded')
-          ) {
-            sawConnected = true;
-            const remote = stats.get(report.remoteCandidateId);
-            if (remote) {
-              selectedRemoteIp = remote.ip || remote.address || '';
-              selectedProtocol = remote.protocol || '';
-            }
-          }
-        });
-
-        if (selectedRemoteIp) {
-          const low =
-            selectedRemoteIp.startsWith('100.') ||
-            selectedRemoteIp.startsWith('192.168.') ||
-            selectedRemoteIp.startsWith('10.') ||
-            selectedRemoteIp.startsWith('172.');
-          const udp = String(selectedProtocol).toLowerCase() !== 'tcp';
-          console.log(
-            `[mediasoup] ICE path ${selectedRemoteIp}/${selectedProtocol} lowLatency=${low && udp}`
-          );
-          return low; // LAN/mesh TCP is still much better than bore; accept it
-        }
-      } catch {
-        // ignore
+    try {
+      const response = await this.request('mediasoup:restartIce', { transportId: transport.id });
+      if (response.iceServers) {
+        // Fresh TURN credentials in case the old ones expired during a long call
+        await transport.updateIceServers({ iceServers: response.iceServers });
       }
+      await transport.restartIce({ iceParameters: response.iceParameters });
+      console.log(`mediasoup ${transport.direction} transport: ICE restarted`);
+    } catch (error) {
+      console.warn('mediasoup ICE restart failed:', error);
     }
+  }
 
-    return sawConnected ? false : null;
+  private createTransport(event: string): Promise<any> {
+    return this.request(event, {});
+  }
+
+  private connectTransport(transportId: string, dtlsParameters: any): Promise<void> {
+    return this.request('mediasoup:connectTransport', { transportId, dtlsParameters }).then(() => undefined);
   }
 
   async startLocalMedia(callType: 'audio' | 'video'): Promise<MediaStream> {
@@ -271,12 +300,13 @@ export class MediasoupService {
         codecOptions: {
           opusStereo: false,
           opusDtx: true,
-          // FEC helps lossy links but adds delay — keep light FEC off for lowest latency
-          opusFec: false,
+          // In-band FEC rides in the next packet: no added delay, recovers single losses
+          opusFec: true,
           opusNack: true,
-          opusPtime: 10,
+          // 20 ms is Opus/NetEq's sweet spot; 10 ms doubles packet rate and overhead
+          opusPtime: 20,
           opusMaxPlaybackRate: 48000,
-          opusMaxAverageBitrate: 24000,
+          opusMaxAverageBitrate: 32000,
         },
       });
       await this.boostSenderPriority(this.audioProducer);
@@ -284,30 +314,7 @@ export class MediasoupService {
 
     const videoTrack = this.localStream.getVideoTracks()[0];
     if (videoTrack) {
-      try {
-        videoTrack.contentHint = 'motion';
-      } catch {
-        // ignore
-      }
-      const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-      this.videoProducer = await this.sendTransport.produce({
-        track: videoTrack,
-        // Single layer — multi-encoding can stall other consumers on weak links
-        encodings: [
-          {
-            maxBitrate: mobile ? 250_000 : 450_000,
-            maxFramerate: 24,
-            priority: 'high',
-            networkPriority: 'high',
-          } as RTCRtpEncodingParameters,
-        ],
-        codecOptions: {
-          videoGoogleStartBitrate: mobile ? 150 : 250,
-          videoGoogleMaxBitrate: mobile ? 400 : 600,
-          videoGoogleMinBitrate: 80,
-        },
-      });
-      await this.boostSenderPriority(this.videoProducer);
+      this.videoProducer = await this.produceCamera(videoTrack);
     }
 
     // Other peers may have missed the produce event under load — nudge a resync locally too
@@ -319,6 +326,39 @@ export class MediasoupService {
     return this.localStream;
   }
 
+  /** Simulcast camera producer; falls back to one layer where simulcast/SVC modes are unsupported. */
+  private async produceCamera(videoTrack: MediaStreamTrack): Promise<any> {
+    try {
+      videoTrack.contentHint = 'motion';
+    } catch {
+      // ignore
+    }
+
+    const codecOptions = { videoGoogleStartBitrate: 1000 };
+    const attempts: CameraEncoding[][] = [
+      cameraEncodings(),
+      cameraEncodings().map(({ scalabilityMode, ...rest }) => rest),
+      [{ maxBitrate: isMobileUa() ? 500_000 : 2_500_000, maxFramerate: 30 }],
+    ];
+
+    let lastError: unknown;
+    for (const encodings of attempts) {
+      try {
+        const producer = await this.sendTransport.produce({ track: videoTrack, encodings, codecOptions });
+        // Let Chrome trade frame rate and resolution together under CPU/bandwidth pressure
+        await this.setDegradationPreference(producer, 'balanced');
+        if (this.debugEnabled()) {
+          console.log(`[mediasoup] camera producing with ${encodings.length} encoding(s)`);
+        }
+        return producer;
+      } catch (error) {
+        lastError = error;
+        console.warn('[mediasoup] camera produce attempt failed, retrying with simpler encodings', error);
+      }
+    }
+    throw lastError;
+  }
+
   private async boostSenderPriority(producer: any): Promise<void> {
     try {
       const sender: RTCRtpSender | undefined = producer?.rtpSender;
@@ -326,12 +366,28 @@ export class MediasoupService {
       if (!sender || !params?.encodings?.length) {
         return;
       }
-      params.degradationPreference = 'maintain-framerate';
       params.encodings = params.encodings.map((encoding: RTCRtpEncodingParameters) => ({
         ...encoding,
         priority: 'high',
         networkPriority: 'high',
       }));
+      await sender.setParameters(params);
+    } catch {
+      // ignore unsupported browsers
+    }
+  }
+
+  private async setDegradationPreference(
+    producer: any,
+    preference: 'balanced' | 'maintain-framerate' | 'maintain-resolution'
+  ): Promise<void> {
+    try {
+      const sender: RTCRtpSender | undefined = producer?.rtpSender;
+      const params: any = sender?.getParameters?.();
+      if (!sender || !params) {
+        return;
+      }
+      params.degradationPreference = preference;
       await sender.setParameters(params);
     } catch {
       // ignore unsupported browsers
@@ -366,6 +422,9 @@ export class MediasoupService {
     this.socketService.on('mediasoup:producerClosed', (data: any) => {
       if (data?.producerId) {
         this.consumedProducerIds.delete(data.producerId);
+      }
+      if (data?.consumerId && this.remoteVideoConsumers.delete(data.consumerId)) {
+        this.scheduleLayerUpdate();
       }
       if (data?.userId) {
         if (data?.source === 'screen') {
@@ -450,18 +509,21 @@ export class MediasoupService {
         id: response.id,
         producerId: response.producerId,
         kind: response.kind,
-        rtpParameters: response.rtpParameters
+        rtpParameters: response.rtpParameters,
+        // Separate sync groups for mic vs camera: Chrome otherwise delays audio to
+        // lip-sync with video, so a jittery/freezing video drags audio latency up.
+        streamId: `${userId}-${response.kind === 'audio' ? 'mic' : source}`,
       });
 
-      const receiver = consumer.rtpReceiver;
-
-      if (receiver) {
+      if (consumer.kind === 'audio' && consumer.rtpReceiver && this.debugEnabled()) {
         this.startAudioStatsMonitoring(consumer.rtpReceiver);
       }
 
-      this.applyLowLatencyReceiver(consumer);
-      this.activeConsumers.add(consumer);
-      this.startJitterClampLoop();
+      try {
+        consumer.track.contentHint = consumer.kind === 'audio' ? 'speech' : 'motion';
+      } catch {
+        // ignore
+      }
 
       const isScreen = source === 'screen' && kind === 'video';
       let stream = isScreen
@@ -487,7 +549,16 @@ export class MediasoupService {
       }
 
       await this.withTimeout(this.resumeConsumer(consumer.id), 8000, `resume ${consumer.id}`);
-      this.applyLowLatencyReceiver(consumer);
+
+      if (consumer.kind === 'video') {
+        this.remoteVideoConsumers.set(consumer.id, { consumer, userId, source });
+        consumer.observer?.on?.('close', () => {
+          if (this.remoteVideoConsumers.delete(consumer.id)) {
+            this.scheduleLayerUpdate();
+          }
+        });
+        this.scheduleLayerUpdate();
+      }
 
       const emit = () => this.remoteStreamSubject.next({ userId, stream: stream!, source });
       emit();
@@ -504,86 +575,73 @@ export class MediasoupService {
     }
   }
 
-  /** Minimize Chrome/Edge/Safari jitter buffer & playout delay. */
-  private applyLowLatencyReceiver(consumer: any): void {
-    try {
-      const receiver: RTCRtpReceiver | undefined = consumer?.rtpReceiver;
-      if (!receiver) {
-        return;
-      }
-      (receiver as any).playoutDelayHint = 0;
-
-      if ('jitterBufferTarget' in receiver) {
-        // 0 = lowest latency (may glitch on lossy links)
-        (receiver as any).jitterBufferTarget = 0;
-      }
-    } catch {
-      // ignore unsupported browsers
-    }
-
-    try {
-      if (consumer.track) {
-        consumer.track.contentHint = consumer.kind === 'audio' ? 'speech' : 'motion';
-        consumer.track.enabled = true;
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  /** Chrome raises jitterBufferTarget under packet jitter — re-clamp while in call. */
-  private startJitterClampLoop(): void {
-    if (this.jitterClampTimer) {
+  /**
+   * Which layer each remote camera should receive. This is a cap — mediasoup's
+   * bandwidth estimation still steps down (and back up) within it.
+   *  - tab hidden: lowest layer, lowest frame rate
+   *  - sidebar layout: focused tile full quality, thumbnails lowest layer
+   *  - grid: quality drops as tiles get smaller
+   */
+  setFocusedUser(userId: string | null): void {
+    if (this.focusedUserId === userId) {
       return;
     }
-    this.jitterClampTimer = setInterval(() => {
-      this.activeConsumers.forEach((consumer) => {
-        if (consumer?.closed) {
-          this.activeConsumers.delete(consumer);
-          return;
-        }
-        this.applyLowLatencyReceiver(consumer);
-      });
-      if (!this.activeConsumers.size && this.jitterClampTimer) {
-        clearInterval(this.jitterClampTimer);
-        this.jitterClampTimer = null;
+    this.focusedUserId = userId;
+    this.scheduleLayerUpdate(0);
+  }
+
+  private scheduleLayerUpdate(delayMs = 300): void {
+    if (this.layerTimer) {
+      clearTimeout(this.layerTimer);
+    }
+    this.layerTimer = setTimeout(() => {
+      this.layerTimer = null;
+      this.applyLayerPolicy();
+    }, delayMs);
+  }
+
+  private applyLayerPolicy(): void {
+    const cameras = [...this.remoteVideoConsumers.values()].filter(
+      (v) => v.source !== 'screen' && !v.consumer.closed
+    );
+    const hidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
+    for (const entry of cameras) {
+      let spatialLayer: number;
+      if (hidden) {
+        spatialLayer = 0;
+      } else if (this.focusedUserId) {
+        spatialLayer = entry.userId === this.focusedUserId ? 2 : 0;
+      } else {
+        spatialLayer = cameras.length <= 2 ? 2 : cameras.length <= 6 ? 1 : 0;
       }
-    }, 250);
+      const temporalLayer = hidden ? 0 : 2;
+      const key = `${spatialLayer}:${temporalLayer}`;
+      if (entry.applied === key) {
+        continue;
+      }
+      entry.applied = key;
+      this.socketService.emitWithAck(
+        'mediasoup:setPreferredLayers',
+        { consumerId: entry.consumer.id, spatialLayer, temporalLayer },
+        (response: any) => {
+          if (response?.error) {
+            entry.applied = undefined;
+          }
+        }
+      );
+    }
   }
 
   private requestConsumer(producerId: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      this.socketService.emitWithAck(
-        'mediasoup:consume',
-        {
-          producerId,
-          rtpCapabilities: this.device.rtpCapabilities
-        },
-        (response: any) => {
-          if (response?.error) {
-            reject(new Error(response.error));
-            return;
-          }
-          resolve(response);
-        }
-      );
+    return this.request('mediasoup:consume', {
+      producerId,
+      rtpCapabilities: this.device.rtpCapabilities
     });
   }
 
   private resumeConsumer(consumerId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.socketService.emitWithAck(
-        'mediasoup:resumeConsumer',
-        { consumerId },
-        (response: any) => {
-          if (response?.error) {
-            reject(new Error(response.error));
-            return;
-          }
-          resolve();
-        }
-      );
-    });
+    return this.request('mediasoup:resumeConsumer', { consumerId }).then(() => undefined);
   }
 
   joinCall(callId: string, callType: 'audio' | 'video'): Promise<JoinCallResponse> {
@@ -721,30 +779,7 @@ export class MediasoupService {
       media.stream.getAudioTracks().forEach((t) => t.stop());
     }
 
-    try {
-      videoTrack.contentHint = 'motion';
-    } catch {
-      // ignore
-    }
-
-    const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    this.videoProducer = await this.sendTransport.produce({
-      track: videoTrack,
-      encodings: [
-        {
-          maxBitrate: mobile ? 350_000 : 700_000,
-          maxFramerate: 30,
-          priority: 'high',
-          networkPriority: 'high',
-        } as RTCRtpEncodingParameters,
-      ],
-      codecOptions: {
-        videoGoogleStartBitrate: mobile ? 300 : 500,
-        videoGoogleMaxBitrate: mobile ? 500 : 900,
-        videoGoogleMinBitrate: 100,
-      },
-    });
-    await this.boostSenderPriority(this.videoProducer);
+    this.videoProducer = await this.produceCamera(videoTrack);
     this.localStreamSubject.next(this.localStream);
     return this.localStream;
   }
@@ -763,6 +798,12 @@ export class MediasoupService {
     if (!screenTrack) {
       throw new Error('No screen track');
     }
+    try {
+      // Text/UI content: encoder keeps sharpness and drops frames instead
+      screenTrack.contentHint = 'detail';
+    } catch {
+      // ignore
+    }
 
     // Keep camera producer, publish screen as its own producer
     if (this.videoProducer) {
@@ -777,7 +818,9 @@ export class MediasoupService {
       track: screenTrack,
       appData: { source: 'screen' },
       encodings: [{ maxBitrate: 1_500_000, maxFramerate: 15 }],
+      codecOptions: { videoGoogleStartBitrate: 1000 },
     });
+    await this.setDegradationPreference(this.screenProducer, 'maintain-resolution');
 
     screenTrack.onended = () => {
       void this.stopScreenShare().then(() => {
@@ -827,16 +870,27 @@ export class MediasoupService {
   }
 
   async close(): Promise<void> {
-    if (this.jitterClampTimer) {
-      clearInterval(this.jitterClampTimer);
-      this.jitterClampTimer = null;
-    }
     if (this.syncTimer) {
       clearInterval(this.syncTimer);
       this.syncTimer = null;
     }
+    if (this.layerTimer) {
+      clearTimeout(this.layerTimer);
+      this.layerTimer = null;
+    }
+    if (this.audioStatsInterval) {
+      clearInterval(this.audioStatsInterval);
+      this.audioStatsInterval = null;
+    }
+    this.iceRestartTimers.forEach((t) => clearTimeout(t));
+    this.iceRestartTimers.clear();
+    this.lastIceRestart.clear();
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    }
     this.activeCallId = null;
-    this.activeConsumers.clear();
+    this.remoteVideoConsumers.clear();
+    this.focusedUserId = null;
 
     try {
       this.screenStream?.getTracks().forEach((track) => track.stop());
@@ -874,11 +928,14 @@ export class MediasoupService {
   }
 
   private previousAudioStats: any = null;
-  private previousPlayoutStats: any = null;
 
   private audioStatsInterval:
     ReturnType<typeof setInterval> | null = null;
 
+  /**
+   * Debug only: enable with localStorage.setItem('mediasoup:debug', '1').
+   * Logs per-interval jitter-buffer delay (the number that matters for audio latency).
+   */
   private startAudioStatsMonitoring(
     receiver: RTCRtpReceiver
   ): void {
@@ -887,295 +944,55 @@ export class MediasoupService {
     }
 
     this.previousAudioStats = null;
-    this.previousPlayoutStats = null;
 
     this.audioStatsInterval = setInterval(async () => {
       try {
         const stats = await receiver.getStats();
 
         let inboundAudio: any = null;
-        let playoutAudio: any = null;
-
+        let pair: any = null;
         stats.forEach((stat: any) => {
-          if (
-            stat.type === 'inbound-rtp' &&
-            stat.kind === 'audio'
-          ) {
+          if (stat.type === 'inbound-rtp' && stat.kind === 'audio') {
             inboundAudio = stat;
           }
-
-          if (
-            stat.type === 'media-playout' &&
-            stat.kind === 'audio'
-          ) {
-            playoutAudio = stat;
+          if (stat.type === 'candidate-pair' && stat.nominated) {
+            pair = stat;
           }
         });
 
         if (!inboundAudio) {
-          console.warn('No inbound audio stats found');
           return;
         }
 
-        const emittedCount =
-          inboundAudio.jitterBufferEmittedCount || 0;
-
-        const jitterBufferDelay =
-          inboundAudio.jitterBufferDelay || 0;
-
-        const targetDelay =
-          inboundAudio.jitterBufferTargetDelay || 0;
-
-        const minimumDelay =
-          inboundAudio.jitterBufferMinimumDelay || 0;
-
-        const avgJitterBufferDelay =
-          emittedCount > 0
-            ? (jitterBufferDelay / emittedCount) * 1000
-            : 0;
-
-        const avgTargetDelay =
-          emittedCount > 0
-            ? (targetDelay / emittedCount) * 1000
-            : 0;
-
-        const avgMinimumDelay =
-          emittedCount > 0
-            ? (minimumDelay / emittedCount) * 1000
-            : 0;
-
-        /*
-         * Delta values
-         */
         const previous = this.previousAudioStats;
+        const delta = (key: string) =>
+          previous ? (inboundAudio[key] || 0) - (previous[key] || 0) : 0;
 
-        const deltaPacketsReceived =
-          previous
-            ? (inboundAudio.packetsReceived || 0) -
-            (previous.packetsReceived || 0)
-            : 0;
-
-        const deltaPacketsLost =
-          previous
-            ? (inboundAudio.packetsLost || 0) -
-            (previous.packetsLost || 0)
-            : 0;
-
-        const deltaPacketsDiscarded =
-          previous
-            ? (inboundAudio.packetsDiscarded || 0) -
-            (previous.packetsDiscarded || 0)
-            : 0;
-
-        const deltaConcealedSamples =
-          previous
-            ? (inboundAudio.concealedSamples || 0) -
-            (previous.concealedSamples || 0)
-            : 0;
-
-        const deltaInsertedSamples =
-          previous
-            ? (inboundAudio.insertedSamplesForDeceleration || 0) -
-            (previous.insertedSamplesForDeceleration || 0)
-            : 0;
-
-        const deltaRemovedSamples =
-          previous
-            ? (inboundAudio.removedSamplesForAcceleration || 0) -
-            (previous.removedSamplesForAcceleration || 0)
-            : 0;
-
-        const deltaJitterBufferDelay =
-          previous
-            ? (inboundAudio.jitterBufferDelay || 0) -
-            (previous.jitterBufferDelay || 0)
-            : 0;
-
-        const deltaJitterBufferEmittedCount =
-          previous
-            ? (inboundAudio.jitterBufferEmittedCount || 0) -
-            (previous.jitterBufferEmittedCount || 0)
-            : 0;
-
+        const deltaEmitted = delta('jitterBufferEmittedCount');
         const intervalJitterBufferDelay =
-          deltaJitterBufferEmittedCount > 0
-            ? (
-              deltaJitterBufferDelay /
-              deltaJitterBufferEmittedCount
-            ) * 1000
-            : 0;
-
-        /*
-         * --------------------------------------------------
-         * AUDIO PLAYOUT STATS
-         * --------------------------------------------------
-         */
-
-        let avgPlayoutDelay = 0;
-        let intervalPlayoutDelay = 0;
-
-        if (playoutAudio) {
-          const totalSamplesCount =
-            playoutAudio.totalSamplesCount || 0;
-
-          const totalPlayoutDelay =
-            playoutAudio.totalPlayoutDelay || 0;
-
-          /*
-           * Cumulative average playout delay.
-           *
-           * totalPlayoutDelay = seconds
-           * totalSamplesCount = number of samples
-           */
-          avgPlayoutDelay =
-            totalSamplesCount > 0
-              ? (
-                totalPlayoutDelay /
-                totalSamplesCount
-              ) * 1000
-              : 0;
-
-          /*
-           * Interval playout delay
-           */
-          if (this.previousPlayoutStats) {
-            const deltaPlayoutDelay =
-              totalPlayoutDelay -
-              (
-                this.previousPlayoutStats
-                  .totalPlayoutDelay || 0
-              );
-
-            const deltaSamplesCount =
-              totalSamplesCount -
-              (
-                this.previousPlayoutStats
-                  .totalSamplesCount || 0
-              );
-
-            intervalPlayoutDelay =
-              deltaSamplesCount > 0
-                ? (
-                  deltaPlayoutDelay /
-                  deltaSamplesCount
-                ) * 1000
-                : 0;
-          }
-        }
-
-        /*
-         * --------------------------------------------------
-         * LOG
-         * --------------------------------------------------
-         */
-
-        console.log(
-          '================ AUDIO WEBRTC STATS ================'
-        );
+          deltaEmitted > 0 ? (delta('jitterBufferDelay') / deltaEmitted) * 1000 : 0;
+        const intervalTargetDelay =
+          deltaEmitted > 0 ? (delta('jitterBufferTargetDelay') / deltaEmitted) * 1000 : 0;
 
         console.table({
-          timestamp: inboundAudio.timestamp,
-
-          /*
-           * Network
-           */
-          packetsReceived:
-            inboundAudio.packetsReceived,
-
-          packetsLost:
-            inboundAudio.packetsLost,
-
-          packetsDiscarded:
-            inboundAudio.packetsDiscarded,
-
-          deltaPacketsReceived,
-
-          deltaPacketsLost,
-
-          deltaPacketsDiscarded,
-
-          jitter_ms:
-            (inboundAudio.jitter || 0) * 1000,
-
-          /*
-           * Jitter buffer
-           */
-          avgJitterBufferDelay_ms:
-            avgJitterBufferDelay,
-
-          avgTargetDelay_ms:
-            avgTargetDelay,
-
-          avgMinimumDelay_ms:
-            avgMinimumDelay,
-
-          intervalJitterBufferDelay_ms:
-            intervalJitterBufferDelay,
-
-          /*
-           * Audio recovery
-           */
-          concealedSamples:
-            inboundAudio.concealedSamples,
-
-          deltaConcealedSamples,
-
-          concealmentEvents:
-            inboundAudio.concealmentEvents,
-
-          insertedSamplesForDeceleration:
-            inboundAudio.insertedSamplesForDeceleration,
-
-          deltaInsertedSamples,
-
-          removedSamplesForAcceleration:
-            inboundAudio.removedSamplesForAcceleration,
-
-          deltaRemovedSamples,
-
-          /*
-           * Playout
-           */
-          avgPlayoutDelay_ms:
-            avgPlayoutDelay,
-
-          intervalPlayoutDelay_ms:
-            intervalPlayoutDelay,
-
-          /*
-           * Other
-           */
-          totalSamplesReceived:
-            inboundAudio.totalSamplesReceived,
-
-          totalSamplesDuration:
-            inboundAudio.totalSamplesDuration,
-
-          lastPacketReceivedTimestamp:
-            inboundAudio.lastPacketReceivedTimestamp,
-
-          estimatedPlayoutTimestamp:
-            inboundAudio.estimatedPlayoutTimestamp,
-
-          playoutId:
-            inboundAudio.playoutId
+          rtt_ms: pair?.currentRoundTripTime != null ? pair.currentRoundTripTime * 1000 : undefined,
+          jitter_ms: (inboundAudio.jitter || 0) * 1000,
+          packetsReceived: inboundAudio.packetsReceived,
+          packetsLost: inboundAudio.packetsLost,
+          deltaPacketsLost: delta('packetsLost'),
+          intervalJitterBufferDelay_ms: intervalJitterBufferDelay,
+          intervalTargetDelay_ms: intervalTargetDelay,
+          deltaConcealedSamples: delta('concealedSamples'),
+          fecPacketsReceived: inboundAudio.fecPacketsReceived,
         });
 
-        /*
-         * Keep previous values.
-         */
         this.previousAudioStats = inboundAudio;
-
-        if (playoutAudio) {
-          this.previousPlayoutStats = playoutAudio;
-        }
-
       } catch (error) {
         console.error(
           '❌ Failed to get audio WebRTC stats:',
           error
         );
       }
-    }, 1000);
+    }, 2000);
   }
 }

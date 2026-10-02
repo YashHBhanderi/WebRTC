@@ -1,6 +1,14 @@
+/**
+ * Same-origin in production: the reverse proxy serving this bundle forwards
+ * /api/* (prefix stripped) and /socket.io/* to the backend. No hostnames are
+ * baked into the build, so moving servers is a proxy/DNS change, not a rebuild.
+ */
 export const environment = {
   production: true,
-  apiUrl: 'https://belongs-muscles-costa-ellen.trycloudflare.com',
-  socketUrl: 'https://belongs-muscles-costa-ellen.trycloudflare.com',
-  BASE_URL: 'https://kp-chat-app.vercel.app'
+  apiUrl: '/api',
+  socketUrl: '', // unused — app.module connects the socket to window.location.origin
+  BASE_URL:
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : '',
 };
