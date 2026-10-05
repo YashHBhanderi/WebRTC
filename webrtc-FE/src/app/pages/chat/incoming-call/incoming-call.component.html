@@ -1,0 +1,29 @@
+<div class="incoming" role="alertdialog" aria-modal="true" aria-labelledby="incoming-title" aria-describedby="incoming-sub">
+  <div class="incoming__card">
+    <div class="incoming__avatar">
+      <img *ngIf="call.avatar; else letter" [src]="call.avatar" alt="" />
+      <ng-template #letter><span>{{ initial }}</span></ng-template>
+    </div>
+    <div class="incoming__text">
+      <h2 id="incoming-title">{{ title }}</h2>
+      <p id="incoming-sub">
+        <i class="fa-solid" [class.fa-video]="call.callType === 'video'" [class.fa-phone]="call.callType !== 'video'"></i>
+        {{ subtitle }}
+      </p>
+    </div>
+    <div class="incoming__actions">
+      <div class="incoming__action">
+        <button type="button" class="incoming__btn incoming__btn--decline" (click)="decline.emit()" aria-label="Decline call">
+          <i class="fa-solid fa-phone-slash"></i>
+        </button>
+        <span>Decline</span>
+      </div>
+      <div class="incoming__action">
+        <button type="button" class="incoming__btn incoming__btn--accept" (click)="accept.emit()" aria-label="Accept call">
+          <i class="fa-solid" [class.fa-video]="call.callType === 'video'" [class.fa-phone]="call.callType !== 'video'"></i>
+        </button>
+        <span>Accept</span>
+      </div>
+    </div>
+  </div>
+</div>

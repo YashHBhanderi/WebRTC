@@ -2,8 +2,18 @@ import { Injectable } from '@angular/core';
 import { Device } from 'mediasoup-client';
 import { SocketService } from './socket.service';
 import { AuthService } from './auth.service';
-import { Subject } from 'rxjs';
-import { getCallMedia } from '../utils/media-devices.util';
+import { BehaviorSubject, Subject } from 'rxjs';
+import { getCallMedia, getSingleTrack, MediaDevicePrefs } from '../utils/media-devices.util';
+
+/** Worst state across the send/recv transports, for the "Reconnecting…" banner. */
+export type MediaConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed';
+
+interface RemoteConsumerEntry {
+  consumer: any;
+  userId: string;
+  source: string;
+  producerId: string;
+}
 
 interface JoinCallResponse {
   success: boolean;
@@ -84,6 +94,14 @@ export class MediasoupService {
   private localStreamSubject = new Subject<MediaStream>();
   localStream$ = this.localStreamSubject.asObservable();
   private initialized = false;
+  /** Every remote consumer (audio + video), so a closed producer ends its track instead of freezing. */
+  private consumers = new Map<string, RemoteConsumerEntry>();
+  private transportStates = new Map<string, string>();
+  private connectionStateSubject = new BehaviorSubject<MediaConnectionState>('new');
+  connectionState$ = this.connectionStateSubject.asObservable();
+  /** Selected speaker (setSinkId); empty = system default. */
+  private audioOutputSubject = new BehaviorSubject<string>('');
+  audioOutput$ = this.audioOutputSubject.asObservable();
 
   hasAudioDevice = false;
   hasVideoDevice = false;
@@ -222,8 +240,12 @@ export class MediasoupService {
    * 'disconnected' often self-heals, so wait briefly; 'failed' restarts immediately.
    */
   private watchTransportConnection(transport: any): void {
+    this.transportStates.set(transport.id, 'new');
+    this.publishConnectionState();
     transport.on('connectionstatechange', (state: string) => {
       console.log(`mediasoup ${transport.direction} transport:`, state);
+      this.transportStates.set(transport.id, state);
+      this.publishConnectionState();
 
       const pending = this.iceRestartTimers.get(transport.id);
       if (pending) {
@@ -245,6 +267,15 @@ export class MediasoupService {
         );
       }
     });
+  }
+
+  private publishConnectionState(): void {
+    const states = [...this.transportStates.values()];
+    const order: MediaConnectionState[] = ['failed', 'disconnected', 'connecting', 'new', 'connected'];
+    const worst = order.find((state) => states.includes(state)) || 'new';
+    if (this.connectionStateSubject.value !== worst) {
+      this.connectionStateSubject.next(worst);
+    }
   }
 
   private async restartIce(transport: any): Promise<void> {
@@ -278,8 +309,21 @@ export class MediasoupService {
     return this.request('mediasoup:connectTransport', { transportId, dtlsParameters }).then(() => undefined);
   }
 
-  async startLocalMedia(callType: 'audio' | 'video'): Promise<MediaStream> {
-    const media = await getCallMedia(callType === 'video');
+  /**
+   * Capture (or adopt the pre-join preview stream) and start producing.
+   * `options.stream` avoids reopening the camera when the user comes from the pre-join screen.
+   */
+  async startLocalMedia(
+    callType: 'audio' | 'video',
+    options: { stream?: MediaStream | null; prefs?: MediaDevicePrefs } = {}
+  ): Promise<MediaStream> {
+    const media = options.stream
+      ? {
+        stream: options.stream,
+        hasAudio: options.stream.getAudioTracks().some((t) => t.readyState === 'live'),
+        hasVideo: options.stream.getVideoTracks().some((t) => t.readyState === 'live'),
+      }
+      : await getCallMedia(callType === 'video', options.prefs);
     this.localStream = media.stream;
     this.hasAudioDevice = media.hasAudio;
     this.hasVideoDevice = media.hasVideo;
@@ -426,6 +470,15 @@ export class MediasoupService {
       if (data?.consumerId && this.remoteVideoConsumers.delete(data.consumerId)) {
         this.scheduleLayerUpdate();
       }
+      // Precise path: end just that track so the tile drops it instead of freezing
+      const entry = this.findConsumerEntry(data?.consumerId, data?.producerId);
+      if (entry) {
+        this.dropConsumer(entry);
+        if (this.activeCallId) {
+          void this.syncProducers(this.activeCallId);
+        }
+        return;
+      }
       if (data?.userId) {
         if (data?.source === 'screen') {
           this.remoteScreenStreams.delete(data.userId);
@@ -440,6 +493,64 @@ export class MediasoupService {
         void this.syncProducers(this.activeCallId);
       }
     });
+  }
+
+  private findConsumerEntry(consumerId?: string, producerId?: string): RemoteConsumerEntry | undefined {
+    if (consumerId && this.consumers.has(consumerId)) {
+      return this.consumers.get(consumerId);
+    }
+    if (producerId) {
+      for (const entry of this.consumers.values()) {
+        if (entry.producerId === producerId) {
+          return entry;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private dropConsumer(entry: RemoteConsumerEntry): void {
+    this.consumers.delete(entry.consumer.id);
+    if (this.remoteVideoConsumers.delete(entry.consumer.id)) {
+      this.scheduleLayerUpdate();
+    }
+    const isScreen = entry.source === 'screen' && entry.consumer.kind === 'video';
+    const streams = isScreen ? this.remoteScreenStreams : this.remoteStreams;
+    const stream = streams.get(entry.userId);
+    try {
+      stream?.removeTrack(entry.consumer.track);
+      entry.consumer.close();
+    } catch {
+      // ignore
+    }
+    if (stream && stream.getTracks().length === 0) {
+      streams.delete(entry.userId);
+    }
+    if (isScreen) {
+      this.remoteScreenStreams.delete(entry.userId);
+      this.screenClosedSubject.next(entry.userId);
+    } else {
+      this.remoteStreamSubject.next({ userId: entry.userId, stream: stream || new MediaStream(), source: entry.source });
+    }
+  }
+
+  /** Forget everything consumed from a user who left (their producers are already closed server-side). */
+  dropUser(userId: string): void {
+    [...this.consumers.values()]
+      .filter((entry) => entry.userId === userId)
+      .forEach((entry) => {
+        this.consumers.delete(entry.consumer.id);
+        this.remoteVideoConsumers.delete(entry.consumer.id);
+        this.consumedProducerIds.delete(entry.producerId);
+        try {
+          entry.consumer.close();
+        } catch {
+          // ignore
+        }
+      });
+    this.remoteStreams.delete(userId);
+    this.remoteScreenStreams.delete(userId);
+    this.scheduleLayerUpdate();
   }
 
   async consumeProducer(
@@ -549,6 +660,7 @@ export class MediasoupService {
       }
 
       await this.withTimeout(this.resumeConsumer(consumer.id), 8000, `resume ${consumer.id}`);
+      this.consumers.set(consumer.id, { consumer, userId, source, producerId });
 
       if (consumer.kind === 'video') {
         this.remoteVideoConsumers.set(consumer.id, { consumer, userId, source });
@@ -857,6 +969,66 @@ export class MediasoupService {
     return this.localStream || null;
   }
 
+  /** Swap the microphone mid-call without renegotiation; keeps the current mute state. */
+  async switchMicrophone(deviceId: string): Promise<void> {
+    const oldTrack = this.localStream?.getAudioTracks()[0];
+    const enabled = oldTrack ? oldTrack.enabled : true;
+    const track = await getSingleTrack('audio', deviceId);
+    track.enabled = enabled;
+    if (!this.localStream) {
+      this.localStream = new MediaStream();
+    }
+    if (this.audioProducer && !this.audioProducer.closed) {
+      await this.audioProducer.replaceTrack({ track });
+    } else if (this.sendTransport && !this.sendTransport.closed) {
+      this.audioProducer = await this.sendTransport.produce({
+        track,
+        disableTrackOnPause: false,
+        zeroRtpOnPause: false,
+        codecOptions: { opusStereo: false, opusDtx: true, opusFec: true, opusNack: true, opusPtime: 20 },
+      });
+    }
+    if (oldTrack) {
+      this.localStream.removeTrack(oldTrack);
+      oldTrack.stop();
+    }
+    this.localStream.addTrack(track);
+    this.hasAudioDevice = true;
+    this.localStreamSubject.next(this.localStream);
+  }
+
+  /** Swap the camera mid-call (also used for front/back flip on phones). */
+  async switchCamera(deviceId: string): Promise<void> {
+    if (!this.videoProducer || this.videoProducer.closed) {
+      return;
+    }
+    const oldTrack = this.localStream?.getVideoTracks()[0];
+    const enabled = oldTrack ? oldTrack.enabled : true;
+    // Phones often refuse a second open camera: release the current one first
+    oldTrack?.stop();
+    const track = await getSingleTrack('video', deviceId);
+    track.enabled = enabled;
+    await this.videoProducer.replaceTrack({ track });
+    if (oldTrack) {
+      this.localStream?.removeTrack(oldTrack);
+    }
+    this.localStream?.addTrack(track);
+    this.localStreamSubject.next(this.localStream!);
+  }
+
+  currentDeviceId(kind: 'audio' | 'video'): string {
+    const track = kind === 'audio' ? this.localStream?.getAudioTracks()[0] : this.localStream?.getVideoTracks()[0];
+    return track?.getSettings?.().deviceId || '';
+  }
+
+  setAudioOutput(deviceId: string): void {
+    this.audioOutputSubject.next(deviceId || '');
+  }
+
+  getAudioOutputId(): string {
+    return this.audioOutputSubject.value;
+  }
+
   isScreenSharing(): boolean {
     return !!this.screenStream || !!this.screenProducer;
   }
@@ -891,6 +1063,16 @@ export class MediasoupService {
     this.activeCallId = null;
     this.remoteVideoConsumers.clear();
     this.focusedUserId = null;
+    this.consumers.forEach((entry) => {
+      try {
+        entry.consumer.close();
+      } catch {
+        // ignore
+      }
+    });
+    this.consumers.clear();
+    this.transportStates.clear();
+    this.connectionStateSubject.next('new');
 
     try {
       this.screenStream?.getTracks().forEach((track) => track.stop());

@@ -1,0 +1,49 @@
+<div
+  class="tile"
+  [class.tile--main]="variant === 'main'"
+  [class.tile--pip]="variant === 'pip'"
+  [class.tile--thumb]="variant === 'thumb'"
+  [class.tile--screen]="item.kind === 'screen'"
+  [class.tile--speaking]="item.speaking && item.kind !== 'screen'"
+  [class.tile--selectable]="selectable"
+  [attr.role]="selectable ? 'button' : null"
+  [attr.tabindex]="selectable ? 0 : null"
+  [attr.aria-label]="selectable ? 'Show ' + item.name + ' in the main view' : null"
+  (click)="onActivate()"
+  (keydown.enter)="onActivate()"
+  (keydown.space)="$event.preventDefault(); onActivate()"
+>
+  <video
+    class="tile__video"
+    [class.tile__video--mirror]="item.mirror"
+    [class.tile__video--contain]="item.kind === 'screen'"
+    [class.is-hidden]="!item.showVideo"
+    [appMediaSrc]="item.stream"
+    [mediaKick]="kick"
+    [muted]="true"
+    autoplay
+    playsinline
+  ></video>
+
+  <div class="tile__avatar" *ngIf="!item.showVideo">
+    <div class="avatar" [class.avatar--lg]="variant === 'main'">
+      <img *ngIf="item.avatar; else letter" [src]="item.avatar" alt="" />
+      <ng-template #letter><span>{{ initial }}</span></ng-template>
+    </div>
+    <span class="tile__avatar-name" *ngIf="variant === 'main'">{{ item.name }}</span>
+  </div>
+
+  <div class="tile__connecting" *ngIf="item.connecting">
+    <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+    <span>Connecting…</span>
+  </div>
+
+  <div class="tile__hand" *ngIf="item.handRaised" title="Hand raised" aria-label="Hand raised">✋</div>
+
+  <div class="tile__label">
+    <i *ngIf="item.kind === 'screen'" class="fa-solid fa-display me-1"></i>
+    <i *ngIf="item.kind !== 'screen' && !item.audioOn" class="fa-solid fa-microphone-slash tile__muted" aria-label="Muted"></i>
+    <span class="tile__name">{{ item.name }}</span>
+    <span class="tile__host" *ngIf="item.isHost && item.kind !== 'screen'">Host</span>
+  </div>
+</div>

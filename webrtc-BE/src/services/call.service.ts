@@ -1,6 +1,9 @@
 import Call from "../models/callModel";
 import mongoose from "mongoose";
 
+/** Statuses after which a call can no longer be joined or changed. */
+const FINISHED_STATUSES = ["ended", "missed", "cancelled"];
+
 interface CreateCallParams {
     conversationId: mongoose.Types.ObjectId;
     initiatedBy: mongoose.Types.ObjectId;
@@ -95,6 +98,36 @@ class CallService {
         return call;
     }
 
+    async getCall(callId: mongoose.Types.ObjectId | string) {
+        if (!mongoose.isValidObjectId(callId)) {
+            return null;
+        }
+        return Call.findById(callId);
+    }
+
+    /**
+     * Ring timeout / everyone declined: mark the call missed only if it is still ringing.
+     * Atomic, so a pick-up landing at the same moment is never ended by mistake.
+     */
+    async endIfUnanswered(callId: mongoose.Types.ObjectId | string) {
+        if (!mongoose.isValidObjectId(callId)) {
+            return null;
+        }
+        const now = new Date();
+        return Call.findOneAndUpdate(
+            { _id: callId, callStatus: "ringing" },
+            {
+                $set: {
+                    callStatus: "missed",
+                    endedAt: now,
+                    "participants.$[p].status": "left",
+                    "participants.$[p].leftAt": now,
+                },
+            },
+            { new: true, arrayFilters: [{ "p.status": "joined" }] }
+        );
+    }
+
     async upgradeCallType(
         callId: mongoose.Types.ObjectId | string,
         callType: "audio" | "video" = "video"
@@ -103,7 +136,7 @@ class CallService {
         if (!call) {
             throw new Error("Call not found");
         }
-        if (call.callStatus === "ended") {
+        if (FINISHED_STATUSES.includes(call.callStatus)) {
             throw new Error("Call already ended");
         }
         call.callType = callType;
@@ -118,7 +151,7 @@ class CallService {
             throw new Error("Call not found");
         }
 
-        if (call.callStatus === "ended") {
+        if (FINISHED_STATUSES.includes(call.callStatus)) {
             throw new Error("Call already ended");
         }
 
@@ -130,10 +163,17 @@ class CallService {
             throw new Error("User is not a participant of this call");
         }
 
+        if (participant.status === "removed") {
+            throw new Error("You were removed from this call by the host");
+        }
+
         participant.status = "joined";
         participant.joinedAt = new Date();
 
-        if (call.callStatus === "ringing") {
+        // The caller's own accept (entering the call screen) must not answer the ring;
+        // only another participant picking up makes it active and starts the clock.
+        const isInitiator = call.initiatedBy.toString() === userId.toString();
+        if (call.callStatus === "ringing" && !isInitiator) {
             call.callStatus = "active";
             call.startedAt = new Date();
         }
@@ -182,7 +222,7 @@ class CallService {
 
         // Only mark this member left — meeting ends only when server confirms
         // no remaining joined members / media peers (last person out).
-        if (participant.status !== "left") {
+        if (participant.status !== "left" && participant.status !== "removed") {
             participant.status = "left";
             participant.leftAt = new Date();
             await call.save();
@@ -196,15 +236,46 @@ class CallService {
         if (!mongoose.isValidObjectId(callId)) {
             return false;
         }
-        const call = await Call.findById(callId).select('callStatus participants.userId').lean();
+        const call = await Call.findById(callId).select('callStatus participants.userId participants.status').lean();
         if (!call || (call.callStatus !== 'ringing' && call.callStatus !== 'active')) {
             return false;
         }
-        return call.participants.some((p) => p.userId.toString() === userId.toString());
+        return call.participants.some(
+            (p) => p.userId.toString() === userId.toString() && p.status !== 'removed'
+        );
     }
 
     countJoined(call: { participants: { status: string }[] }): number {
         return call.participants.filter((p) => p.status === "joined").length;
+    }
+
+    /** Host-only removal. Status "removed" blocks accept/join for this call. */
+    async removeParticipant(callId: mongoose.Types.ObjectId | string, userId: string) {
+        const call = await Call.findById(callId);
+        if (!call) {
+            throw new Error("Call not found");
+        }
+        const participant = call.participants.find(
+            (p) => p.userId.toString() === userId.toString()
+        );
+        if (!participant) {
+            throw new Error("User is not a participant of this call");
+        }
+        participant.status = "removed";
+        participant.leftAt = new Date();
+        await call.save();
+        return call;
+    }
+
+    /** True when everyone except the caller declined a call that is still ringing. */
+    allOthersRejected(call: { initiatedBy: any; callStatus: string; participants: { userId: any; status: string }[] }): boolean {
+        if (call.callStatus !== "ringing") {
+            return false;
+        }
+        const others = call.participants.filter(
+            (p) => p.userId.toString() !== call.initiatedBy.toString()
+        );
+        return others.length > 0 && others.every((p) => p.status === "rejected");
     }
 
     async endCall(callId: mongoose.Types.ObjectId) {
@@ -214,7 +285,12 @@ class CallService {
             throw new Error("Call not found");
         }
 
-        call.callStatus = "ended";
+        if (FINISHED_STATUSES.includes(call.callStatus)) {
+            return call;
+        }
+
+        // A ring nobody picked up is recorded as missed, not ended
+        call.callStatus = call.callStatus === "ringing" ? "missed" : "ended";
         call.endedAt = new Date();
 
         call.participants.forEach((participant) => {

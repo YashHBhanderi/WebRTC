@@ -115,6 +115,7 @@ export default class ConversationService {
                     lastMessage: {
                         _id: "$lastMessage._id",
                         content: "$lastMessage.content",
+                        userId: "$lastMessage.userId",
                         type: "$lastMessage.type",
                         isRead: "$lastMessage.isRead",
                         createdAt: "$lastMessage.createdAt",
@@ -239,6 +240,7 @@ export default class ConversationService {
                                     fileUrl: "$messages.fileUrl",
                                     thumbnailUrl: { $ifNull: ["$messages.thumbnailUrl", "$messages.fileUrl"] },
                                     isDeleted: "$messages.isDeleted",
+                                    isRead: "$messages.isRead",
                                     createdAt: "$messages.createdAt",
                                     userId: "$messages.user._id",
                                     reactions: "$messages.reactions",
@@ -403,6 +405,7 @@ export default class ConversationService {
                     lastMessage: {
                         _id: "$lastMessage._id",
                         content: "$lastMessage.content",
+                        userId: "$lastMessage.userId",
                         type: "$lastMessage.type",
                         isRead: "$lastMessage.isRead",
                         createdAt: "$lastMessage.createdAt"

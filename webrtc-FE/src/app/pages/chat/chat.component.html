@@ -1,638 +1,533 @@
-<div class="d-lg-flex mb-4 main chat-container">
-    <div class="chat-leftsidebar card" [class.show]="isSidebarOpen">
-        <div class="p-4 pb-0 bg-soft-primary chat-leftsidebar-header rounded-top">
-            <div class="d-flex align-items-start">
-                <div class="flex-grow-1">
-                    <div class="dropdown" ngbDropdown placement="bottom-left">
-                        <button class="btn dropdown-toggle py-0 shadow-none no-arrow" type="button"
-                            data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" ngbDropdownToggle>
-                            <img [src]="loginUserProfile" class="rounded-circle avatar-sm">
-                        </button>
-                        <div class="dropdown-menu dropdown-menu dropdown-menu-md p-2" ngbDropdownMenu>
-                            <a class="dropdown-item"
-                                (click)="openUserProfile(this.authService.getLoggedInUser()._id)">Profile</a>
-                            <a class="dropdown-item" (click)="onLogoutClick()">Logout</a>
-                        </div>
-                    </div>
-
-                </div>
-
-                <div class="flex-shrink-0">
-                    <div class="d-flex gap-2 align-items-start">
-                        <div class="dropdown chat-noti-dropdown" ngbDropdown placement="bottom-right">
-
-                            <button class="btn dropdown-toggle py-0 shadow-none no-arrow" type="button"
-                                data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false" ngbDropdownToggle>
-                                <i class="fa-solid fa-magnifying-glass"></i>
-                            </button>
-                            <div class="dropdown-menu dropdown-menu-end dropdown-menu-md p-2" ngbDropdownMenu>
-                                <form class="px-2">
-                                    <div>
-                                        <input type="text" class="form-control bg-light rounded"
-                                            placeholder="Search...">
-                                    </div>
-                                </form>
-                            </div>
-                        </div>
-                        <div class="dropdown chat-noti-dropdown " ngbDropdown placement="bottom-right">
-                            <button class="btn dropdown-toggle py-0 no-arrow" type="button" data-bs-toggle="dropdown"
-                                aria-haspopup="true" aria-expanded="false" ngbDropdownToggle>
-                                <i class="fa-solid fa-ellipsis"></i> </button>
-                            <div class="dropdown-menu dropdown-menu-end" ngbDropdownMenu>
-                                <a class="dropdown-item"
-                                    (click)="openUserProfile(this.authService.getLoggedInUser()._id)">Profile</a>
-                                <a class="dropdown-item"
-                                    (click)="editCurrentUserProfile(this.authService.getLoggedInUser()._id)">Edit</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="chat-leftsidebar-nav mt-4">
-                <ul ngbNav #transactions="ngbNav" [activeId]="1"
-                    class="nav nav-tabs nav-tabs-custom border-bottom-0 nav-justified">
-
-                    <li [ngbNavItem]="1" class="nav-item">
-                        <a ngbNavLink data-bs-toggle="tab" aria-expanded="true" class="nav-link">
-                            <i class="bx bx-chat font-size-20 d-sm-none"></i>
-                            <span class="d-sm-block" (click)="loadChatConversations()">Chat</span>
-                        </a>
-                        <ng-template ngbNavContent>
-                            <div class="px-0">
-                                <ngx-simplebar class="chat-message-list" style="position: relative;" #scrollEle>
-                                    <div class="p-4">
-                                        <h5 class="font-size-14 mb-3">Recent</h5>
-                                        <ul class="list-unstyled chat-list">
-                                            <li class="" *ngFor="let data of chatData"
-                                                [ngClass]="{'active': data.receiver?.username == username}">
-                                                <a href="javascript: void(0);" style="border: 0.5px solid #e2e5e8  ;"
-                                                    (click)="startOrResumeChat(data.receiver?.username, data.receiver.avatar, data.receiver.isOnline, data._id, data.receiver._id, data.receiver.lastSeen)">
-                                                    <div class="d-flex align-items-start">
-                                                        <div
-                                                            class="flex-shrink-0 user-img {{data.status}} align-self-center me-3">
-                                                            <div class="user-img {{data.receiver.isOnline}} align-self-center"
-                                                                [ngClass]="{ 'online': data.receiver.isOnline === true,  'offline': data.receiver.isOnline === false }"
-                                                                *ngIf="data.receiver.avatar">
-                                                                <img [src]="data.receiver.avatar"
-                                                                    class="rounded-circle avatar-sm" alt="">
-                                                                <span class="user-status"
-                                                                    [ngClass]="{ 'online': data.receiver.isOnline === true, 'offline': data.receiver.isOnline === false }">
-                                                                </span>
-                                                            </div>
-                                                            <div class="avatar-sm align-self-center"
-                                                                *ngIf="!data.receiver.avatar">
-                                                                <span
-                                                                    class="avatar-title rounded-circle bg-soft-primary text-primary">
-                                                                    {{ data.receiver?.username.charAt(0) }}
-                                                                </span>
-                                                            </div>
-                                                            <span class="user-status"
-                                                                [ngClass]="{ 'online': data.receiver.isOnline === true, 'offline': data.receiver.isOnline === false }">
-                                                            </span>
-
-                                                        </div>
-
-                                                        <div class="flex-grow-1 overflow-hidden">
-                                                            <h5 class="text-truncate  mb-1">{{data.receiver?.username}}
-                                                            </h5>
-                                                            <p class="text-truncate mb-0">{{data.lastMessage?.content}}
-                                                            </p>
-                                                        </div>
-                                                        <div class="flex-shrink-0">
-                                                            <div class="font-size-11">{{
-                                                                formatTimestamp(data.lastMessage?.createdAt) }}
-                                                            </div>
-                                                            <span *ngIf="data.unreadCount>0"
-                                                                class="badge badge-pill bg-info">{{
-                                                                data.unreadCount}}</span>
-
-                                                        </div>
-                                                    </div>
-                                                </a>
-                                            </li>
-
-                                        </ul>
-                                    </div>
-                                </ngx-simplebar>
-                            </div>
-                        </ng-template>
-                    </li>
-                    <li [ngbNavItem]="2" class="nav-item">
-                        <a ngbNavLink>Groups</a>
-                        <ng-template ngbNavContent>
-                            <div class="px-0">
-                                <ngx-simplebar class="chat-message-list" style="position: relative;" #scrollEle>
-                                    <div class="p-4">
-                                        <div>
-                                            <div class="d-flex">
-                                                <h5 class="font-size-14" style="padding-top: 3px;">Groups</h5>
-                                                <div class="ms-auto">
-                                                    <button class="btn btn-outline-secondary btn-sm"
-                                                        data-bs-toggle="modal" data-bs-target="#groupModal">
-                                                        <i class="fa-solid fa-users"></i> New Group</button>
-                                                </div>
-                                            </div>
-                                            <ul class="list-unstyled chat-list">
-                                                <li *ngFor="let group of groupChatData">
-                                                    <a href="javascript:void(0);" (click)="openGroupConversation(group)"
-                                                        style="border: 0.5px solid #e2e5e8">
-                                                        <div class="d-flex align-items-start">
-                                                            <div class="flex-shrink-0 user-img align-self-center me-3">
-                                                                <div class="avatar-sm align-self-center">
-                                                                    <img *ngIf="group.groupAvatar"
-                                                                        [src]=" group.groupAvatar"
-                                                                        class="rounded-circle" alt="Group Avatar"
-                                                                        width="40" height="40">
-                                                                    <span *ngIf="!group.groupAvatar"
-                                                                        class="avatar-title rounded-circle bg-soft-primary text-primary">
-                                                                        {{ group.groupName.charAt(0) }}
-                                                                    </span>
-                                                                </div>
-                                                            </div>
-                                                            <div class="flex-grow-1 overflow-hidden">
-                                                                <h5 class="text-truncate font-size-14 mb-1">{{
-                                                                    group.groupName }}</h5>
-
-                                                                <p class="text-truncate mb-0">
-                                                                    {{ group.members.length }} Members
-                                                                </p>
-                                                            </div>
-                                                            <div class="ms-auto">
-                                                                <span *ngIf="group.unreadCount > 0"
-                                                                    class="badge badge-pill bg-info">
-                                                                    {{ group.unreadCount }}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </a>
-                                                </li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </ngx-simplebar>
-                            </div>
-                        </ng-template>
-                    </li>
-
-                    <li [ngbNavItem]="3" class="nav-item">
-                        <a ngbNavLink>Contacts</a>
-                        <ng-template ngbNavContent>
-                            <div class="px-0">
-                                <ngx-simplebar class="chat-message-list" style="position: relative;" #scrollEle>
-                                    <div class="p-4">
-                                        <div>
-                                            <div class="d-flex">
-                                                <h5 class="font-size-14">Contacts</h5>
-                                            </div>
-
-                                            <div class="mt-2">
-                                                <div *ngFor="let user of users" class="contact-list mb-0">
-                                                    <ul class="list-unstyled chat-list">
-                                                        <li>
-                                                            <a href="javascript:void(0);"
-                                                                (click)="startOrResumeChat(user.username, user.avatar, user.isOnline, user.conversationId, user._id!, user.lastSeen)">
-                                                                <div class="d-flex align-items-start">
-                                                                    <div
-                                                                        class="flex-shrink-0 user-img align-self-center me-3">
-                                                                        <div class="avatar-sm align-self-center">
-                                                                            <img *ngIf="user.avatar" [src]="user.avatar"
-                                                                                class="rounded-circle avatar-sm" alt="">
-
-                                                                            <span *ngIf="!user.avatar"
-                                                                                class="avatar-title rounded-circle bg-soft-primary text-primary">
-                                                                                {{ user.username.charAt(0) }}
-                                                                            </span>
-                                                                        </div>
-                                                                    </div>
-
-                                                                    <div class="flex-grow-1 overflow-hidden">
-                                                                        <h5 class="font-size-14 mb-0">{{ user.username
-                                                                            }}</h5>
-
-                                                                    </div>
-
-                                                                </div>
-                                                            </a>
-                                                        </li>
-                                                    </ul>
-                                                </div>
-                                            </div>
-
-                                        </div>
-                                    </div>
-                                </ngx-simplebar>
-                            </div>
-                        </ng-template>
-                    </li>
-
-                </ul>
-            </div>
+<div class="app-shell" [class.show-chat]="showChatPane && hasOpenConversation" [class.has-call-bar]="!!activeCall && callMinimized">
+  <!-- ============================================================ SIDEBAR -->
+  <aside class="sidebar" aria-label="Conversations">
+    <header class="sidebar__header">
+      <div ngbDropdown placement="bottom-start" class="d-inline-block">
+        <button type="button" class="avatar-btn" ngbDropdownToggle aria-label="Account menu">
+          <img *ngIf="loginUserProfile; else meLetter" [src]="loginUserProfile" alt="" class="avatar avatar--sm" />
+          <ng-template #meLetter><span class="avatar avatar--sm avatar--letter">{{ (myUsername || '?').charAt(0) }}</span></ng-template>
+        </button>
+        <div ngbDropdownMenu class="app-menu">
+          <div class="app-menu__user">
+            <strong>{{ myUsername }}</strong>
+          </div>
+          <button ngbDropdownItem type="button" (click)="openUserProfile(myUserId)"><i class="fa-regular fa-user"></i>Profile</button>
+          <button ngbDropdownItem type="button" (click)="editCurrentUserProfile()"><i class="fa-regular fa-pen-to-square"></i>Edit profile</button>
+          <div class="dropdown-divider"></div>
+          <button ngbDropdownItem type="button" class="text-danger" (click)="onLogoutClick()"><i class="fa-solid fa-arrow-right-from-bracket"></i>Log out</button>
         </div>
+      </div>
+      <h1 class="sidebar__title">Chats</h1>
+      <div class="sidebar__actions">
+        <button type="button" class="icon-btn" (click)="openCreateGroup()" title="New group" aria-label="Create a new group">
+          <i class="fa-solid fa-user-plus"></i>
+        </button>
+        <button type="button" class="icon-btn" (click)="setSidebarFilter('contacts')" title="New chat" aria-label="Start a new chat">
+          <i class="fa-regular fa-pen-to-square"></i>
+        </button>
+      </div>
+    </header>
 
-        <div>
-            <div class="tab-content">
-                <div [ngbNavOutlet]="transactions" class="mt-2 w-100"></div>
-            </div>
-        </div>
-
+    <div class="sidebar__search">
+      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      <input
+        type="search"
+        [ngModel]="sidebarSearch"
+        (ngModelChange)="onSidebarSearch($event)"
+        [placeholder]="sidebarFilter === 'contacts' ? 'Search contacts' : 'Search chats'"
+        aria-label="Search conversations"
+      />
     </div>
 
+    <nav class="chips" aria-label="Filter conversations">
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'all'" (click)="setSidebarFilter('all')">All</button>
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'unread'" (click)="setSidebarFilter('unread')">Unread</button>
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'groups'" (click)="setSidebarFilter('groups')">Groups</button>
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'contacts'" (click)="setSidebarFilter('contacts')">Contacts</button>
+    </nav>
 
-    <div class="w-100 user-chat mt-4 mt-sm-0 ms-lg-1">
-        <div class="card" *ngIf="receiverId || conversationId">
-            <div class="p-3 border-bottom">
-                <div class="row">
-                    <div class="col-xl-4 col-4">
-                        <div class="d-flex align-items-center">
-                            <i class="fa-solid fa-bars back-button me-2" (click)="toggleSidebar()"
-                                *ngIf="isMobileView"></i>
-                            <div *ngIf="!isGroupChat && userProfile " class="flex-shrink-0 me-2">
-                                <img :src="{{userProfile}}" alt="" class="img-thumbnail d-block rounded-circle avatar">
-                            </div>
-                            <div *ngIf="isGroupChat" class="flex-shrink-0 me-2">
-                                <img :src="{{groupAvatar}}" alt="" class="img-thumbnail d-block rounded-circle avatar">
-                            </div>
-                            <div class="flex-grow-1" *ngIf="!isGroupChat" style="min-width: 160px;">
-                                <div *ngIf="!userProfile && !isGroupChat" class="avatar-sm align-self-center me-3"><span
-                                        class="avatar-title rounded-circle bg-soft-primary text-primary">
-                                        {{username.charAt(0)}} </span></div>
-                                <h5 class="font-size-14 mb-0 text-truncate" data-bs-toggle="tooltip"
-                                    data-bs-placement="top" title="{{username}}"><a
-                                        (click)="openUserProfile(receiverId)"
-                                        style="text-decoration: none; cursor: pointer;"
-                                        class="text-dark">{{username}}</a></h5>
+    <div class="sidebar__list">
+      <!-- Loading skeleton -->
+      <ng-container *ngIf="listLoading && !sidebarItems.length">
+        <div class="list-skeleton" *ngFor="let _ of [1, 2, 3, 4, 5, 6]">
+          <ngx-skeleton-loader appearance="circle" [theme]="{ width: '48px', height: '48px', margin: 0 }"></ngx-skeleton-loader>
+          <div class="flex-grow-1">
+            <ngx-skeleton-loader [theme]="{ width: '55%', height: '12px', margin: '0 0 8px' }"></ngx-skeleton-loader>
+            <ngx-skeleton-loader [theme]="{ width: '80%', height: '10px', margin: 0 }"></ngx-skeleton-loader>
+          </div>
+        </div>
+      </ng-container>
 
-                                <p class="text-muted text-truncate mb-0">
-                                    <span [ngClass]="isOnline ? 'text-success' : 'text-muted'">
-                                        <i class="fa-solid fa-circle fa-2xs"></i>
-                                        {{
-                                        isOnline
-                                        ? (isTyping ? 'Typing...' : 'Online')
-                                        : (lastSeen ? 'Last seen: ' + (lastSeen | date: 'short') : 'Offline')
-                                        }}
-                                    </span>
-                                </p>
+      <ul class="conv-list" *ngIf="sidebarItems.length">
+        <li *ngFor="let item of sidebarItems; trackBy: trackBySidebar">
+          <button
+            type="button"
+            class="conv"
+            [class.conv--active]="isItemActive(item)"
+            [class.conv--unread]="item.unread > 0"
+            (click)="openSidebarItem(item)"
+          >
+            <span class="conv__avatar">
+              <img *ngIf="item.avatar; else itemLetter" [src]="item.avatar" alt="" class="avatar avatar--md" loading="lazy" />
+              <ng-template #itemLetter><span class="avatar avatar--md avatar--letter">{{ (item.title || '?').charAt(0) }}</span></ng-template>
+              <span class="presence" *ngIf="item.kind !== 'group' && item.online" aria-label="Online"></span>
+            </span>
+            <span class="conv__body">
+              <span class="conv__row">
+                <span class="conv__title">
+                  <i *ngIf="item.kind === 'group'" class="fa-solid fa-user-group conv__kind" aria-hidden="true"></i>
+                  {{ item.title }}
+                </span>
+                <span class="conv__time" *ngIf="item.time">{{ formatTimestamp(item.time) }}</span>
+              </span>
+              <span class="conv__row">
+                <span class="conv__preview">
+                  <ng-container *ngIf="item.kind === 'direct' && item.previewIsMine">
+                    <i class="fa-solid tick" [class.fa-check-double]="item.previewRead" [class.fa-check]="!item.previewRead" [class.tick--read]="item.previewRead" aria-hidden="true"></i>
+                  </ng-container>
+                  {{ item.preview }}
+                </span>
+                <span class="conv__badges">
+                  <span class="call-live" *ngIf="item.hasActiveCall" title="Call in progress"><i class="fa-solid fa-phone-volume"></i></span>
+                  <span class="badge-unread" *ngIf="item.unread > 0" [attr.aria-label]="item.unread + ' unread'">{{ item.unread > 99 ? '99+' : item.unread }}</span>
+                </span>
+              </span>
+            </span>
+          </button>
+        </li>
+      </ul>
 
-                            </div>
-                            <div class="flex-grow-1" *ngIf="isGroupChat" style="min-width: 106px;">
-                                <h5 class="font-size-14 mb-1 text-truncate" data-bs-toggle="tooltip"
-                                    data-bs-placement="top" title="{{groupname}}"><a
-                                        (click)="openGroupInfo(conversationId)"
-                                        style="text-decoration: none; cursor: pointer;"
-                                        class="text-dark">{{groupname}}</a></h5>
+      <!-- Empty states -->
+      <div class="empty-list" *ngIf="!listLoading && !sidebarItems.length">
+        <ng-container [ngSwitch]="true">
+          <ng-container *ngSwitchCase="!!sidebarSearch">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <p>No results for “{{ sidebarSearch }}”</p>
+          </ng-container>
+          <ng-container *ngSwitchCase="sidebarFilter === 'unread'">
+            <i class="fa-regular fa-circle-check"></i>
+            <p>You're all caught up</p>
+          </ng-container>
+          <ng-container *ngSwitchCase="sidebarFilter === 'groups'">
+            <i class="fa-solid fa-user-group"></i>
+            <p>No groups yet</p>
+            <button type="button" class="btn btn-sm btn-primary" (click)="openCreateGroup()">Create a group</button>
+          </ng-container>
+          <ng-container *ngSwitchDefault>
+            <i class="fa-regular fa-comments"></i>
+            <p>No conversations yet</p>
+            <button type="button" class="btn btn-sm btn-primary" (click)="setSidebarFilter('contacts')">Start a chat</button>
+          </ng-container>
+        </ng-container>
+      </div>
+    </div>
+  </aside>
 
-                                <p class="text-muted text-truncate mb-0">
-                                    {{ groupMembers.length }} Members
-                                </p>
+  <!-- ============================================================ CONVERSATION -->
+  <main class="conversation" *ngIf="hasOpenConversation; else welcome" aria-label="Conversation">
+    <header class="conv-header">
+      <button type="button" class="icon-btn conv-header__back" (click)="backToList()" aria-label="Back to chats">
+        <i class="fa-solid fa-arrow-left"></i>
+      </button>
+      <button type="button" class="conv-header__who" (click)="isGroupChat ? openGroupInfo(conversationId) : openUserProfile(receiverId)" [attr.aria-label]="'Open ' + (isGroupChat ? groupname : peerName) + ' info'">
+        <span class="conv__avatar">
+          <ng-container *ngIf="isGroupChat; else peerAv">
+            <img *ngIf="groupAvatar; else groupLetter" [src]="groupAvatar" alt="" class="avatar avatar--md" />
+            <ng-template #groupLetter><span class="avatar avatar--md avatar--letter">{{ (groupname || '?').charAt(0) }}</span></ng-template>
+          </ng-container>
+          <ng-template #peerAv>
+            <img *ngIf="peerAvatar; else peerLetter" [src]="peerAvatar" alt="" class="avatar avatar--md" />
+            <ng-template #peerLetter><span class="avatar avatar--md avatar--letter">{{ (peerName || '?').charAt(0) }}</span></ng-template>
+            <span class="presence" *ngIf="isOnline"></span>
+          </ng-template>
+        </span>
+        <span class="conv-header__text">
+          <span class="conv-header__name">{{ isGroupChat ? groupname : peerName }}</span>
+          <span class="conv-header__sub" [class.is-typing]="isTyping" [class.is-online]="!isGroupChat && isOnline && !isTyping">{{ headerSubtitle }}</span>
+        </span>
+      </button>
 
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-xl-8 col-8">
-                        <ul class="list-inline user-chat-nav text-end mb-0">
-                            <li class="list-inline-item" *ngIf="!isGroupChat && userProfile">
-                                <button class="btn nav-btn call-action" title="Audio call"
-                                    (click)="startAudioCall(this.receiverId)">
-                                    <i class="fa-solid fa-phone"></i>
-                                </button>
-                            </li>
+      <div class="conv-header__actions">
+        <!-- In this conversation's call already -->
+        <button type="button" class="pill-btn pill-btn--live return-call" *ngIf="inCallHere" (click)="returnToCall()">
+          <i class="fa-solid fa-phone-volume"></i><span>Return to call</span>
+        </button>
 
-                            <li class="list-inline-item" *ngIf="!isGroupChat && userProfile">
-                                <button class="btn nav-btn call-action" title="Video call"
-                                    (click)="startVideoCall(this.receiverId)">
-                                    <i class="fa-solid fa-video"></i>
-                                </button>
-                            </li>
+        <ng-container *ngIf="!inCallHere">
+          <ng-container *ngIf="!isGroupChat">
+            <button type="button" class="icon-btn" (click)="startVideoCall()" title="Video call" aria-label="Start video call">
+              <i class="fa-solid fa-video"></i>
+            </button>
+            <button type="button" class="icon-btn" (click)="startAudioCall()" title="Voice call" aria-label="Start voice call">
+              <i class="fa-solid fa-phone"></i>
+            </button>
+          </ng-container>
 
-                            <!-- Group: Join only while Meet Now is active -->
-                            <ng-container *ngIf="isGroupChat">
-                                <li class="list-inline-item" *ngIf="activeMeetNow">
-                                    <button class="btn btn-join-meeting" (click)="joinCurrentMeeting()">
-                                        <i class="fa-solid fa-right-to-bracket me-1"></i> Join
-                                    </button>
-                                </li>
-                                <li class="list-inline-item" *ngIf="!activeMeetNow">
-                                    <button class="btn nav-btn call-action" title="Audio call"
-                                        (click)="startGroupAudioCall(conversationId)">
-                                        <i class="fa-solid fa-phone"></i>
-                                    </button>
-                                </li>
-                                <li class="list-inline-item" *ngIf="!activeMeetNow">
-                                    <button class="btn btn-meet-now" title="Meet now"
-                                        (click)="startMeetNow(conversationId)">
-                                        <i class="fa-solid fa-video me-1"></i>
-                                        <span class="d-none d-md-inline">Meet now</span>
-                                    </button>
-                                </li>
-                            </ng-container>
+          <ng-container *ngIf="isGroupChat">
+            <button type="button" class="pill-btn pill-btn--live" *ngIf="currentMeeting; else groupStart" (click)="joinCurrentMeeting()">
+              <i class="fa-solid fa-right-to-bracket"></i><span>Join</span>
+            </button>
+            <ng-template #groupStart>
+              <button type="button" class="icon-btn" (click)="startGroupAudioCall(conversationId)" title="Group voice call" aria-label="Start group voice call">
+                <i class="fa-solid fa-phone"></i>
+              </button>
+              <button type="button" class="pill-btn" (click)="startMeetNow(conversationId)" title="Meet now" aria-label="Start a video meeting">
+                <i class="fa-solid fa-video"></i><span class="hide-sm">Meet now</span>
+              </button>
+            </ng-template>
+          </ng-container>
+        </ng-container>
 
-                            <li class="list-inline-item">
-                                <button class="btn nav-btn" (click)="toggleSearch()">
-                                    <i class="fa-solid fa-magnifying-glass"></i>
-                                </button>
-                            </li>
+        <button type="button" class="icon-btn" (click)="toggleSearch()" [class.is-active]="showSearch" title="Search" aria-label="Search in conversation">
+          <i class="fa-solid fa-magnifying-glass"></i>
+        </button>
 
-                            <li class="list-inline-item">
-                                <div class="dropdown" ngbDropdown>
-                                    <button class="btn nav-btn dropdown-toggle no-arrow" type="button"
-                                        data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
-                                        ngbDropdownToggle>
-                                        <i class="fa-solid fa-ellipsis"></i>
-                                    </button>
-                                    <div class="dropdown-menu dropdown-menu-end" ngbDropdownMenu>
-                                        <a *ngIf="isGroupChat" class="dropdown-item"
-                                            (click)="openGroupInfo(conversationId)">Group Info</a>
-                                        <a *ngIf="!isGroupChat" class="dropdown-item"
-                                            (click)="openUserProfile(receiverId)">Profile</a>
-                                        <a class="dropdown-item" href="javascript:void(0)">Muted</a>
-                                        <a class="dropdown-item" (click)="deleteConversation(conversationId)">Delete</a>
-                                    </div>
-                                </div>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
+        <div ngbDropdown placement="bottom-end" class="d-inline-block">
+          <button type="button" class="icon-btn" ngbDropdownToggle aria-label="Conversation menu">
+            <i class="fa-solid fa-ellipsis-vertical"></i>
+          </button>
+          <div ngbDropdownMenu class="app-menu">
+            <button ngbDropdownItem type="button" *ngIf="isGroupChat" (click)="openGroupInfo(conversationId)"><i class="fa-solid fa-circle-info"></i>Group info</button>
+            <button ngbDropdownItem type="button" *ngIf="!isGroupChat" (click)="openUserProfile(receiverId)"><i class="fa-regular fa-user"></i>Contact info</button>
+            <button ngbDropdownItem type="button" (click)="toggleSearch()"><i class="fa-solid fa-magnifying-glass"></i>Search</button>
+            <div class="dropdown-divider"></div>
+            <button ngbDropdownItem type="button" class="text-danger" (click)="deleteConversation(conversationId)"><i class="fa-regular fa-trash-can"></i>Delete chat</button>
+          </div>
+        </div>
+      </div>
+    </header>
 
-            <div class="search-bar-container p-2 bg-light border-bottom d-flex align-items-center" *ngIf="showSearch">
-                <div class="input-group input-group-sm">
-                    <span class="input-group-text bg-transparent border-0"><i
-                            class="fa-solid fa-magnifying-glass font-size-13 text-muted"></i></span>
-                    <input type="text" [(ngModel)]="searchTerm" class="form-control border-0 bg-transparent font-size-13"
-                        placeholder="Search in this chat...">
-                    <button class="btn btn-link btn-sm text-muted py-0" (click)="toggleSearch()"><i
-                            class="fa-solid fa-xmark"></i></button>
-                </div>
-            </div>
+    <!-- Search bar -->
+    <div class="search-bar" *ngIf="showSearch">
+      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+      <input
+        id="conversation-search"
+        type="search"
+        [ngModel]="searchTerm"
+        (ngModelChange)="onSearchTerm($event)"
+        (keydown.enter)="stepSearch($any($event).shiftKey ? 1 : -1)"
+        (keydown.escape)="closeSearch()"
+        placeholder="Search loaded messages"
+        aria-label="Search messages"
+      />
+      <span class="search-bar__count" *ngIf="searchTerm.length >= 2">
+        {{ searchMatches.length ? (searchIndex + 1) + ' of ' + searchMatches.length : 'No matches' }}
+      </span>
+      <button type="button" class="icon-btn icon-btn--sm" (click)="stepSearch(-1)" [disabled]="!searchMatches.length" aria-label="Previous (older) match">
+        <i class="fa-solid fa-chevron-up"></i>
+      </button>
+      <button type="button" class="icon-btn icon-btn--sm" (click)="stepSearch(1)" [disabled]="!searchMatches.length" aria-label="Next (newer) match">
+        <i class="fa-solid fa-chevron-down"></i>
+      </button>
+      <button type="button" class="icon-btn icon-btn--sm" (click)="closeSearch()" aria-label="Close search">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
 
+    <!-- Messages -->
+    <div class="messages" #scrollContainer>
+      <div #topElement class="messages__sentinel"></div>
 
-            <div class="chat-window">
-                <ngx-simplebar class="chat-conversation p-3">
-                    <div #chatWindow>
-                        <div #topElement style="height: 1px;"></div>
-                        
-                        <!-- Show a loading indicator when fetching older messages -->
-                        <div *ngIf="isFetchingOldMessages" class="text-center my-2">
-                            <div class="spinner-border spinner-border-sm text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
+      <div class="messages__loader" *ngIf="isFetchingOldMessages && !messagesLoading && messageArray.length">
+        <span class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading older messages</span></span>
+      </div>
+      <div class="messages__start" *ngIf="!hasMoreMessages && messageArray.length && !messagesLoading">
+        <i class="fa-solid fa-lock"></i> Beginning of the conversation
+      </div>
 
-                        <ul class="list-unstyled mb-0">
-                            <li *ngFor="let msg of filteredMessages" [id]="'message-' + msg._id"
-                                [ngClass]="{ 'right': msg.user._id === authService.getLoggedInUser()._id }">
-                                <div class="conversation-list"
-                                    [ngClass]="{ 'order-3': msg.user._id === authService.getLoggedInUser()._id }">
-                                    <div class="ctext-wrap">
-                                        <div *ngIf="msg.user !== authService.getLoggedInUser()._id && msg.user.avatar"
-                                            class="chat-avatar">
-                                            <img [src]="msg.user.avatar" alt="avatar-2">
-                                        </div>
-                                        <div *ngIf="!msg.user.username && !userProfile" class="avatar-sm chat-avatar">
-                                            <span class="avatar-title rounded-circle bg-soft-primary text-primary">
-                                                {{msg.user.username}}
-                                            </span>
-                                        </div>
-                                        <div class="ctext-wrap-content" [class.message-highlight]="highlightedMessageId === msg._id">
-                                            <div class="reply-quote mb-2 p-2 border-start border-primary border-4 bg-soft-primary rounded cursor-pointer"
-                                                *ngIf="msg.replyTo && (msg.replyTo.content || msg.replyTo.type)" (click)="scrollToMessage(msg.replyTo._id)">
-                                                <p class="mb-0 text-truncate font-size-12">{{ msg.replyTo.content || msg.replyTo.type }}</p>
-                                            </div>
-                                            <h5 class="conversation-name">
-                                                <a (click)="openUserProfile(msg.user._id)"
-                                                    style="text-decoration: none; cursor: pointer;" class="user-name">
-                                                    {{ msg.user._id === authService.getLoggedInUser()._id ? 'You' :
-                                                    msg.user.username }}
-                                                </a>
-                                                <span class="time">{{ msg.createdAt | date: 'short' }}</span>
-                                            </h5>
-                                            <p class="mb-0" *ngIf="msg.content && msg.type !=='call'">{{ msg.content }}
-                                            </p>
-                                            <div class="message-img mt-3 mb-0" *ngIf="msg.type === 'image'">
-                                                <a class="d-inline-block">
-                                                    <img [src]="msg.thumbnailUrl || msg.fileUrl" alt="" class="rounded"
-                                                        (click)="openPreview(msg.fileUrl!, 'image')">
-                                                </a>
-                                            </div>
-                                            <div *ngIf="msg.type === 'call'" class="call-message mt-2">
-                                                <ng-container *ngIf="msg.fileUrl; else callEnded">
-                                                    <i class="fa-solid fa-phone text-success me-2"></i>
-                                                    <a [href]="msg.fileUrl" class="text-decoration-none">
-                                                        {{ msg.content || 'Join Call' }}
-                                                    </a>
-                                                </ng-container>
-                                                <ng-template #callEnded>
-                                                    <i class="fa-solid fa-phone text-danger me-2"></i>
-                                                    <span class="text-muted">{{ msg.content || 'Call Ended' }}</span>
-                                                </ng-template>
-                                            </div>
+      <!-- Skeleton -->
+      <ng-container *ngIf="messagesLoading">
+        <div class="bubble-skeleton" *ngFor="let w of [180, 240, 140, 260, 200, 160]; let i = index" [class.bubble-skeleton--mine]="i % 2 === 1">
+          <ngx-skeleton-loader [theme]="{ width: w + 'px', height: '44px', 'border-radius': '12px', margin: 0 }"></ngx-skeleton-loader>
+        </div>
+      </ng-container>
 
+      <div class="messages__empty" *ngIf="!messagesLoading && !messageArray.length">
+        <i class="fa-regular fa-hand"></i>
+        <p>No messages yet. Say hello!</p>
+      </div>
 
-                                            <video *ngIf="msg.type === 'video'" controls class="chat-media chat-video"
-                                                (click)="openPreview(msg.fileUrl!, 'video')">
-                                                <source [src]="msg.fileUrl" type="video/mp4">
-                                            </video>
-                                            <audio *ngIf="msg.type === 'audio'" controls class="chat-media chat-audio">
-                                                <source [src]=" msg.fileUrl" type="audio/mp3">
-                                            </audio>
-                                            <div *ngIf="msg.type === 'pdf'"
-                                                class="chat-media chat-pdf d-flex align-items-center"
-                                                (click)="openPreview(msg.fileUrl!, 'application/pdf')">
-                                                <i class="fa-solid fa-file-pdf fa-3x text-danger me-2"></i>
-                                                <span class="text-primary">{{ msg.fileUrl?.split('/')?.pop() }}</span>
-                                            </div>
-                                            <div class="reactions-display d-flex flex-wrap mt-2" *ngIf="msg.reactions?.length">
-                                                <span *ngFor="let emoji of getUniqueReactions(msg.reactions || [])"
-                                                    class="reaction-pill badge rounded-pill bg-light text-dark me-1"
-                                                    [class.active]="hasReacted(msg.reactions || [], emoji)" (click)="addReaction(msg._id, emoji)"
-                                                    style="cursor: pointer; border: 1px solid #eee;">
-                                                    {{ emoji }} <span class="ms-1">{{ getReactionCount(msg.reactions || [], emoji) }}</span>
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div class="dropdown align-self-start" ngbDropdown>
-                                            <a class="dropdown-toggle no-arrow" href="javascript:void(0);" role="button"
-                                                data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
-                                                ngbDropdownToggle>
-                                                <i class="fa-solid fa-ellipsis-vertical"></i>
-                                            </a>
-                                            <div class="dropdown-menu" ngbDropdownMenu>
-                                                <a class="dropdown-item" (click)="setReply(msg)">
-                                                    <i class="fa-solid fa-reply me-2 text-muted"></i> Reply
-                                                </a>
-                                                <div class="dropdown-divider"></div>
-                                                <div class="px-3 py-1 d-flex justify-content-between emoji-bar">
-                                                    <span *ngFor="let emoji of popularEmojis" (click)="addReaction(msg._id, emoji)" class="emoji-option"
-                                                        style="cursor: pointer; font-size: 18px; padding: 2px;">
-                                                        {{ emoji }}
-                                                    </span>
-                                                </div>
-                                                <div class="dropdown-divider"></div>
-                                                <a class="dropdown-item" (click)="onCopyMessage(msg)">Copy</a>
-                                                <a class="dropdown-item" (click)="saveMessage(msg)">Save</a>
-                                                <a class="dropdown-item" (click)="forwardMessage(msg)">Forward</a>
-                                                <a class="dropdown-item" (click)="deleteMessage(msg)">Delete</a>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </li>
-                            <ng-container *ngIf="isLoading">
-                                <li *ngFor="let _ of [].constructor(10); let i = index" class="mb-4">
-                                    <div class="conversation-list d-flex"
-                                        [ngClass]="{ 'flex-row-reverse': i % 2 !== 0 }">
-                                        <div class="" [ngClass]="{ 'ms-3 me-0 ': i % 2 !== 0 }">
-                                            <ngx-skeleton-loader appearance="line"
-                                                [theme]="i%2===0 ? { width: '200px', height: '75px', 'border-radius': '12px', 'background-color':'rgba(3, 142, 220, 0.1)' } : { width: '200px', height: '75px', 'border-radius': '12px', 'background-color':'#f5f6f8' }"></ngx-skeleton-loader>
-                                        </div>
+      <ng-container *ngIf="!messagesLoading">
+        <ng-container *ngFor="let msg of messageArray; let i = index; trackBy: trackByMessage">
+          <div class="day-sep" *ngIf="isNewDay(i)"><span>{{ dayLabel(msg.createdAt) }}</span></div>
 
-                                    </div>
-                                </li>
-                            </ng-container>
-                            <div class="preview-modal" *ngIf="previewUrl" (click)="closePreview()">
-                                <img *ngIf="previewType === 'image'" [src]=" previewUrl">
-                                <video *ngIf="previewType === 'video'" controls autoplay>
-                                    <source [src]="previewUrl" type="video/mp4">
-                                </video>
-                                <iframe *ngIf="previewType === 'pdf'" [src]="previewUrl" class="pdf-preview"></iframe>
+          <!-- Call event -->
+          <div class="call-event" *ngIf="msg.type === 'call'; else regular" [id]="'message-' + msg._id">
+            <span class="call-event__pill" [class.call-event__pill--missed]="isMissedCall(msg)">
+              <i class="fa-solid" [class.fa-video]="isVideoCallMessage(msg)" [class.fa-phone]="!isVideoCallMessage(msg) && !isMissedCall(msg)" [class.fa-phone-slash]="isMissedCall(msg)"></i>
+              <span>{{ msg.content || 'Call' }}</span>
+              <span class="call-event__time">{{ msg.createdAt | date: 'shortTime' }}</span>
+              <button type="button" class="call-event__join" *ngIf="isCallLive(msg) && !inCallHere" (click)="joinCallFromMessage(msg)">Join</button>
+            </span>
+          </div>
 
-                            </div>
-                        </ul>
-                    </div>
-                </ngx-simplebar>
-            </div>
+          <ng-template #regular>
+            <div
+              class="msg"
+              [id]="'message-' + msg._id"
+              [class.msg--mine]="isMine(msg)"
+              [class.msg--first]="isFirstOfRun(i)"
+              [class.msg--highlight]="highlightedMessageId === msg._id"
+              [class.msg--hit]="isSearchHit(msg)"
+              [class.msg--reacted]="!!msg.reactions?.length"
+            >
+              <span class="msg__avatar" *ngIf="isGroupChat && !isMine(msg)">
+                <ng-container *ngIf="isFirstOfRun(i)">
+                  <img *ngIf="msg.user?.avatar; else senderLetter" [src]="msg.user.avatar" alt="" class="avatar avatar--xs" (click)="openUserProfile(msg.user._id)" />
+                  <ng-template #senderLetter><span class="avatar avatar--xs avatar--letter">{{ senderName(msg).charAt(0) }}</span></ng-template>
+                </ng-container>
+              </span>
 
-
-            <div class="reply-preview-container bg-light p-2 border-top d-flex align-items-center" *ngIf="replyingTo">
-                <div class="flex-grow-1 border-start border-primary border-4 ps-2 overflow-hidden">
-                    <h6 class="text-primary mb-0 font-size-13">{{ replyingTo.user.username }}</h6>
-                    <p class="text-muted mb-0 text-truncate font-size-12">{{ replyingTo.content || replyingTo.type }}</p>
-                </div>
-                <button class="btn btn-sm text-muted" (click)="cancelReply()">
-                    <i class="fa-solid fa-xmark"></i>
+              <div class="bubble" (appLongPress)="msgMenu.open()">
+                <button type="button" class="bubble__sender" *ngIf="isGroupChat && !isMine(msg) && isFirstOfRun(i)" [style.color]="senderColor(msg)" (click)="openUserProfile(msg.user?._id || msg.userId!)">
+                  {{ senderName(msg) }}
                 </button>
-            </div>
 
-            <form [formGroup]="formData" (ngSubmit)="sendMessage()"
-                class="chat-input-section input-container d-flex p-3 border-top bg-white align-items-center">
-                <div *ngIf="fileName" class="selected-image-container me-2 position-relative">
-                    <img *ngIf="file?.type!.startsWith('image')" [src]="fileName" class="selected-image">
-                    <i class="fa-solid fa-file-pdf text-danger fa-2x" *ngIf="file?.type === 'pdf'"></i>
-                    <video *ngIf="file?.type!.startsWith('video')" class="selected-image" controls>
-                        <source [src]="fileName" type="video/mp4">
-                    </video>
-                    <audio *ngIf="file?.type!.startsWith('audio')" class="selected-image" controls>
-                        <source [src]="fileName" type="audio/mp3">
-                    </audio>
-                    <i class="fa-solid fa-times-circle remove-image-icon" (click)="removeSelectedImage()"></i>
+                <button type="button" class="bubble__quote" *ngIf="msg.replyTo && (msg.replyTo.content || msg.replyTo.type)" (click)="scrollToMessage(msg.replyTo._id)">
+                  <span class="bubble__quote-author">{{ replyAuthor(msg.replyTo) }}</span>
+                  <span class="bubble__quote-text">{{ msg.replyTo.type === 'text' || !msg.replyTo.type ? msg.replyTo.content : (msg.replyTo.type | titlecase) }}</span>
+                </button>
+
+                <!-- Media -->
+                <button type="button" class="bubble__media" *ngIf="msg.type === 'image'" (click)="openPreview(msg.fileUrl!, 'image')" aria-label="Open image">
+                  <img [src]="msg.thumbnailUrl || msg.fileUrl" alt="Shared image" loading="lazy" />
+                </button>
+                <video *ngIf="msg.type === 'video'" class="bubble__video" controls preload="metadata" [poster]="msg.thumbnailUrl && msg.thumbnailUrl !== msg.fileUrl ? msg.thumbnailUrl : null">
+                  <source [src]="msg.fileUrl" />
+                </video>
+                <audio *ngIf="msg.type === 'audio'" class="bubble__audio" controls preload="metadata">
+                  <source [src]="msg.fileUrl" />
+                </audio>
+                <button type="button" class="bubble__doc" *ngIf="msg.type === 'pdf'" (click)="openPreview(msg.fileUrl!, 'pdf')">
+                  <i class="fa-solid fa-file-pdf"></i>
+                  <span class="bubble__doc-name">{{ fileNameOf(msg.fileUrl) }}</span>
+                  <i class="fa-solid fa-arrow-up-right-from-square bubble__doc-open"></i>
+                </button>
+
+                <!-- Text / caption (inline spacer keeps the time clear of the last line) -->
+                <p class="bubble__text" *ngIf="hasText(msg); else metaRow">
+                  <ng-container *ngIf="isSearchHit(msg); else plainText"><span [innerHTML]="msg.content | highlight: searchTerm"></span></ng-container>
+                  <ng-template #plainText>{{ msg.content }}</ng-template>
+                  <span class="bubble__spacer" [class.bubble__spacer--tick]="isMine(msg) && !isGroupChat" aria-hidden="true"></span>
+                </p>
+                <ng-template #metaRow><div class="bubble__meta-row" aria-hidden="true"></div></ng-template>
+
+                <span class="bubble__meta">
+                  <time [attr.datetime]="msg.createdAt">{{ msg.createdAt | date: 'shortTime' }}</time>
+                  <i *ngIf="isMine(msg) && !isGroupChat" class="fa-solid tick" [class.fa-check-double]="msg.isRead" [class.fa-check]="!msg.isRead" [class.tick--read]="msg.isRead" [attr.aria-label]="msg.isRead ? 'Seen' : 'Sent'"></i>
+                </span>
+
+                <div class="bubble__reactions" *ngIf="msg.reactions?.length">
+                  <button type="button" *ngFor="let emoji of getUniqueReactions(msg.reactions || [])" class="reaction" [class.reaction--mine]="hasReacted(msg.reactions || [], emoji)" (click)="addReaction(msg._id, emoji)">
+                    {{ emoji }} <span>{{ getReactionCount(msg.reactions || [], emoji) }}</span>
+                  </button>
                 </div>
 
-
-                <input type="text" formControlName="message" class="form-control rounded-pill me-2"
-                    placeholder="Type a message..." (keypress)="typing()">
-
-                <input type="file" #fileInput (change)="handleFileUpload($event)" class="d-none"
-                    accept="image/*,application/pdf,video/*,audio/*">
-
-                <i class="fa-solid fa-paperclip attachment-icon me-2" (click)="fileInput.click()"></i>
-
-                <div class="col-auto">
-                    <button type="submit" class="btn chat-send w-md waves-effect waves-light">
-                        <span class="d-none d-sm-inline-block me-2">Send</span>
-                        <i class="fa-regular fa-paper-plane"></i>
-                    </button>
+                <div class="bubble__menu" ngbDropdown #msgMenu="ngbDropdown" [placement]="isMine(msg) ? 'bottom-end' : 'bottom-start'" container="body">
+                  <button type="button" class="bubble__menu-btn" ngbDropdownToggle aria-label="Message options">
+                    <i class="fa-solid fa-chevron-down"></i>
+                  </button>
+                  <div ngbDropdownMenu class="app-menu">
+                    <div class="emoji-row">
+                      <button type="button" *ngFor="let emoji of popularEmojis" (click)="addReaction(msg._id, emoji)" [attr.aria-label]="'React with ' + emoji" ngbDropdownItem>{{ emoji }}</button>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <button ngbDropdownItem type="button" (click)="setReply(msg)"><i class="fa-solid fa-reply"></i>Reply</button>
+                    <button ngbDropdownItem type="button" (click)="onCopyMessage(msg)"><i class="fa-regular fa-copy"></i>Copy</button>
+                    <button ngbDropdownItem type="button" *ngIf="canForward(msg)" (click)="forwardMessage(msg)"><i class="fa-solid fa-share"></i>Forward</button>
+                    <button ngbDropdownItem type="button" *ngIf="isMine(msg)" class="text-danger" (click)="deleteMessage(msg)"><i class="fa-regular fa-trash-can"></i>Delete</button>
+                  </div>
                 </div>
-            </form>
-
-
-        </div>
-
-        <div class="chat-main p-0" *ngIf="!receiverId && !conversationId" style="display: contents;">
-            <div class="welcome-message">
-                <img src="../../assets/welcome1.png" alt="Welcome to Chat" class="welcome-image img-fluid">
-                <h2 class="welcome-heading">Welcome to MeetChat</h2>
-                <p class="welcome-text">Pick a contact or group to start chatting, calling, or meeting.</p>
-                <button class="btn btn-outline-primary back-button" (click)="toggleSidebar()">Browse Contacts to Start
-                    Chatting</button>
+              </div>
             </div>
-        </div>
+          </ng-template>
+        </ng-container>
+      </ng-container>
 
-
+      <div class="typing-row" *ngIf="isTyping" aria-live="polite">
+        <span class="typing-dots"><i></i><i></i><i></i></span>
+      </div>
     </div>
+
+    <button type="button" class="jump-down" *ngIf="!isNearBottom" (click)="scrollToBottom()" aria-label="Scroll to latest message">
+      <span class="badge-unread" *ngIf="unseenBelow">{{ unseenBelow }}</span>
+      <i class="fa-solid fa-chevron-down"></i>
+    </button>
+
+    <!-- Reply preview -->
+    <div class="reply-bar" *ngIf="replyingTo">
+      <div class="reply-bar__body">
+        <strong>{{ isMine(replyingTo) ? 'You' : senderName(replyingTo) }}</strong>
+        <span>{{ replyingTo.type === 'text' ? replyingTo.content : (replyingTo.type | titlecase) }}</span>
+      </div>
+      <button type="button" class="icon-btn icon-btn--sm" (click)="cancelReply()" aria-label="Cancel reply">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- Attachment preview -->
+    <div class="attach-bar" *ngIf="file">
+      <div class="attach-bar__thumb" [ngSwitch]="fileKind">
+        <img *ngSwitchCase="'image'" [src]="filePreviewUrl" alt="Selected image" />
+        <video *ngSwitchCase="'video'" [src]="filePreviewUrl" muted></video>
+        <i *ngSwitchCase="'audio'" class="fa-solid fa-file-audio"></i>
+        <i *ngSwitchCase="'pdf'" class="fa-solid fa-file-pdf text-danger"></i>
+        <i *ngSwitchDefault class="fa-regular fa-file"></i>
+      </div>
+      <div class="attach-bar__info">
+        <strong>{{ file.name }}</strong>
+        <span>{{ uploading ? 'Uploading…' : (file.size / 1024 / 1024 | number: '1.0-1') + ' MB' }}</span>
+      </div>
+      <button type="button" class="icon-btn icon-btn--sm" (click)="clearSelectedFile()" [disabled]="uploading" aria-label="Remove attachment">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- Composer -->
+    <form class="composer" [formGroup]="formData" (ngSubmit)="sendMessage()">
+      <div class="composer__emoji">
+        <button type="button" class="icon-btn" (click)="showComposerEmoji = !showComposerEmoji" [class.is-active]="showComposerEmoji" aria-label="Emoji" [attr.aria-expanded]="showComposerEmoji">
+          <i class="fa-regular fa-face-smile"></i>
+        </button>
+        <div class="emoji-panel" *ngIf="showComposerEmoji" role="dialog" aria-label="Emoji picker">
+          <button type="button" *ngFor="let e of composerEmojis" (click)="insertEmoji(e)" [attr.aria-label]="e">{{ e }}</button>
+        </div>
+      </div>
+
+      <button type="button" class="icon-btn" (click)="fileInput.click()" [disabled]="uploading" aria-label="Attach a file" title="Photo, video, audio or PDF">
+        <i class="fa-solid fa-paperclip"></i>
+      </button>
+      <input type="file" #fileInput (change)="handleFileUpload($event)" class="d-none" accept="image/*,application/pdf,video/*,audio/*" />
+
+      <textarea
+        #composerInput
+        rows="1"
+        formControlName="message"
+        class="composer__input"
+        placeholder="Type a message"
+        aria-label="Message"
+        (input)="typing(); autoGrow(composerInput)"
+        (keydown)="onComposerKeydown($event)"
+      ></textarea>
+
+      <button type="submit" class="send-btn" [disabled]="!canSend" aria-label="Send message">
+        <span *ngIf="uploading" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+        <i *ngIf="!uploading" class="fa-solid fa-paper-plane"></i>
+      </button>
+    </form>
+  </main>
+
+  <!-- ============================================================ WELCOME -->
+  <ng-template #welcome>
+    <section class="welcome">
+      <img src="assets/welcome1.png" alt="" class="welcome__image" />
+      <h2>Welcome to MeetChat</h2>
+      <p>Pick a conversation to start chatting, calling, or meeting. Calls keep running while you chat.</p>
+    </section>
+  </ng-template>
 </div>
 
-
-<div class="modal fade" id="groupModal" tabindex="-1" aria-labelledby="groupModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="groupModalLabel">Create Group</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-
-            <div class="modal-body">
-                <div class="p-3">
-                    <form [formGroup]="groupForm" (ngSubmit)="createGroup()">
-                        <div class="mb-3">
-                            <label for="groupName" class="form-label">Group Name</label>
-                            <input type="text" class="form-control" id="groupName" formControlName="groupName" required>
-                            <div *ngIf="hasError('groupName', 'required')" class="text-danger">
-                                *groupName is required
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label for="groupDescription" class="form-label">Group Description</label>
-                            <textarea class="form-control" id="groupDescription"
-                                formControlName="groupDescription"></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <label for="groupAvatar" class="form-label">Group Avatar</label>
-                            <input type="file" class="form-control" id="groupAvatar" (change)="onFileSelected($event)">
-                        </div>
-                        <div class="mb-3">
-                            <div class="mb-3">
-                                <label class="form-label">Select Members</label>
-                                <div class="custom-multiselect border p-2" (click)="toggleDropdown()">
-                                    <span *ngFor="let user of selectedMembers" class="badge bg-primary me-1">
-                                        {{ user.username }}
-                                        <span (click)="removeUser(user)" class="ms-1"
-                                            style="cursor:pointer;">&times;</span>
-                                    </span>
-                                    <input type="text" class="border-0" readonly style="outline: none; width: 1px;"
-                                        formControlName="groupMembers" />
-                                </div>
-                                <div *ngIf="hasError('groupMembers', 'required')" class="text-danger">
-                                    *groupMembers are required
-                                </div>
-
-                                <div *ngIf="showDropdown" class="border p-2 mt-1"
-                                    style="max-height: 150px; overflow-y: auto;">
-                                    <div *ngFor="let user of users" (click)="selectUser(user)"
-                                        [class.bg-light]="isSelected(user)" style="cursor: pointer; padding: 5px;">
-                                        {{ user.username }}
-                                    </div>
-                                </div>
-
-                            </div>
-
-                        </div>
-
-                        <button type="submit" class="btn btn-primary" data-bs-dismiss="modal" [disabled]="isLoading">
-                            <span *ngIf="!isLoading">Create Group</span>
-
-                            <span *ngIf="isLoading" class="d-flex align-items-center">
-                                <span class="spinner-border spinner-border-sm text-light me-2" role="status"
-                                    aria-hidden="true"></span>
-                                Creating Group...
-                            </span>
-                        </button>
-
-                        <button type="button" class="btn btn-secondary ms-2" data-bs-dismiss="modal"
-                            (click)="toggleGroupForm()">Cancel</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
+<!-- Media preview -->
+<div class="lightbox" *ngIf="previewUrl" (click)="closePreview()" (keydown.escape)="closePreview()" role="dialog" aria-modal="true" aria-label="Media preview" tabindex="-1">
+  <div class="lightbox__bar" (click)="$event.stopPropagation()">
+    <a class="icon-btn" [href]="previewUrl" target="_blank" rel="noopener" aria-label="Open original"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+    <button type="button" class="icon-btn" (click)="closePreview()" aria-label="Close preview"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <img *ngIf="previewType === 'image'" [src]="previewUrl" alt="Shared image" (click)="$event.stopPropagation()" />
+  <video *ngIf="previewType === 'video'" controls autoplay (click)="$event.stopPropagation()">
+    <source [src]="previewUrl" />
+  </video>
 </div>
+
+<!-- Incoming call -->
+<app-incoming-call
+  *ngIf="incomingCall"
+  [call]="incomingCall"
+  (accept)="acceptIncomingCall()"
+  (decline)="declineIncomingCall()"
+></app-incoming-call>
+
+<!-- Active call (full screen or minimized; survives switching chats) -->
+<app-group-call
+  *ngIf="activeCall"
+  [launch]="activeCall"
+  [(minimized)]="callMinimized"
+  (closed)="onCallClosed()"
+></app-group-call>
+
+<!-- ============================================================ MODALS -->
+<ng-template #groupModal let-modal>
+  <div class="modal-header">
+    <h5 class="modal-title">New group</h5>
+    <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
+  </div>
+  <form [formGroup]="groupForm" (ngSubmit)="createGroup()">
+    <div class="modal-body">
+      <div class="mb-3">
+        <label for="groupName" class="form-label">Group name</label>
+        <input type="text" class="form-control" id="groupName" formControlName="groupName" autocomplete="off" />
+        <div *ngIf="hasError('groupName', 'required')" class="form-text text-danger">Group name is required</div>
+      </div>
+      <div class="mb-3">
+        <label for="groupDescription" class="form-label">Description <span class="text-muted">(optional)</span></label>
+        <textarea class="form-control" id="groupDescription" rows="2" formControlName="groupDescription"></textarea>
+      </div>
+      <div class="mb-3">
+        <label for="groupAvatar" class="form-label">Group photo</label>
+        <input type="file" class="form-control" id="groupAvatar" accept="image/*" (change)="onFileSelected($event)" />
+      </div>
+      <div>
+        <label class="form-label">Members <span class="text-muted">({{ selectedMembers.length }} selected, at least 2)</span></label>
+        <div class="member-chips" *ngIf="selectedMembers.length">
+          <span class="member-chip" *ngFor="let user of selectedMembers">
+            {{ user.username }}
+            <button type="button" (click)="removeUser(user)" [attr.aria-label]="'Remove ' + user.username">&times;</button>
+          </span>
+        </div>
+        <input type="search" class="form-control form-control-sm mb-2" [(ngModel)]="memberSearch" [ngModelOptions]="{ standalone: true }" placeholder="Search people" aria-label="Search people" />
+        <ul class="member-list">
+          <li *ngFor="let user of memberCandidates">
+            <label class="member-option">
+              <input type="checkbox" class="form-check-input" [checked]="isSelected(user)" (change)="toggleMember(user)" />
+              <img *ngIf="user.avatar; else optLetter" [src]="user.avatar" alt="" class="avatar avatar--xs" />
+              <ng-template #optLetter><span class="avatar avatar--xs avatar--letter">{{ user.username?.charAt(0) }}</span></ng-template>
+              <span>{{ user.username }}</span>
+            </label>
+          </li>
+        </ul>
+        <div *ngIf="hasError('groupMembers', 'required')" class="form-text text-danger">Select at least 2 members</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-light" (click)="modal.dismiss()">Cancel</button>
+      <button type="submit" class="btn btn-primary" [disabled]="creatingGroup">
+        <span *ngIf="creatingGroup" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+        {{ creatingGroup ? 'Creating…' : 'Create group' }}
+      </button>
+    </div>
+  </form>
+</ng-template>
+
+<ng-template #forwardModal let-modal>
+  <div class="modal-header">
+    <h5 class="modal-title">Forward message</h5>
+    <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
+  </div>
+  <div class="modal-body">
+    <div class="forward-preview" *ngIf="forwardSource">
+      {{ forwardSource.type === 'text' ? forwardSource.content : (forwardSource.type | titlecase) }}
+    </div>
+    <input type="search" class="form-control mb-2" [(ngModel)]="forwardSearch" placeholder="Search chats" aria-label="Search chats" />
+    <ul class="member-list member-list--tall">
+      <li *ngFor="let target of forwardTargets; trackBy: trackBySidebar">
+        <button type="button" class="member-option member-option--btn" (click)="confirmForward(target)" [disabled]="forwardSending">
+          <img *ngIf="target.avatar; else fwdLetter" [src]="target.avatar" alt="" class="avatar avatar--xs" />
+          <ng-template #fwdLetter><span class="avatar avatar--xs avatar--letter">{{ (target.title || "?").charAt(0) }}</span></ng-template>
+          <span class="flex-grow-1 text-start">{{ target.title }}</span>
+          <i class="fa-solid fa-share text-muted"></i>
+        </button>
+      </li>
+      <li *ngIf="!forwardTargets.length" class="text-muted small p-2">No chats found</li>
+    </ul>
+  </div>
+</ng-template>

@@ -33,6 +33,10 @@ class MediasoupService {
     private router!: mediasoup.types.Router;
     private webRtcServer!: mediasoup.types.WebRtcServer;
 
+    /** One audio-level observer per call (shared router) → speaking indicators / active speaker */
+    private audioObservers = new Map<string, Promise<mediasoup.types.AudioLevelObserver>>();
+    private audioProducerOwner = new Map<string, string>();
+
     /** Keyed by userId so brief socket reconnects keep media alive */
     private peersByUserId = new Map<string, MediasoupPeer>();
     private socketToUserId = new Map<string, string>();
@@ -335,6 +339,7 @@ class MediasoupService {
 
         this.peersByUserId.delete(userId);
         this.socketToUserId.delete(socketId);
+        this.releaseCallObservers(peer.callId);
     }
 
     joinCall(
@@ -376,8 +381,71 @@ class MediasoupService {
         peer.sendTransport = undefined;
         peer.recvTransport = undefined;
 
+        const callId = peer.callId;
         peer.callId = undefined;
         peer.callType = undefined;
+        this.releaseCallObservers(callId);
+    }
+
+    /**
+     * Feed an audio producer into its call's level observer. `onLevels` gets the
+     * loudest speakers (dBov, -127..0) roughly every 500 ms; an empty list means silence.
+     * Closed producers are dropped by mediasoup automatically.
+     * The first caller's `onLevels` serves the observer's lifetime, so it must depend on callId only.
+     */
+    async observeAudio(
+        callId: string,
+        producer: mediasoup.types.Producer,
+        ownerUserId: string,
+        onLevels: (levels: { userId: string; volume: number }[]) => void
+    ): Promise<void> {
+        const key = String(callId);
+        let pending = this.audioObservers.get(key);
+        if (!pending) {
+            pending = this.getRouter()
+                .createAudioLevelObserver({ maxEntries: 4, threshold: -65, interval: 500 })
+                .then((observer) => {
+                    observer.on('volumes', (volumes) => {
+                        onLevels(
+                            volumes
+                                .map((v) => ({
+                                    userId: this.audioProducerOwner.get(v.producer.id) || '',
+                                    volume: Math.round(v.volume),
+                                }))
+                                .filter((v) => v.userId)
+                        );
+                    });
+                    observer.on('silence', () => onLevels([]));
+                    return observer;
+                });
+            this.audioObservers.set(key, pending);
+        }
+
+        try {
+            const observer = await pending;
+            if (observer.closed || producer.closed) {
+                return;
+            }
+            this.audioProducerOwner.set(producer.id, ownerUserId);
+            producer.observer.once('close', () => this.audioProducerOwner.delete(producer.id));
+            await observer.addProducer({ producerId: producer.id });
+        } catch (error) {
+            // Speaking indicators are best-effort; never fail the produce over them
+            console.warn(`audio level observer failed for call ${key}:`, error);
+        }
+    }
+
+    /** Release per-call observers once nobody in the call has media. */
+    private releaseCallObservers(callId: string | undefined): void {
+        if (!callId || this.getPeersByCallId(callId).length > 0) {
+            return;
+        }
+        const pending = this.audioObservers.get(String(callId));
+        if (!pending) {
+            return;
+        }
+        this.audioObservers.delete(String(callId));
+        pending.then((observer) => observer.close()).catch(() => undefined);
     }
 
     getPeersByCallId(callId: string): MediasoupPeer[] {

@@ -1,3 +1,134 @@
+// Global design tokens and base styles. Loaded after Bootstrap (see angular.json "styles")
+// so these win over Bootstrap's defaults without !important.
+
+:root {
+  --app-font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --app-brand: #2563eb;
+  --app-brand-strong: #1d4ed8;
+  --app-brand-soft: #dbeafe;
+  --app-brand-soft-strong: #93c5fd;
+  --app-success: #16a34a;
+  --app-success-strong: #15803d;
+  --app-danger: #dc2626;
+  --app-read: #2563eb;
+  --app-highlight: #fde68a;
+
+  --app-bg: #e9edf2;
+  --app-surface: #ffffff;
+  --app-surface-2: #f4f6f9;
+  --app-input: #f0f2f5;
+  --app-hover: #f2f4f7;
+  --app-hover-strong: #e6e9ee;
+  --app-active: #e8effc;
+  --app-border: #e4e7ec;
+  --app-avatar-bg: #dbeafe;
+
+  --app-text: #111827;
+  --app-text-2: #4b5563;
+  --app-muted: #6b7280;
+  --app-icon: #54656f;
+
+  --app-chat-bg: #eef1f5;
+  --app-chat-dot: rgba(100, 116, 139, 0.12);
+  --app-bubble-in: #ffffff;
+  --app-bubble-out: #dcebff;
+  --app-quote: rgba(15, 23, 42, 0.05);
+  --app-system-bg: #ffffffe6;
+
+  --app-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
+
+  --bs-body-font-family: var(--app-font);
+  --bs-primary: var(--app-brand);
+  --bs-primary-rgb: 37, 99, 235;
+}
+
+html,
 body {
-    height: 100vh;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--app-font);
+  color: var(--app-text);
+  background: var(--app-bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  --bs-btn-bg: var(--app-brand);
+  --bs-btn-border-color: var(--app-brand);
+  --bs-btn-hover-bg: var(--app-brand-strong);
+  --bs-btn-hover-border-color: var(--app-brand-strong);
+  --bs-btn-active-bg: var(--app-brand-strong);
+  --bs-btn-disabled-bg: var(--app-brand);
+  --bs-btn-disabled-border-color: var(--app-brand);
+}
+
+// Thin, unobtrusive scrollbars (desktop)
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  border-radius: 8px;
+  background: rgba(100, 116, 139, 0.35);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+// Modals opened from the chat (new group / forward)
+.app-modal .modal-content {
+  border: 0;
+  border-radius: 16px;
+  box-shadow: var(--app-shadow);
+}
+
+.app-modal .modal-header,
+.app-modal .modal-footer {
+  border-color: var(--app-border);
+}
+
+// SweetAlert2 above the call overlay, matching the app font
+.swal2-container {
+  z-index: 1070 !important;
+  font-family: var(--app-font);
+}
+
+.swal2-popup {
+  border-radius: 16px !important;
+}
+
+.dropdown-menu-dark {
+  --bs-dropdown-bg: #1e293b;
+  --bs-dropdown-link-hover-bg: #334155;
+  --bs-dropdown-link-active-bg: #334155;
+  border-radius: 10px;
+}
+
+.visually-hidden-focusable:not(:focus):not(:focus-within) {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
 }

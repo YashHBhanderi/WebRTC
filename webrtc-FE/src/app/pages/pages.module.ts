@@ -12,6 +12,13 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { SimplebarAngularModule } from 'simplebar-angular';
 import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
 import { SharedModule } from '../_shared/shared.module';
+import { CallTileComponent } from './group-call/call-tile/call-tile.component';
+import { CallPrejoinComponent } from './group-call/call-prejoin/call-prejoin.component';
+import { CallDurationComponent } from './group-call/call-duration.component';
+import { MediaSrcDirective } from './group-call/media-src.directive';
+import { IncomingCallComponent } from './chat/incoming-call/incoming-call.component';
+import { HighlightPipe } from './chat/highlight.pipe';
+import { LongPressDirective } from './chat/long-press.directive';
 
 @NgModule({
   declarations: [
@@ -21,6 +28,13 @@ import { SharedModule } from '../_shared/shared.module';
     ProfileComponent,
     GroupInfoComponent,
     JistiMeetComponent,
+    CallTileComponent,
+    CallPrejoinComponent,
+    CallDurationComponent,
+    MediaSrcDirective,
+    IncomingCallComponent,
+    HighlightPipe,
+    LongPressDirective,
   ],
   imports: [
     SharedModule,

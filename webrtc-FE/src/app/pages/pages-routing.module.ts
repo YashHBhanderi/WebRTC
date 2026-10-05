@@ -2,8 +2,8 @@ import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
 import { ChatComponent } from './chat/chat.component';
 import { AuthGuard } from '../core/guards/auth.guard';
-import { GroupCallComponent } from './group-call/group-call.component';
 import { VideoCallComponent } from './video-call/video-call.component';
+import { callLinkRedirect } from './group-call/call-link.guard';
 
 const routes: Routes = [
   {
@@ -16,15 +16,16 @@ const routes: Routes = [
     component: VideoCallComponent,
     canActivate: [AuthGuard]
   },
+  // Legacy call URLs → the call opens on top of the chat (see call-link.guard.ts)
   {
     path: 'group-call/:groupId',
-    component: GroupCallComponent,
-    canActivate: [AuthGuard]
+    component: ChatComponent,
+    canActivate: [AuthGuard, callLinkRedirect]
   },
   {
     path: 'group-call-jitsi/:groupId',
-    component: GroupCallComponent,
-    canActivate: [AuthGuard]
+    component: ChatComponent,
+    canActivate: [AuthGuard, callLinkRedirect]
   }
 ];
 

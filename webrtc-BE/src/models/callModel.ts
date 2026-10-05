@@ -10,7 +10,8 @@ const participantSchema = new Schema(
 
     status: {
       type: String,
-      enum: ["invited", "ringing", "joined", "rejected", "left"],
+      // removed = taken out by the host; blocks rejoining this call
+      enum: ["invited", "ringing", "joined", "rejected", "left", "removed"],
       default: "invited",
     },
 

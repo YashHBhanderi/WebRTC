@@ -4,6 +4,64 @@ export interface CallMediaResult {
   hasVideo: boolean;
 }
 
+/** Optional device choice from the pre-join screen / settings. Unset = browser default. */
+export interface MediaDevicePrefs {
+  audioDeviceId?: string | null;
+  videoDeviceId?: string | null;
+}
+
+export interface MediaDeviceLists {
+  microphones: MediaDeviceInfo[];
+  cameras: MediaDeviceInfo[];
+  speakers: MediaDeviceInfo[];
+}
+
+/** Device labels are only populated after a permission grant; ids may be empty before that. */
+export async function listMediaDevices(): Promise<MediaDeviceLists> {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    return { microphones: [], cameras: [], speakers: [] };
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const usable = (d: MediaDeviceInfo) => !!d.deviceId;
+    return {
+      microphones: devices.filter((d) => d.kind === 'audioinput' && usable(d)),
+      cameras: devices.filter((d) => d.kind === 'videoinput' && usable(d)),
+      speakers: devices.filter((d) => d.kind === 'audiooutput' && usable(d)),
+    };
+  } catch {
+    return { microphones: [], cameras: [], speakers: [] };
+  }
+}
+
+/** Speaker selection needs HTMLMediaElement.setSinkId (Chromium; not iOS Safari). */
+export function supportsAudioOutputSelection(): boolean {
+  return typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
+}
+
+export function supportsScreenShare(): boolean {
+  return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia && !isMobileClient();
+}
+
+function withDevice(base: MediaTrackConstraints, deviceId?: string | null): MediaTrackConstraints {
+  return deviceId ? { ...base, deviceId: { exact: deviceId } } : base;
+}
+
+/** Single-kind capture for device switching mid-call. */
+export async function getSingleTrack(kind: 'audio' | 'video', deviceId?: string | null): Promise<MediaStreamTrack> {
+  const stream = await navigator.mediaDevices.getUserMedia(
+    kind === 'audio'
+      ? { audio: withDevice(CALL_AUDIO, deviceId), video: false }
+      : { audio: false, video: withDevice(videoConstraints(), deviceId) }
+  );
+  await tightenTracks(stream);
+  const track = kind === 'audio' ? stream.getAudioTracks()[0] : stream.getVideoTracks()[0];
+  if (!track) {
+    throw new Error(kind === 'audio' ? 'No microphone available' : 'No camera available');
+  }
+  return track;
+}
+
 function isMobileClient(): boolean {
   if (typeof navigator === 'undefined') {
     return false;
@@ -50,15 +108,15 @@ function videoConstraints(): MediaTrackConstraints {
  * Best-effort local media. Call still works with an empty stream
  * when mic/camera are missing or busy.
  */
-export async function getCallMedia(wantVideo: boolean): Promise<CallMediaResult> {
+export async function getCallMedia(wantVideo: boolean, prefs: MediaDevicePrefs = {}): Promise<CallMediaResult> {
   if (!navigator.mediaDevices?.getUserMedia) {
     return { stream: new MediaStream(), hasAudio: false, hasVideo: false };
   }
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: CALL_AUDIO,
-      video: wantVideo ? videoConstraints() : false,
+      audio: withDevice(CALL_AUDIO, prefs.audioDeviceId),
+      video: wantVideo ? withDevice(videoConstraints(), prefs.videoDeviceId) : false,
     });
     await tightenTracks(stream);
     return {

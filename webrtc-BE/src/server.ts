@@ -20,8 +20,12 @@ import dns from "dns";
 import mediasoupService from "./services/mediasoup.service";
 import * as mediasoup from 'mediasoup';
 import { getClientIceConfig, mediaConfig, withTestTunnelCandidate } from "./utils/network";
+import callRoom, { CALL_REACTIONS } from "./services/call-room.service";
 
 dotenv.config();
+
+/** Unanswered ring → missed call after this long (CALL_RING_TIMEOUT_MS, default 45 s) */
+const RING_TIMEOUT_MS = Number(process.env.CALL_RING_TIMEOUT_MS) > 0 ? Number(process.env.CALL_RING_TIMEOUT_MS) : 45_000;
 dns.setDefaultResultOrder('ipv4first');
 
 const app = express();
@@ -72,6 +76,102 @@ function releaseScreenShare(
   }
 }
 
+function notifyConversationMembers(
+  memberIds: any[] | undefined,
+  event: string,
+  payload: Record<string, unknown>,
+  skipUserId?: string
+) {
+  (memberIds || []).forEach((member) => {
+    const memberId = member.toString();
+    if (skipUserId && memberId === skipUserId) {
+      return;
+    }
+    const socketId = userSockets.get(memberId);
+    if (socketId) {
+      io.to(socketId).emit(event, payload);
+    }
+  });
+}
+
+/**
+ * Emit to every peer that joined this call's media, directly by socket id.
+ * Unlike the socket room, this still reaches peers whose socket reconnected.
+ */
+function emitToCall(callId: string, event: string, payload: Record<string, unknown>, skipUserId?: string) {
+  mediasoupService.getPeersByCallId(callId).forEach((peer) => {
+    if (skipUserId && peer.userId === skipUserId) {
+      return;
+    }
+    io.to(peer.socketId).emit(event, payload);
+  });
+}
+
+/** The socket's mediasoup peer, only when it is currently in this call. */
+function peerInCall(socketId: string, callId: unknown) {
+  const peer = mediasoupService.getPeer(socketId);
+  return peer && callId && peer.callId === String(callId) ? peer : undefined;
+}
+
+/** Organizer of the call, or admin of the group it belongs to. */
+function isCallHost(call: { initiatedBy: any }, group: { groupAdmin?: any } | null, userId: string) {
+  return String(call.initiatedBy) === String(userId) || (!!group?.groupAdmin && String(group.groupAdmin) === String(userId));
+}
+
+/** System-style call entry in the chat (missed / declined), authored by the caller. */
+async function postCallLogMessage(group: any, call: any, content: string) {
+  const message = await Message.create({
+    userId: call.initiatedBy,
+    content,
+    type: "call",
+    fileUrl: "",
+    thumbnailUrl: "",
+    createdAt: new Date(),
+  });
+  await Conversation.updateOne({ _id: group._id }, { $push: { messages: message._id } });
+  const author = await User.findById(call.initiatedBy).select("username email avatar isOnline lastSeen").lean();
+  const payload = {
+    ...message.toObject(),
+    user: author,
+    conversationId: group._id.toString(),
+  };
+  io.to(group._id.toString()).emit("receiveMessage", payload);
+  notifyConversationMembers(group.members, "receiveMessage", payload);
+}
+
+/** Calls already announced as ended (several exit paths can race: timeout, last leave, host end). */
+const announcedCalls = new Set<string>();
+
+/** One place that tells everyone a call is over and releases its in-memory state. Runs once per call. */
+async function announceCallEnded(call: any, extra: { endedBy?: string; reason?: string } = {}) {
+  const callId = call._id.toString();
+  if (announcedCalls.has(callId)) {
+    return;
+  }
+  announcedCalls.add(callId);
+  setTimeout(() => announcedCalls.delete(callId), 10 * 60 * 1000);
+  const groupId = call.conversationId.toString();
+  releaseScreenShare(callId, undefined, true);
+  callRoom.dispose(callId);
+  // Peers that never sent call:leave (they just got call:ended) must not keep transports/producers
+  // bound to a dead call — the next call would otherwise inherit them.
+  mediasoupService.getPeersByCallId(callId).forEach((peer) => mediasoupService.leaveCall(peer.socketId));
+
+  const payload = { callId, groupId, callStatus: call.callStatus, ...extra };
+  io.to(callId).emit("call:ended", payload);
+  const group = await Conversation.findById(call.conversationId);
+  notifyConversationMembers(group?.members, "call:ended", payload);
+
+  if (call.callStatus === "missed" && group) {
+    const content = extra.reason === "declined"
+      ? `Declined ${call.callType} call`
+      : `Missed ${call.callType} call`;
+    await postCallLogMessage(group, call, content).catch((error) =>
+      console.error("Failed to post missed-call message:", error)
+    );
+  }
+}
+
 
 const io = new Server(server, {
   cors: {
@@ -95,14 +195,15 @@ app.post("/upload", uploadCloudnary.single("file"), async (req: Request, res: Re
     }
     const mimeType = req.file.mimetype;
     let resourceType: "image" | "video" | "auto" | "raw" = "auto";
-    if (mimeType.startsWith("video/")) {
+    // Cloudinary stores audio under the "video" resource type
+    if (mimeType.startsWith("video/") || mimeType.startsWith("audio/")) {
       resourceType = "video";
     } else if (mimeType.startsWith("image/")) {
       resourceType = "image";
     } else if (mimeType.startsWith("application/pdf")) {
       resourceType = "raw";
     } else {
-      return res.status(400).json({ error: "Unsupported file type. Please upload a video or image." });
+      return res.status(400).json({ error: "Unsupported file type. Please upload an image, video, audio or PDF file." });
     }
     const base64String = `data:${mimeType};base64,${req.file.buffer.toString('base64')}`;
     const result = await cloudinary.uploader.upload(base64String, {
@@ -171,6 +272,9 @@ io.on("connection", async (socket) => {
   User.findByIdAndUpdate(userId, { isOnline: true }).catch((error) =>
     console.error(`Failed to mark ${userId} online:`, error)
   );
+  // Live presence for chat lists/headers. Broadcast to all sockets: fine at this app's
+  // scale; switch to contact-scoped rooms if the user base grows large.
+  socket.broadcast.emit("user:presence", { userId, isOnline: true });
 
   socket.on("joinConversation", async (conversationId) => {
     socket.join(conversationId);
@@ -178,42 +282,56 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("sendMessage", async (messageData: { user: IUser, conversationId: mongoose.Schema.Types.ObjectId, content: string, fileUrl?: string, thumbnailUrl?: string, type: string, replyTo?: string }) => {
+    try {
+      // Sender must be the authenticated socket user and a member of the conversation
+      if (!messageData?.conversationId || String(messageData.user?._id) !== String(socket.data.userId)) {
+        console.warn(`sendMessage rejected: sender mismatch for socket user ${socket.data.userId}`);
+        return;
+      }
 
-    const newMessage = new Message({
-      userId: messageData.user._id,
-      content: messageData.content || messageData.type,
-      fileUrl: messageData.fileUrl || "",
-      thumbnailUrl: messageData.thumbnailUrl || messageData.fileUrl || "",
-      type: messageData.type,
-      replyTo: messageData.replyTo ? new mongoose.Types.ObjectId(messageData.replyTo) : null,
-      createdAt: new Date(),
-    });
+      const conversation = await Conversation.findById(messageData.conversationId);
+      if (conversation && !conversation.members.some((m) => m.toString() === String(socket.data.userId))) {
+        console.warn(`sendMessage rejected: ${socket.data.userId} is not a member of ${messageData.conversationId}`);
+        return;
+      }
 
-    await newMessage.save();
+      if (conversation) {
+        const newMessage = new Message({
+          userId: messageData.user._id,
+          content: messageData.content || messageData.type,
+          fileUrl: messageData.fileUrl || "",
+          thumbnailUrl: messageData.thumbnailUrl || messageData.fileUrl || "",
+          type: messageData.type,
+          replyTo: messageData.replyTo ? new mongoose.Types.ObjectId(messageData.replyTo) : null,
+          createdAt: new Date(),
+        });
 
-    const conversation = await Conversation.findById(messageData.conversationId);
-    if (conversation) {
-      conversation.messages.push(newMessage._id as mongoose.Schema.Types.ObjectId);
-      await conversation.save();
+        await newMessage.save();
 
-      const populatedMessage = await Message.findById(newMessage._id).populate('replyTo');
+        conversation.messages.push(newMessage._id as mongoose.Schema.Types.ObjectId);
+        await conversation.save();
 
-      io.to(messageData.conversationId.toString()).emit("receiveMessage", {
-        ...populatedMessage?.toObject(),
-        user: messageData.user,
-        conversationId: messageData.conversationId,
-      });
+        const populatedMessage = await Message.findById(newMessage._id).populate('replyTo');
 
-      conversation.members.forEach((member) => {
-        if (userSockets.has(member.toString()) && member.toString() !== messageData.user._id.toString()) {
-          io.to(userSockets.get(member.toString())!).emit("receiveMessage", {
-            ...populatedMessage?.toObject(),
-            conversationId: messageData.conversationId,
-          });
-        }
-      });
-    } else {
-      console.log("Conversation not found");
+        io.to(messageData.conversationId.toString()).emit("receiveMessage", {
+          ...populatedMessage?.toObject(),
+          user: messageData.user,
+          conversationId: messageData.conversationId,
+        });
+
+        conversation.members.forEach((member) => {
+          if (userSockets.has(member.toString()) && member.toString() !== messageData.user._id.toString()) {
+            io.to(userSockets.get(member.toString())!).emit("receiveMessage", {
+              ...populatedMessage?.toObject(),
+              conversationId: messageData.conversationId,
+            });
+          }
+        });
+      } else {
+        console.log("Conversation not found");
+      }
+    } catch (error) {
+      console.error("Error sending message:", error);
     }
   });
 
@@ -231,11 +349,11 @@ io.on("connection", async (socket) => {
   });
 
   socket.on("typing", (conversationId: mongoose.Schema.Types.ObjectId | string, userId: mongoose.Schema.Types.ObjectId) => {
-    socket.broadcast.to(conversationId as string).emit("userTyping", { userId, isTyping: true });
+    socket.broadcast.to(conversationId as string).emit("userTyping", { userId, isTyping: true, conversationId });
   });
 
   socket.on("stopTyping", (conversationId: mongoose.Schema.Types.ObjectId | string, userId: mongoose.Schema.Types.ObjectId) => {
-    socket.broadcast.to(conversationId as string).emit("userTyping", { userId, isTyping: false });
+    socket.broadcast.to(conversationId as string).emit("userTyping", { userId, isTyping: false, conversationId });
   });
 
   socket.on("markMessagesRead", async (conversationId: mongoose.Schema.Types.ObjectId, userId: mongoose.Schema.Types.ObjectId) => {
@@ -292,7 +410,8 @@ io.on("connection", async (socket) => {
   socket.on("disconnect", async () => {
     const disconnectedSocketId = socket.id;
     console.log(`User disconnected: ${userId} (Socket ID: ${disconnectedSocketId})`);
-    await User.findByIdAndUpdate(userId, { isOnline: false, lastSeen: new Date() });
+    const lastSeen = new Date();
+    await User.findByIdAndUpdate(userId, { isOnline: false, lastSeen });
 
     for (const [callKey, sharer] of screenShareByCall.entries()) {
       if (sharer.socketId === disconnectedSocketId) {
@@ -303,6 +422,7 @@ io.on("connection", async (socket) => {
     // Only clear mapping if this socket is still the active one
     if (userSockets.get(userId) === disconnectedSocketId) {
       userSockets.delete(userId);
+      io.emit("user:presence", { userId, isOnline: false, lastSeen });
     }
 
     // Grace period: socket.io reconnects often mid-call; don't kill media immediately
@@ -331,6 +451,7 @@ io.on("connection", async (socket) => {
       if (callId) {
         try {
           const call = await callService.leaveCall(callId as any, userId as any);
+          callRoom.clearUser(callId.toString(), userId);
           io.to(callId.toString()).emit("call:participant-left", {
             callId,
             userId,
@@ -341,14 +462,8 @@ io.on("connection", async (socket) => {
           const shouldEnd = remainingJoined === 0 && remainingMedia.length === 0;
 
           if (shouldEnd) {
-            await callService.endCall(call._id);
-            const endedPayload = {
-              callId: call._id.toString(),
-              groupId: call.conversationId.toString(),
-            };
-            io.to(call._id.toString()).emit("call:ended", endedPayload);
-            const group = await Conversation.findById(call.conversationId);
-            notifyConversationMembers(group?.members, "call:ended", endedPayload);
+            const ended = await callService.endCall(call._id);
+            await announceCallEnded(ended);
           }
         } catch (error) {
           console.error("Error leaving call after disconnect:", error);
@@ -356,24 +471,6 @@ io.on("connection", async (socket) => {
       }
     }, 12000);
   });
-
-  const notifyConversationMembers = (
-    memberIds: any[] | undefined,
-    event: string,
-    payload: Record<string, unknown>,
-    skipUserId?: string
-  ) => {
-    (memberIds || []).forEach((member) => {
-      const memberId = member.toString();
-      if (skipUserId && memberId === skipUserId) {
-        return;
-      }
-      const socketId = userSockets.get(memberId);
-      if (socketId) {
-        io.to(socketId).emit(event, payload);
-      }
-    });
-  };
 
   socket.on("call:start", async (data) => {
     try {
@@ -436,6 +533,17 @@ io.on("connection", async (socket) => {
           payload,
           socket.data.userId
         );
+        const callKey = call._id.toString();
+        callRoom.setRingTimer(callKey, setTimeout(async () => {
+          try {
+            const missed = await callService.endIfUnanswered(callKey);
+            if (missed) {
+              await announceCallEnded(missed, { reason: "no-answer" });
+            }
+          } catch (error) {
+            console.error("Ring timeout handling failed:", error);
+          }
+        }, RING_TIMEOUT_MS));
       }
 
       console.log(`Group call started for ${groupId} by ${socket.data.userId} (${mode})`);
@@ -500,6 +608,10 @@ io.on("connection", async (socket) => {
 
       socket.join(call.conversationId.toString());
       socket.join(call._id.toString());
+      if (call.callStatus === "active") {
+        // Someone picked up — stop the no-answer timer
+        callRoom.clearRingTimer(call._id.toString());
+      }
 
       io.to(call._id.toString()).emit(
         "call:participant-joined",
@@ -534,6 +646,14 @@ io.on("connection", async (socket) => {
           userId: socket.data.userId,
         }
       );
+
+      // 1:1 decline (or every invitee declined a group ring) ends the ring
+      if (callService.allOthersRejected(call)) {
+        const ended = await callService.endIfUnanswered(call._id as any);
+        if (ended) {
+          await announceCallEnded(ended, { reason: "declined", endedBy: socket.data.userId });
+        }
+      }
     } catch (error) {
       console.error("Error rejecting call:", error);
 
@@ -555,6 +675,7 @@ io.on("connection", async (socket) => {
         callId,
         socket.data.userId
       );
+      callRoom.clearUser(call._id.toString(), socket.data.userId);
 
       io.to(call._id.toString()).emit(
         "call:participant-left",
@@ -573,15 +694,8 @@ io.on("connection", async (socket) => {
       const shouldEnd = remainingJoined === 0 && remainingMedia.length === 0;
 
       if (shouldEnd) {
-        await callService.endCall(call._id);
-        releaseScreenShare(call._id.toString(), undefined, true);
-        const endedPayload = {
-          callId: call._id.toString(),
-          groupId: call.conversationId.toString(),
-        };
-        io.to(call._id.toString()).emit("call:ended", endedPayload);
-        const group = await Conversation.findById(call.conversationId);
-        notifyConversationMembers(group?.members, "call:ended", endedPayload);
+        const ended = await callService.endCall(call._id);
+        await announceCallEnded(ended);
       }
     } catch (error) {
       console.error("Error leaving call:", error);
@@ -594,22 +708,24 @@ io.on("connection", async (socket) => {
     }
   });
 
-  socket.on("call:end", async ({ callId }) => {
+  socket.on("call:end", async ({ callId }, callback) => {
     try {
+      const existing = await callService.getCall(callId);
+      if (!existing) {
+        throw new Error("Call not found");
+      }
+      // Group meetings: only the host may end for everyone. 1:1 calls: either side.
+      const group = await Conversation.findById(existing.conversationId).select("isGroup groupAdmin");
+      if (group?.isGroup && !isCallHost(existing, group, socket.data.userId)) {
+        throw new Error("Only the host can end the meeting for everyone");
+      }
+
       const call = await callService.endCall(callId);
-
-      releaseScreenShare(call._id.toString());
       mediasoupService.leaveCall(socket.id);
-
-      const endedPayload = {
-        callId: call._id,
-        groupId: call.conversationId,
-        endedBy: socket.data.userId,
-      };
-      io.to(call._id.toString()).emit("call:ended", endedPayload);
-      const group = await Conversation.findById(call.conversationId);
-      notifyConversationMembers(group?.members, "call:ended", endedPayload);
+      await announceCallEnded(call, { endedBy: socket.data.userId });
+      callback?.({ success: true });
     } catch (error) {
+      callback?.({ error: error instanceof Error ? error.message : "Failed to end call" });
       console.error("Error ending call:", error);
 
       socket.emit("call:error", {
@@ -684,6 +800,132 @@ io.on("connection", async (socket) => {
     });
   });
 
+  // ---- In-call state for the meeting UI (roster, host, mic/camera, hands) ----
+
+  socket.on("call:getState", async (data: any, callback) => {
+    try {
+      const callId = data?.callId;
+      const call = await callService.getCall(callId);
+      const me = String(socket.data.userId);
+      if (!call || !call.participants.some((p) => p.userId.toString() === me && p.status !== "removed")) {
+        return callback?.({ error: "Not a participant of this call" });
+      }
+      const group = await Conversation.findById(call.conversationId).select("isGroup groupAdmin");
+      const key = call._id.toString();
+
+      const inCall = new Set<string>(
+        call.participants.filter((p) => p.status === "joined").map((p) => p.userId.toString())
+      );
+      mediasoupService.getPeersByCallId(key).forEach((p) => inCall.add(p.userId));
+
+      callback?.({
+        callId: key,
+        groupId: call.conversationId.toString(),
+        callType: call.callType,
+        mode: (call as any).mode || "ring",
+        callStatus: call.callStatus,
+        startedAt: call.startedAt || null,
+        isGroup: !!group?.isGroup,
+        hostIds: [String(call.initiatedBy), ...(group?.groupAdmin ? [String(group.groupAdmin)] : [])],
+        participants: [...inCall],
+        screenSharerUserId: screenShareByCall.get(key)?.userId || null,
+        ...callRoom.snapshot(key),
+      });
+    } catch (error) {
+      callback?.({ error: error instanceof Error ? error.message : "Failed to get call state" });
+    }
+  });
+
+  socket.on("call:media-state", (data: any) => {
+    const { callId, audio, video } = data || {};
+    const peer = peerInCall(socket.id, callId);
+    if (!peer) {
+      return;
+    }
+    const state = { audio: !!audio, video: !!video };
+    callRoom.setMedia(peer.callId!, peer.userId, state);
+    emitToCall(peer.callId!, "call:media-state", { callId: peer.callId, userId: peer.userId, ...state }, peer.userId);
+  });
+
+  socket.on("call:reaction", (data: any) => {
+    const { callId, emoji } = data || {};
+    const peer = peerInCall(socket.id, callId);
+    if (!peer || !CALL_REACTIONS.has(emoji) || !callRoom.allowReaction(peer.userId)) {
+      return;
+    }
+    emitToCall(peer.callId!, "call:reaction", { callId: peer.callId, userId: peer.userId, emoji }, peer.userId);
+  });
+
+  socket.on("call:hand", (data: any) => {
+    const { callId, raised } = data || {};
+    const peer = peerInCall(socket.id, callId);
+    if (!peer) {
+      return;
+    }
+    callRoom.setHand(peer.callId!, peer.userId, !!raised);
+    emitToCall(peer.callId!, "call:hand", { callId: peer.callId, userId: peer.userId, raised: !!raised }, peer.userId);
+  });
+
+  /** Host asks a participant's client to mute. Cooperative: the target client applies it. */
+  socket.on("call:mute-participant", async (data: any, callback) => {
+    try {
+      const { callId, userId: targetId } = data || {};
+      const me = peerInCall(socket.id, callId);
+      if (!me) {
+        throw new Error("You are not in this call");
+      }
+      const call = await callService.getCall(callId);
+      const group = call && await Conversation.findById(call.conversationId).select("isGroup groupAdmin");
+      if (!call || !group?.isGroup || !isCallHost(call, group, me.userId)) {
+        throw new Error("Only the host can mute participants");
+      }
+      const target = mediasoupService.getPeerByUserId(String(targetId));
+      if (!target || target.callId !== me.callId) {
+        throw new Error("Participant is not in this call");
+      }
+      io.to(target.socketId).emit("call:force-muted", { callId: me.callId, by: me.userId });
+      callback?.({ success: true });
+    } catch (error) {
+      callback?.({ error: error instanceof Error ? error.message : "Failed to mute participant" });
+    }
+  });
+
+  /** Host removes a participant; status "removed" blocks rejoining this call. */
+  socket.on("call:remove-participant", async (data: any, callback) => {
+    try {
+      const { callId, userId: targetId } = data || {};
+      const me = peerInCall(socket.id, callId);
+      if (!me) {
+        throw new Error("You are not in this call");
+      }
+      const call = await callService.getCall(callId);
+      const group = call && await Conversation.findById(call.conversationId).select("isGroup groupAdmin");
+      if (!call || !group?.isGroup || !isCallHost(call, group, me.userId)) {
+        throw new Error("Only the host can remove participants");
+      }
+      const target = String(targetId || "");
+      if (!target || target === me.userId || isCallHost(call, group, target)) {
+        throw new Error("This participant cannot be removed");
+      }
+
+      await callService.removeParticipant(call._id as any, target);
+      const key = call._id.toString();
+      const targetPeer = mediasoupService.getPeerByUserId(target);
+      if (targetPeer && targetPeer.callId === key) {
+        io.to(targetPeer.socketId).emit("call:removed", { callId: key, by: me.userId });
+        // Closing their producers notifies everyone else via mediasoup:producerClosed
+        mediasoupService.leaveCall(targetPeer.socketId);
+        io.in(targetPeer.socketId).socketsLeave(key);
+      }
+      releaseScreenShare(key, target);
+      callRoom.clearUser(key, target);
+      io.to(key).emit("call:participant-left", { callId: key, userId: target, removed: true });
+      callback?.({ success: true });
+    } catch (error) {
+      callback?.({ error: error instanceof Error ? error.message : "Failed to remove participant" });
+    }
+  });
+
   socket.on(
     'mediasoup:createSendTransport',
     async (_, callback) => {
@@ -697,7 +939,8 @@ io.on("connection", async (socket) => {
         // never connected (duplicate request); a connected one belongs to a previous page
         // (refresh / quick rejoin) and connect() on it fails, so replace it. Closing it fires
         // producer 'transportclose' → other peers get mediasoup:producerClosed and resubscribe.
-        if (peer.sendTransport && !peer.sendTransport.closed && peer.sendTransport.dtlsState === 'new') {
+        // dtlsState stays 'new' until the handshake starts, so also require that connect() was never called
+        if (peer.sendTransport && !peer.sendTransport.closed && peer.sendTransport.dtlsState === 'new' && !peer.sendTransport.appData.connectCalled) {
           return callback(await transportParams(peer.sendTransport, socket.data.userId, true));
         }
 
@@ -735,7 +978,7 @@ io.on("connection", async (socket) => {
         }
 
         // Same rule as the send side: only an unconnected transport can be handed out again
-        if (peer.recvTransport && !peer.recvTransport.closed && peer.recvTransport.dtlsState === 'new') {
+        if (peer.recvTransport && !peer.recvTransport.closed && peer.recvTransport.dtlsState === 'new' && !peer.recvTransport.appData.connectCalled) {
           return callback(await transportParams(peer.recvTransport, socket.data.userId, true));
         }
 
@@ -790,12 +1033,13 @@ io.on("connection", async (socket) => {
         }
 
         // Idempotent — reconnect / reused transport may already be connected
-        if (transport.dtlsState === 'connected' || transport.dtlsState === 'connecting') {
+        if (transport.dtlsState === 'connected' || transport.dtlsState === 'connecting' || transport.appData.connectCalled) {
           return callback({
             connected: true,
           });
         }
 
+        transport.appData.connectCalled = true;
         await transport.connect({
           dtlsParameters,
         });
@@ -929,6 +1173,13 @@ io.on("connection", async (socket) => {
         );
 
         mediasoupService.watchProducer(producer, userId);
+
+        if (producer.kind === 'audio') {
+          const levelsCallId = String(peer.callId);
+          void mediasoupService.observeAudio(levelsCallId, producer, peer.userId, (levels) => {
+            emitToCall(levelsCallId, 'call:audio-levels', { callId: levelsCallId, levels });
+          });
+        }
 
         const payload = {
           producerId: producer.id,

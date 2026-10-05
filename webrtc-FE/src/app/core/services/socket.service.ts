@@ -4,6 +4,24 @@ import { HttpClient } from '@angular/common/http';
 import { AuthService } from './auth.service';
 import { environment } from 'src/environments/environment';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
+import { Observable } from 'rxjs';
+
+/** Snapshot returned by `call:getState` for the meeting UI. */
+export interface CallStateSnapshot {
+  callId: string;
+  groupId: string;
+  callType: 'audio' | 'video';
+  mode: 'ring' | 'meetNow';
+  callStatus: string;
+  startedAt: string | null;
+  isGroup: boolean;
+  hostIds: string[];
+  participants: string[];
+  screenSharerUserId: string | null;
+  media: Record<string, { audio: boolean; video: boolean }>;
+  hands: string[];
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -65,12 +83,45 @@ export class SocketService {
     return this.socket.fromEvent('messageReactionUpdated');
   }
 
-  typing(conversationId: string, userId: string): void {
-    this.socket.emit('typing', conversationId, userId);
+  private typingTimer: ReturnType<typeof setTimeout> | null = null;
+  private typingConversationId: string | null = null;
 
-    setTimeout(() => {
-      this.socket.emit('stopTyping', conversationId, userId);
-    }, 20000);
+  /** Emits `typing` once per burst and `stopTyping` 3s after the last keystroke. */
+  typing(conversationId: string, userId: string): void {
+    if (this.typingConversationId && this.typingConversationId !== conversationId) {
+      this.stopTyping(userId);
+    }
+    if (!this.typingTimer) {
+      this.socket.emit('typing', conversationId, userId);
+    } else {
+      clearTimeout(this.typingTimer);
+    }
+    this.typingConversationId = conversationId;
+    this.typingTimer = setTimeout(() => this.stopTyping(userId), 3000);
+  }
+
+  stopTyping(userId: string): void {
+    if (this.typingTimer) {
+      clearTimeout(this.typingTimer);
+      this.typingTimer = null;
+    }
+    if (this.typingConversationId) {
+      this.socket.emit('stopTyping', this.typingConversationId, userId);
+      this.typingConversationId = null;
+    }
+  }
+
+  onPresence() {
+    return this.socket.fromEvent('user:presence');
+  }
+
+  /** Fires on every (re)connect of the underlying socket. */
+  onConnect(): Observable<unknown> {
+    return this.socket.fromEvent('connect');
+  }
+
+  onDisconnect(): Observable<unknown> {
+    return this.socket.fromEvent('disconnect');
   }
 
   receivedTyping() {
@@ -201,8 +252,75 @@ export class SocketService {
     this.socket.emit('call:leave', { callId });
   }
 
-  endGroupCall(callId: string) {
-    this.socket.emit('call:end', { callId });
+  /** End for everyone (host in groups, either side in 1:1). */
+  endGroupCall(callId: string): Promise<{ success?: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      this.socket.emit('call:end', { callId }, (response: any) => {
+        resolve(response || {});
+      });
+    });
+  }
+
+  onGroupCallParticipantRejected() {
+    return this.socket.fromEvent('call:participant-rejected');
+  }
+
+  getCallState(callId: string): Promise<CallStateSnapshot | null> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 8000);
+      this.socket.emit('call:getState', { callId }, (response: any) => {
+        clearTimeout(timer);
+        resolve(response && !response.error ? response : null);
+      });
+    });
+  }
+
+  sendCallMediaState(callId: string, audio: boolean, video: boolean) {
+    this.socket.emit('call:media-state', { callId, audio, video });
+  }
+
+  sendCallReaction(callId: string, emoji: string) {
+    this.socket.emit('call:reaction', { callId, emoji });
+  }
+
+  setCallHand(callId: string, raised: boolean) {
+    this.socket.emit('call:hand', { callId, raised });
+  }
+
+  muteCallParticipant(callId: string, userId: string): Promise<{ success?: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      this.socket.emit('call:mute-participant', { callId, userId }, (response: any) => resolve(response || {}));
+    });
+  }
+
+  removeCallParticipant(callId: string, userId: string): Promise<{ success?: boolean; error?: string }> {
+    return new Promise((resolve) => {
+      this.socket.emit('call:remove-participant', { callId, userId }, (response: any) => resolve(response || {}));
+    });
+  }
+
+  onCallMediaState() {
+    return this.socket.fromEvent('call:media-state');
+  }
+
+  onCallReaction() {
+    return this.socket.fromEvent('call:reaction');
+  }
+
+  onCallHand() {
+    return this.socket.fromEvent('call:hand');
+  }
+
+  onCallAudioLevels() {
+    return this.socket.fromEvent('call:audio-levels');
+  }
+
+  onCallForceMuted() {
+    return this.socket.fromEvent('call:force-muted');
+  }
+
+  onCallRemoved() {
+    return this.socket.fromEvent('call:removed');
   }
 
   onGroupCallEnded() {

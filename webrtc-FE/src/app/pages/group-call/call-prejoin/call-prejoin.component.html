@@ -1,0 +1,89 @@
+<div class="prejoin">
+  <div class="prejoin__card">
+    <header class="prejoin__header">
+      <h2 class="prejoin__title">{{ title || 'Join call' }}</h2>
+      <p class="prejoin__subtitle">{{ participantSummary }}</p>
+    </header>
+
+    <div class="prejoin__preview">
+      <video
+        class="prejoin__video"
+        [class.is-hidden]="!camOn"
+        [appMediaSrc]="stream"
+        [mediaKick]="streamKick"
+        [muted]="true"
+        autoplay
+        playsinline
+      ></video>
+      <div class="prejoin__cam-off" *ngIf="!camOn">
+        <i class="fa-solid fa-video-slash"></i>
+        <span>{{ loading ? 'Starting camera…' : 'Camera is off' }}</span>
+      </div>
+
+      <div class="prejoin__toggles">
+        <button
+          type="button"
+          class="round-btn"
+          [class.round-btn--off]="!micOn"
+          [disabled]="!hasMic || loading"
+          (click)="toggleMic()"
+          [attr.aria-pressed]="!micOn"
+          [attr.aria-label]="micOn ? 'Turn microphone off' : 'Turn microphone on'"
+        >
+          <i class="fa-solid" [class.fa-microphone]="micOn" [class.fa-microphone-slash]="!micOn"></i>
+        </button>
+        <button
+          type="button"
+          class="round-btn"
+          [class.round-btn--off]="!camOn"
+          [disabled]="loading"
+          (click)="toggleCam()"
+          [attr.aria-pressed]="!camOn"
+          [attr.aria-label]="camOn ? 'Turn camera off' : 'Turn camera on'"
+        >
+          <i class="fa-solid" [class.fa-video]="camOn" [class.fa-video-slash]="!camOn"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="prejoin__meter" *ngIf="hasMic" aria-hidden="true">
+      <i class="fa-solid fa-microphone"></i>
+      <div class="prejoin__meter-track"><div class="prejoin__meter-fill" #levelBar></div></div>
+      <span>{{ micOn ? 'Speak to test your mic' : 'Mic is off' }}</span>
+    </div>
+
+    <p class="prejoin__error" *ngIf="permissionError" role="alert">
+      <i class="fa-solid fa-triangle-exclamation me-1"></i>{{ permissionError }}
+    </p>
+
+    <div class="prejoin__devices">
+      <label *ngIf="microphones.length">
+        <span>Microphone</span>
+        <select class="form-select form-select-sm" [ngModel]="selectedMic" (ngModelChange)="onMicChange($event)">
+          <option *ngFor="let d of microphones; let i = index" [value]="d.deviceId">{{ d.label || 'Microphone ' + (i + 1) }}</option>
+        </select>
+      </label>
+      <label *ngIf="cameras.length">
+        <span>Camera</span>
+        <select class="form-select form-select-sm" [ngModel]="selectedCam" (ngModelChange)="onCamChange($event)">
+          <option *ngFor="let d of cameras; let i = index" [value]="d.deviceId">{{ d.label || 'Camera ' + (i + 1) }}</option>
+        </select>
+      </label>
+      <label *ngIf="canPickSpeaker && speakers.length">
+        <span>Speaker</span>
+        <select class="form-select form-select-sm" [ngModel]="selectedSpeaker" (ngModelChange)="onSpeakerChange($event)">
+          <option value="">System default</option>
+          <option *ngFor="let d of speakers; let i = index" [value]="d.deviceId">{{ d.label || 'Speaker ' + (i + 1) }}</option>
+        </select>
+      </label>
+    </div>
+
+    <footer class="prejoin__actions">
+      <button type="button" class="btn btn-outline-light" (click)="onCancel()">Cancel</button>
+      <button type="button" class="btn btn-primary prejoin__join" [disabled]="loading" (click)="onJoin()">
+        <span *ngIf="loading" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+        Join now
+      </button>
+    </footer>
+  </div>
+</div>
