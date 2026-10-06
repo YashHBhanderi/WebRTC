@@ -64,4 +64,12 @@ export class AuthService {
     const loggedInUser = localStorage.getItem('user');
     return loggedInUser ? JSON.parse(loggedInUser) : null;
   }
+
+  /** Merge fresh profile fields (after a profile save) into the stored session user. */
+  updateLoggedInUser(changes: Record<string, unknown>) {
+    const current = this.getLoggedInUser();
+    if (current) {
+      localStorage.setItem('user', JSON.stringify({ ...current, ...changes }));
+    }
+  }
 }

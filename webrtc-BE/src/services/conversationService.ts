@@ -1,65 +1,95 @@
 import mongoose from "mongoose";
 import Conversation from "../models/conversationModel";
-import { v2 as cloudinary } from "cloudinary";
 import Message from "../models/messageModel";
-import User from "../models/userModel";
+import groupService from "./group.service";
+import { getGroupForMember } from "./authorization.service";
+import { AppError, NotFoundError } from "../utils/errors";
+import { optionalString, requireObjectIds } from "../utils/validation";
+import { publicFileUrl, releaseFile, releaseMessageFiles, storeUpload } from "./file.service";
+
+/** $map that keeps only public user fields (no password hash / verification token). */
+const publicUsers = (input: string) => ({
+    $map: {
+        input,
+        as: "u",
+        in: {
+            _id: "$$u._id",
+            username: "$$u.username",
+            email: "$$u.email",
+            avatar: "$$u.avatar",
+            isOnline: "$$u.isOnline",
+            lastSeen: "$$u.lastSeen",
+            bio: "$$u.bio",
+            status: "$$u.status",
+        },
+    },
+});
+
+/** This user's archive/clear state for each conversation (absent = defaults). */
+const userStateLookup = (userId: mongoose.Types.ObjectId) => [
+    {
+        $lookup: {
+            from: "conversation_user_states",
+            let: { cid: "$_id" },
+            pipeline: [
+                { $match: { $expr: { $and: [{ $eq: ["$userId", userId] }, { $eq: ["$conversationId", "$$cid"] }] } } },
+                { $project: { isArchived: 1, clearedAt: 1 } },
+            ],
+            as: "userState",
+        },
+    },
+    { $addFields: { userState: { $arrayElemAt: ["$userState", 0] } } },
+];
+
+/** Visible messages for this user: not deleted and newer than their "clear chat" point. */
+const visibleMessages = {
+    $filter: {
+        input: "$messagesData",
+        as: "msg",
+        cond: {
+            $and: [
+                { $ne: ["$$msg.isDeleted", true] },
+                { $gt: ["$$msg.createdAt", { $ifNull: ["$userState.clearedAt", new Date(0)] }] },
+            ],
+        },
+    },
+};
+
+const lastMessageFields = {
+    _id: "$lastMessage._id",
+    userId: "$lastMessage.userId",
+    content: "$lastMessage.content",
+    type: "$lastMessage.type",
+    isRead: "$lastMessage.isRead",
+    createdAt: "$lastMessage.createdAt",
+};
+
+const adminUnion = {
+    $setUnion: [
+        { $ifNull: ["$groupAdmins", []] },
+        { $cond: [{ $ifNull: ["$groupAdmin", false] }, ["$groupAdmin"], []] },
+    ],
+};
 
 export default class ConversationService {
-    public static async getUserConversations(userId: mongoose.Types.ObjectId) {
-
+    /** 1:1 chats with last message + unread count, newest first. `archived` selects the archive list. */
+    public static async getUserConversations(userId: mongoose.Types.ObjectId, archived = false) {
         const objectId = new mongoose.Types.ObjectId(userId);
 
-        const conversations = await Conversation.aggregate([
+        return Conversation.aggregate([
             { $match: { members: objectId, isGroup: false } },
-
-            {
-                $lookup: {
-                    from: "users",
-                    localField: "members",
-                    foreignField: "_id",
-                    as: "membersData",
-                },
-            },
-            {
-                $lookup: {
-                    from: "messages",
-                    localField: "messages",
-                    foreignField: "_id",
-                    as: "messagesData",
-                },
-            },
-            {
-                $addFields: {
-                    messagesData: {
-                        $filter: {
-                            input: "$messagesData",
-                            as: "msg",
-                            cond: {
-                                $or: [
-                                    { $eq: ["$$msg.isDeleted", false] },
-                                    { $not: ["$$msg.isDeleted"] }
-                                ]
-                            }
-                        }
-                    }
-                }
-            },
+            ...userStateLookup(objectId),
+            { $match: archived ? { "userState.isArchived": true } : { "userState.isArchived": { $ne: true } } },
+            { $lookup: { from: "users", localField: "members", foreignField: "_id", as: "membersData" } },
+            { $addFields: { membersData: publicUsers("$membersData") } },
+            { $lookup: { from: "messages", localField: "messages", foreignField: "_id", as: "messagesData" } },
+            { $addFields: { messagesData: visibleMessages } },
             {
                 $addFields: {
                     lastMessage: {
                         $cond: {
                             if: { $gt: [{ $size: "$messagesData" }, 0] },
-                            then: {
-                                $arrayElemAt: [
-                                    {
-                                        $sortArray: {
-                                            input: "$messagesData",
-                                            sortBy: { createdAt: -1 },
-                                        },
-                                    },
-                                    0,
-                                ],
-                            },
+                            then: { $arrayElemAt: [{ $sortArray: { input: "$messagesData", sortBy: { createdAt: -1 } } }, 0] },
                             else: null,
                         },
                     },
@@ -68,330 +98,114 @@ export default class ConversationService {
                             $filter: {
                                 input: "$messagesData",
                                 as: "msg",
-                                cond: {
-                                    $and: [
-                                        { $eq: ["$$msg.isRead", false] },
-                                        { $ne: ["$$msg.userId", objectId] },
-                                    ],
-                                },
+                                cond: { $and: [{ $eq: ["$$msg.isRead", false] }, { $ne: ["$$msg.userId", objectId] }] },
                             },
                         },
                     },
                 },
             },
-            {
-                $match: {
-                    lastMessage: { $ne: null },
-                },
-            },
+            // Chats without any message are hidden, except ones the user cleared (they stay, empty)
+            { $match: { $or: [{ lastMessage: { $ne: null } }, { "userState.clearedAt": { $ne: null } }] } },
             {
                 $project: {
                     _id: 1,
                     unreadCount: 1,
+                    isArchived: { $ifNull: ["$userState.isArchived", false] },
                     sender: {
-                        $arrayElemAt: [
-                            {
-                                $filter: {
-                                    input: "$membersData",
-                                    as: "member",
-                                    cond: { $eq: ["$$member._id", objectId] },
-                                },
-                            },
-                            0,
-                        ],
+                        $arrayElemAt: [{ $filter: { input: "$membersData", as: "member", cond: { $eq: ["$$member._id", objectId] } } }, 0],
                     },
                     receiver: {
-                        $arrayElemAt: [
-                            {
-                                $filter: {
-                                    input: "$membersData",
-                                    as: "member",
-                                    cond: { $ne: ["$$member._id", objectId] },
-                                },
-                            },
-                            0,
-                        ],
+                        $arrayElemAt: [{ $filter: { input: "$membersData", as: "member", cond: { $ne: ["$$member._id", objectId] } } }, 0],
                     },
-                    lastMessage: {
-                        _id: "$lastMessage._id",
-                        content: "$lastMessage.content",
-                        userId: "$lastMessage.userId",
-                        type: "$lastMessage.type",
-                        isRead: "$lastMessage.isRead",
-                        createdAt: "$lastMessage.createdAt",
-                    },
-                    timestamp: { $ifNull: ["$lastMessage.createdAt", "$timestamp"] },
+                    lastMessage: { $cond: [{ $ne: ["$lastMessage", null] }, lastMessageFields, null] },
+                    timestamp: { $ifNull: ["$lastMessage.createdAt", "$userState.clearedAt"] },
                 },
             },
-            {
-                $sort: {
-                    timestamp: -1,
-                },
-            },
+            { $sort: { timestamp: -1 } },
         ]);
-
-        return conversations;
     }
-    
-    public static async getMessagesByConversationId(conversationId: string, page: number = 1, limit: number = 20) {
-        if (!conversationId) {
-            throw new Error("Conversation ID is required");
-        }
-    
-        const conversation = await Conversation.aggregate([
-            {
-                $match: { _id: new mongoose.Types.ObjectId(conversationId) }
-            },
-            {
-                $lookup: {
-                    from: "messages",
-                    localField: "messages",
-                    foreignField: "_id",
-                    as: "messages"
-                }
-            },
-            {
-                $set: {
-                    messages: {
-                        $filter: {
-                            input: "$messages",
-                            as: "message",
-                            cond: {
-                                $or: [
-                                    {
-                                        $eq: [
-                                            "$$message.isDeleted",
-                                            false
-                                        ]
-                                    },
-                                    {
-                                        $eq: ["$$message.isDeleted", null]
-                                    },
-                                    {
-                                        $eq: [
-                                            "$$message.isDeleted",
-                                            undefined
-                                        ]
-                                    }
-                                ]
-                            }
-                        }
-                    }
-                }
-            },
-            {
-                $unwind: {
-                    path: "$messages",
-                    preserveNullAndEmptyArrays: true
-                }
-            },
-            {
-                $sort: { "messages.createdAt": -1 }
-            },
-            {
-                $skip: (page - 1) * limit
-            },
-            {
-                $limit: limit
-            },
-            {
-                $sort: { "messages.createdAt": 1 }
-            },
-            {
-                $lookup: {
-                    from: "users",
-                    localField: "messages.userId",
-                    foreignField: "_id",
-                    as: "messages.user"
-                }
-            },
-            {
-                $unwind: {
-                    path: "$messages.user",
-                    preserveNullAndEmptyArrays: true
-                }
-            },
-            {
-                $lookup: {
-                    from: "messages",
-                    localField: "messages.replyTo",
-                    foreignField: "_id",
-                    as: "messages.replyToData"
-                }
-            },
-            {
-                $unwind: {
-                    path: "$messages.replyToData",
-                    preserveNullAndEmptyArrays: true
-                }
-            },
-            {
-                $group: {
-                    _id: "$_id",
-                    createdAt: { $first: "$createdAt" },
-                    messages: {
-                        $push: {
-                            $cond: {
-                                if: { $gt: ["$messages._id", null] },
-                                then: {
-                                    _id: "$messages._id",
-                                    content: "$messages.content",
-                                    type: "$messages.type",
-                                    fileUrl: "$messages.fileUrl",
-                                    thumbnailUrl: { $ifNull: ["$messages.thumbnailUrl", "$messages.fileUrl"] },
-                                    isDeleted: "$messages.isDeleted",
-                                    isRead: "$messages.isRead",
-                                    createdAt: "$messages.createdAt",
-                                    userId: "$messages.user._id",
-                                    reactions: "$messages.reactions",
-                                    user: {
-                                        _id: "$messages.user._id",
-                                        username: "$messages.user.username",
-                                        email: "$messages.user.email",
-                                        avatar: "$messages.user.avatar",
-                                        isOnline: "$messages.user.isOnline",
-                                        lastSeen: "$messages.user.lastSeen"
-                                    },
-                                    replyTo: {
-                                        _id: "$messages.replyToData._id",
-                                        content: "$messages.replyToData.content",
-                                        type: "$messages.replyToData.type",
-                                        userId: "$messages.replyToData.userId"
-                                    }
-                                },
-                                else: "$$REMOVE"
-                            }
-                        }
-                    }
-                }
-            }
-        ]);
-    
-        if (!conversation || conversation.length === 0) {
-            throw new Error("Conversation not found");
-        }
-    
-        return conversation[0];
-    } 
 
     public static async createOrGetConversation(userId: string, receiverId: string) {
-
-        let conversation = await Conversation.findOne({ members: { $all: [userId, receiverId] }, isGroup: false, });
+        let conversation = await Conversation.findOne({ members: { $all: [userId, receiverId] }, isGroup: false });
 
         if (!conversation) {
-            conversation = new Conversation({ members: [userId, receiverId], messages: [], timestamp: new Date(), });
+            conversation = new Conversation({ members: [userId, receiverId], messages: [], timestamp: new Date() });
             await conversation.save();
         }
         return conversation;
     }
 
-    public static async createGroupConversation(groupAdmin: string, groupMembers: string, groupName: string, groupDescription: string, file: Express.Multer.File | undefined) {
-        if (!file) {
-            throw new Error("No file uploaded");
+    public static async createGroupConversation(groupAdmin: string, groupMembers: string, groupName: unknown, groupDescription: unknown, file: Express.Multer.File | undefined) {
+        // Validate everything before uploading, so a rejected request leaves no file behind
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(groupMembers);
+        } catch {
+            throw new AppError("Members are invalid");
         }
-        const base64String = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-        const result = await cloudinary.uploader.upload(base64String, { folder: "uploads" });
-
-        const jsonMember = JSON.parse(groupMembers);
-        if (!jsonMember.includes(groupAdmin)) {
-            jsonMember.push(groupAdmin);
+        const memberIds = requireObjectIds(parsed, "groupMembers", 256);
+        if (!memberIds.includes(String(groupAdmin))) {
+            memberIds.push(String(groupAdmin));
         }
+        const name = optionalString(groupName, "Group name", 100);
+        if (!name || memberIds.length < 3) throw new AppError("A group must have a name and at least 2 members");
+        const description = optionalString(groupDescription, "Description", 500) || "";
+        if (!file) throw new AppError("Please choose a group photo");
 
-        if (!groupName || groupMembers.length < 2) throw new Error("A group must have a name and at least 2 members");
-
-        const newConversation = new Conversation({
-            members: jsonMember,
-            isGroup: true,
-            groupName,
-            groupAdmin,
-            groupAvatar: result.secure_url,
-            groupDescription,
-        });
-
-        const savedConversation = await newConversation.save();
-        return savedConversation;
+        const groupId = new mongoose.Types.ObjectId();
+        const { stored } = await storeUpload(file, { purpose: "group-avatar", groupId: String(groupId) }, String(groupAdmin));
+        try {
+            return await new Conversation({
+                _id: groupId,
+                members: memberIds,
+                isGroup: true,
+                groupName: name,
+                groupAdmin,
+                groupAdmins: [groupAdmin],
+                groupAvatar: publicFileUrl(stored.storageKey),
+                groupAvatarFile: stored,
+                groupDescription: description,
+            }).save();
+        } catch (error) {
+            await releaseFile(stored);
+            throw error;
+        }
     }
 
-    public static async addMembersInGroup(conversationId: string, currentUserId: string, userIds: mongoose.Schema.Types.ObjectId[]) {
-        const conversation = await Conversation.findById(conversationId);
-
-        if (!conversation) throw new Error("Group conversation not found");
-
-        if (!conversation.isGroup) throw new Error("This is not a group conversation");
-
-        if (conversation?.groupAdmin?.toString() !== currentUserId) throw new Error("Only the group admin can add members");
-        const alreadyAdded = userIds.filter((userId) => conversation.members.includes(userId));
-        if (alreadyAdded.length > 0) {
-            const existingUsers = await User.find({ _id: { $in: alreadyAdded } }).select('username');
-            const existingUsernames = existingUsers.map((user) => user.username).join(', ');
-            throw new Error(`Users ${existingUsernames} are already members of this group.`);
-        }
-
-        conversation.members.push(...userIds);
-        await conversation.save();
-        return conversation;
+    /** Legacy REST path — same rules as the group:add-member socket event. */
+    public static async addMembersInGroup(conversationId: string, currentUserId: string, userIds: string[]) {
+        return groupService.addMembers(conversationId, currentUserId, userIds);
     }
 
-    public static async getUserGroupsConversations(userId: string) {
-
+    /** Groups with last message + unread count, newest first. `archived` selects the archive list. */
+    public static async getUserGroupsConversations(userId: string, archived = false) {
         const userObjectId = new mongoose.Types.ObjectId(userId);
-        const conversations = await Conversation.aggregate([
-            {
-                $match: {
-                    members: userObjectId,
-                    isGroup: true
-                }
-            },
-            {
-                $lookup: {
-                    from: "users",
-                    localField: "members",
-                    foreignField: "_id",
-                    as: "membersData"
-                }
-            },
-            {
-                $lookup: {
-                    from: "messages",
-                    localField: "messages",
-                    foreignField: "_id",
-                    as: "messagesData"
-                }
-            },
+        return Conversation.aggregate([
+            { $match: { members: userObjectId, isGroup: true } },
+            ...userStateLookup(userObjectId),
+            { $match: archived ? { "userState.isArchived": true } : { "userState.isArchived": { $ne: true } } },
+            { $lookup: { from: "users", localField: "members", foreignField: "_id", as: "membersData" } },
+            { $lookup: { from: "messages", localField: "messages", foreignField: "_id", as: "messagesData" } },
+            { $addFields: { messagesData: visibleMessages } },
             {
                 $addFields: {
                     lastMessage: {
                         $cond: {
                             if: { $gt: [{ $size: "$messagesData" }, 0] },
-                            then: {
-                                $arrayElemAt: [
-                                    {
-                                        $sortArray: {
-                                            input: "$messagesData",
-                                            sortBy: { createdAt: -1 }
-                                        }
-                                    },
-                                    0
-                                ]
-                            },
-                            else: null
-                        }
+                            then: { $arrayElemAt: [{ $sortArray: { input: "$messagesData", sortBy: { createdAt: -1 } } }, 0] },
+                            else: null,
+                        },
                     },
                     unreadCount: {
                         $size: {
                             $filter: {
                                 input: "$messagesData",
                                 as: "msg",
-                                cond: {
-                                    $and: [
-                                        { $eq: ["$$msg.isRead", false] },
-                                        { $ne: ["$$msg.userId", userObjectId] }
-                                    ]
-                                }
-                            }
-                        }
-                    }
-                }
+                                cond: { $and: [{ $eq: ["$$msg.isRead", false] }, { $ne: ["$$msg.userId", userObjectId] }] },
+                            },
+                        },
+                    },
+                },
             },
             {
                 $project: {
@@ -400,109 +214,73 @@ export default class ConversationService {
                     groupAvatar: 1,
                     groupDescription: 1,
                     groupAdmin: 1,
-                    members: "$membersData",
+                    groupAdmins: adminUnion,
+                    members: publicUsers("$membersData"),
                     unreadCount: 1,
-                    lastMessage: {
-                        _id: "$lastMessage._id",
-                        content: "$lastMessage.content",
-                        userId: "$lastMessage.userId",
-                        type: "$lastMessage.type",
-                        isRead: "$lastMessage.isRead",
-                        createdAt: "$lastMessage.createdAt"
-                    },
-                    timestamp: {
-                        $ifNull: ["$lastMessage.createdAt", "$timestamp"]
-                    }
-                }
+                    isArchived: { $ifNull: ["$userState.isArchived", false] },
+                    lastMessage: { $cond: [{ $ne: ["$lastMessage", null] }, lastMessageFields, null] },
+                    timestamp: { $ifNull: ["$lastMessage.createdAt", "$createdAt"] },
+                },
             },
-            { $sort: { "timestamp": -1 } }
+            { $sort: { timestamp: -1 } },
         ]);
-        return conversations;
     }
 
-    public static async getGroupInfo(conversationId: string) {
+    /** Group details for members only. */
+    public static async getGroupInfo(conversationId: string, userId: string) {
+        await getGroupForMember(conversationId, userId);
         const conversation = await Conversation.aggregate([
-            {
-                $match: { _id: new mongoose.Types.ObjectId(conversationId) }
-            },
-            {
-                $match: { isGroup: true }
-            },
-            {
-                $lookup: {
-                    from: "users",
-                    localField: "groupAdmin",
-                    foreignField: "_id",
-                    as: "groupAdminDetails"
-                }
-            },
-            {
-                $unwind: {
-                    path: "$groupAdminDetails",
-                    preserveNullAndEmptyArrays: true
-                }
-            },
-            {
-                $lookup: {
-                    from: "users",
-                    localField: "members",
-                    foreignField: "_id",
-                    as: "membersDetails"
-                }
-            },
+            { $match: { _id: new mongoose.Types.ObjectId(conversationId), isGroup: true } },
+            { $lookup: { from: "users", localField: "groupAdmin", foreignField: "_id", as: "groupAdminDetails" } },
+            { $lookup: { from: "users", localField: "members", foreignField: "_id", as: "membersDetails" } },
             {
                 $project: {
                     groupName: 1,
-                    groupAdmin: "$groupAdminDetails",
+                    groupAdmin: { $arrayElemAt: [publicUsers("$groupAdminDetails"), 0] },
+                    groupAdmins: adminUnion,
                     groupAvatar: 1,
                     groupDescription: 1,
                     members: 1,
-                    membersDetails: 1,
-                    timestamp: 1
-                }
-            }
+                    membersDetails: publicUsers("$membersDetails"),
+                    timestamp: 1,
+                },
+            },
         ]);
 
-        if (!conversation || conversation.length === 0)
-            throw new Error("Group conversation not found");
-        return conversation.shift();
+        if (!conversation || conversation.length === 0) {
+            throw new NotFoundError("Group conversation not found");
+        }
+        return conversation[0];
     }
 
     public static async deleteConversation(conversationId: string, userId: string) {
         const conversation = await Conversation.findById(conversationId);
-      
+
         if (!conversation) {
             throw new Error("Conversation not found");
         }
-      
-        const isParticipant = conversation.members.some(member =>
-            member.toString() === userId
-        );
+
+        const isParticipant = conversation.members.some(member => member.toString() === userId);
         if (!isParticipant) {
             throw new Error("Unauthorized: You are not a member of this conversation");
         }
 
+        const fileKeys = (await Message.find({ conversationId: conversation._id, "file.storageKey": { $exists: true } })
+            .select("file.storageKey")
+            .lean()).map((m) => m.file?.storageKey);
         if (conversation?.messages?.length) {
             await Message.deleteMany({ _id: { $in: conversation.messages } });
         }
 
         await Conversation.findByIdAndDelete(conversationId);
+        // Stored attachments go too, unless a forwarded copy elsewhere still uses them
+        await releaseMessageFiles(fileKeys);
+        await releaseFile(conversation.groupAvatarFile);
     }
 
-
-    public static async removeMemberFromGroup(conversationId: string, currentUserId: string, userId: mongoose.Schema.Types.ObjectId) {
-        const conversation = await Conversation.findById(conversationId);
-
-        if (!conversation) throw new Error("Group conversation not found");
-        if (!conversation.isGroup) throw new Error("This is not a group conversation");
-        if (conversation?.groupAdmin?.toString() !== currentUserId) throw new Error("Only the group admin can remove members");
-        if (!conversation.members.includes(userId)) throw new Error("User is not a member of this group");
-        if (conversation.groupAdmin.toString() === userId.toString() && conversation.groupAdmin.toString() === currentUserId) throw new Error("You cannot remove the group admin or yourself from the group");
-
-        conversation.members = conversation.members.filter((memberId) => memberId.toString() !== userId.toString());
-
-        await conversation.save();
-        return conversation;
+    /** Legacy REST path — same rules as the group:remove-member socket event. */
+    public static async removeMemberFromGroup(conversationId: string, currentUserId: string, userId: string) {
+        return groupService.removeMember(conversationId, currentUserId, userId);
     }
 
     public static async addReaction(messageId: string, userId: string, emoji: string) {
@@ -522,35 +300,5 @@ export default class ConversationService {
 
         await message.save();
         return message;
-    }
-    public static async getSharedMedia(conversationId: string) {
-        return await Conversation.aggregate([
-            { $match: { _id: new mongoose.Types.ObjectId(conversationId) } },
-            {
-                $lookup: {
-                    from: "messages",
-                    localField: "messages",
-                    foreignField: "_id",
-                    as: "allMessages"
-                }
-            },
-            { $unwind: "$allMessages" },
-            {
-                $match: {
-                    "allMessages.type": { $in: ['image', 'video', 'audio', 'pdf'] },
-                    "allMessages.isDeleted": { $ne: true }
-                }
-            },
-            { $sort: { "allMessages.createdAt": -1 } },
-            {
-                $project: {
-                    _id: "$allMessages._id",
-                    fileUrl: "$allMessages.fileUrl",
-                    thumbnailUrl: { $ifNull: ["$allMessages.thumbnailUrl", "$allMessages.fileUrl"] },
-                    type: "$allMessages.type",
-                    createdAt: "$allMessages.createdAt"
-                }
-            }
-        ]);
     }
 }

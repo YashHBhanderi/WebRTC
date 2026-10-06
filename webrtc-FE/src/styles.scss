@@ -2,7 +2,9 @@
 // so these win over Bootstrap's defaults without !important.
 
 :root {
-  --app-font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  // Noto Color Emoji right after the text font: emoji (messages, reactions, picker) look the same
+  // on every OS, incl. flags and newer emoji that Windows 10 can't draw. Text glyphs never reach it.
+  --app-font: 'Plus Jakarta Sans', 'Noto Color Emoji', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
   --app-brand: #2563eb;
   --app-brand-strong: #1d4ed8;

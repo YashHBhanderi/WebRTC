@@ -1,0 +1,511 @@
+:host {
+  display: block;
+}
+
+.msg-row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  margin-top: 3px;
+  border-radius: 10px;
+
+  &--first {
+    margin-top: 10px;
+  }
+
+  &--mine {
+    justify-content: flex-end;
+  }
+
+  &--reacted {
+    margin-bottom: 4px;
+  }
+}
+
+.msg-row__avatar {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.msg-row__body {
+  position: relative;
+  min-width: 0;
+  max-width: min(72%, 560px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+
+  .msg-row--mine & {
+    align-items: flex-end;
+  }
+}
+
+// ------------------------------------------------------------------ bubble
+
+.bubble {
+  position: relative;
+  z-index: 1;
+  min-width: 84px;
+  max-width: 100%;
+  padding: 6px 9px 7px;
+  border-radius: 10px;
+  background: var(--app-bubble-in);
+  color: var(--app-text);
+  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
+  overflow-wrap: anywhere;
+  transition: box-shadow 0.3s ease;
+
+  .msg-row--mine & {
+    background: var(--app-bubble-out);
+  }
+
+  .msg-row--first:not(.msg-row--mine) & {
+    border-top-left-radius: 2px;
+  }
+
+  .msg-row--first.msg-row--mine & {
+    border-top-right-radius: 2px;
+  }
+
+  .msg-row--highlight & {
+    box-shadow: 0 0 0 3px var(--app-highlight);
+  }
+
+  .msg-row--hit & {
+    box-shadow: 0 0 0 2px var(--app-highlight);
+  }
+}
+
+.bubble__sender {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--app-brand-strong);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.bubble__quote {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 5px 8px;
+  border: 0;
+  border-left: 4px solid var(--app-brand);
+  border-radius: 6px;
+  background: var(--app-quote);
+  color: inherit;
+  text-align: left;
+
+  &:hover {
+    filter: brightness(0.97);
+  }
+}
+
+.bubble__quote-author {
+  color: var(--app-brand-strong);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.bubble__quote-text {
+  color: var(--app-text-2);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bubble__text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.92rem;
+  line-height: 1.4;
+
+  ::ng-deep mark {
+    padding: 0 1px;
+    border-radius: 3px;
+    background: var(--app-highlight);
+    color: inherit;
+  }
+}
+
+.read-more {
+  display: inline;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--app-brand-strong);
+  font-size: 0.85rem;
+  font-weight: 600;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.bubble__media {
+  display: block;
+  margin: 0 0 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--app-input);
+
+  img {
+    display: block;
+    width: 100%;
+    max-width: 320px;
+    max-height: 340px;
+    object-fit: cover;
+  }
+}
+
+.bubble__video {
+  display: block;
+  width: min(320px, 100%);
+  max-height: 340px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: #000;
+}
+
+.bubble__audio {
+  display: block;
+  width: min(280px, 100%);
+  margin-bottom: 4px;
+}
+
+.bubble__doc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(280px, 100%);
+  margin-bottom: 4px;
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--app-quote);
+  color: var(--app-text);
+  text-align: left;
+
+  .fa-file-pdf {
+    font-size: 26px;
+    color: var(--app-danger);
+  }
+}
+
+.bubble__doc-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bubble__doc-open {
+  color: var(--app-muted);
+  font-size: 0.75rem;
+}
+
+// Inline spacer keeps the time/ticks clear of the last text line
+.bubble__spacer {
+  display: inline-block;
+  width: 56px;
+  height: 1px;
+
+  &--tick {
+    width: 72px;
+  }
+}
+
+.bubble__meta-row {
+  height: 14px;
+}
+
+.bubble__meta {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--app-muted);
+  font-size: 0.68rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tick {
+  font-size: 0.7rem;
+
+  &--read {
+    color: var(--app-read);
+  }
+}
+
+// ------------------------------------------------------------------ reactions (overlap the bubble edge)
+
+.reactions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: -8px;
+  padding: 0 8px;
+}
+
+.reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-surface);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+
+  span {
+    color: var(--app-text-2);
+    font-size: 0.7rem;
+  }
+
+  &--mine {
+    border-color: var(--app-brand-soft-strong);
+    background: var(--app-brand-soft);
+  }
+}
+
+// ------------------------------------------------------------------ hover strip
+
+.strip {
+  position: absolute;
+  bottom: calc(100% - 2px);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--app-surface);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.16);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+
+  .msg-row:not(.msg-row--mine) & {
+    left: 0;
+  }
+
+  .msg-row--mine & {
+    right: 0;
+  }
+
+  &--below {
+    bottom: auto;
+    top: calc(100% - 2px);
+    transform: translateY(-4px);
+  }
+}
+
+.msg-row:hover .strip,
+.msg-row:focus-within .strip,
+.msg-row--active .strip {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.strip__emoji,
+.strip__btn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.12s ease;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--app-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-brand);
+  }
+
+  &::after {
+    display: none; // ngbDropdownToggle caret
+  }
+}
+
+.strip__emoji {
+  font-size: 19px;
+
+  &:hover {
+    transform: scale(1.15);
+  }
+}
+
+.strip__btn {
+  color: var(--app-icon);
+  font-size: 13px;
+}
+
+.strip__sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--app-border);
+}
+
+// ------------------------------------------------------------------ side reply + swipe cue
+
+.side-reply {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  margin-top: -15px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--app-surface);
+  color: var(--app-icon);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+
+  .msg-row:not(.msg-row--mine) & {
+    left: calc(100% + 8px);
+  }
+
+  .msg-row--mine & {
+    right: calc(100% + 8px);
+  }
+
+  // Horizontal "reply" line between the bubble and the button
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 8px;
+    height: 2px;
+    background: var(--app-border);
+
+    .msg-row:not(.msg-row--mine) & {
+      right: 100%;
+    }
+
+    .msg-row--mine & {
+      left: 100%;
+    }
+  }
+
+  &:hover {
+    color: var(--app-brand);
+  }
+}
+
+.msg-row:hover .side-reply {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.swipe-cue {
+  position: absolute;
+  top: 50%;
+  left: 4px;
+  z-index: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--app-surface);
+  color: var(--app-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(-50%) scale(0.6);
+  pointer-events: none;
+}
+
+// Touch: no hover affordances; long-press pins the strip, swipe replies
+@media (hover: none) {
+  .msg-row:hover .strip,
+  .msg-row:focus-within .strip {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .msg-row--active .strip {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .side-reply {
+    display: none;
+  }
+
+  .bubble {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+// ------------------------------------------------------------------ compact (meeting chat)
+
+.msg-row--compact {
+  .msg-row__body {
+    max-width: 85%;
+  }
+
+  .bubble {
+    min-width: 70px;
+    padding: 5px 8px 6px;
+  }
+
+  .bubble__text {
+    font-size: 0.85rem;
+  }
+
+  .bubble__media img,
+  .bubble__video {
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 768px) {
+  .msg-row__body {
+    max-width: 84%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .strip {
+    transition: none;
+  }
+}

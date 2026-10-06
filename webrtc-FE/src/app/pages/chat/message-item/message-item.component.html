@@ -1,0 +1,101 @@
+<div
+  class="msg-row"
+  [class.msg-row--mine]="mine"
+  [class.msg-row--first]="first"
+  [class.msg-row--highlight]="highlighted"
+  [class.msg-row--hit]="searchHit"
+  [class.msg-row--reacted]="reactions.length > 0"
+  [class.msg-row--active]="stripPinned || menuOpen || pickerOpen"
+  [class.msg-row--compact]="compact"
+  (mouseenter)="onHover()"
+>
+  <button
+    type="button"
+    class="msg-row__avatar"
+    *ngIf="!mine"
+    (click)="avatarClick.emit(senderId)"
+    [attr.aria-label]="'View ' + senderName"
+    tabindex="-1"
+  >
+    <app-avatar [src]="senderAvatar" [name]="senderName" [size]="compact ? 26 : 32"></app-avatar>
+  </button>
+
+  <div class="msg-row__body">
+    <span class="swipe-cue" #swipeIcon aria-hidden="true"><i class="fa-solid fa-reply"></i></span>
+
+    <div class="bubble" #bubble (appLongPress)="onLongPress()">
+      <span class="bubble__sender" *ngIf="isGroup && !mine && first">{{ senderName }}</span>
+
+      <button type="button" class="bubble__quote" *ngIf="message.replyTo && (message.replyTo.content || message.replyTo.type)" (click)="quoteClick.emit(message.replyTo._id)">
+        <span class="bubble__quote-author">{{ replyAuthor }}</span>
+        <span class="bubble__quote-text">{{ quoteText }}</span>
+      </button>
+
+      <button type="button" class="bubble__media" *ngIf="message.type === 'image'" (click)="openFile('image')" aria-label="Open image">
+        <img [src]="message.thumbnailUrl || message.fileUrl" alt="Shared image" loading="lazy" />
+      </button>
+      <video *ngIf="message.type === 'video'" class="bubble__video" controls preload="metadata"
+        [poster]="message.thumbnailUrl && message.thumbnailUrl !== message.fileUrl ? message.thumbnailUrl : null">
+        <source [src]="message.fileUrl" />
+      </video>
+      <audio *ngIf="message.type === 'audio'" class="bubble__audio" controls preload="metadata">
+        <source [src]="message.fileUrl" />
+      </audio>
+      <button type="button" class="bubble__doc" *ngIf="message.type === 'pdf'" (click)="openFile('pdf')">
+        <i class="fa-solid fa-file-pdf"></i>
+        <span class="bubble__doc-name">{{ fileName() }}</span>
+        <i class="fa-solid fa-arrow-up-right-from-square bubble__doc-open"></i>
+      </button>
+
+      <p class="bubble__text" *ngIf="hasText; else metaRow">
+        <ng-container *ngIf="searchHit && searchTerm; else plain"><span [innerHTML]="visibleText | highlight: searchTerm"></span></ng-container>
+        <ng-template #plain>{{ visibleText }}</ng-template>
+        <button type="button" class="read-more" *ngIf="isLong" (click)="toggleExpanded($event)">{{ expanded ? 'Read less' : 'Read more' }}</button>
+        <span class="bubble__spacer" [class.bubble__spacer--tick]="showTicks" aria-hidden="true"></span>
+      </p>
+      <ng-template #metaRow><div class="bubble__meta-row" aria-hidden="true"></div></ng-template>
+
+      <span class="bubble__meta">
+        <time [attr.datetime]="message.createdAt">{{ message.createdAt | date: 'shortTime' }}</time>
+        <i *ngIf="showTicks" class="fa-solid tick" [class.fa-check-double]="message.isRead" [class.fa-check]="!message.isRead" [class.tick--read]="message.isRead" [attr.aria-label]="message.isRead ? 'Seen' : 'Sent'"></i>
+      </span>
+    </div>
+
+    <div class="reactions" *ngIf="reactions.length">
+      <button type="button" *ngFor="let r of reactions" class="reaction" [class.reaction--mine]="r.mine" (click)="react.emit(r.emoji)" [attr.aria-label]="r.emoji + ' ' + r.count">
+        {{ r.emoji }}<span *ngIf="r.count > 1">{{ r.count }}</span>
+      </button>
+    </div>
+
+    <ng-container *ngIf="!compact">
+      <!-- Hover/long-press action strip: 4 quick reactions · more · reply · menu -->
+      <div class="strip" [class.strip--below]="stripBelow" role="toolbar" aria-label="Message actions">
+        <button type="button" class="strip__emoji" *ngFor="let e of quickReactions" (click)="sendReaction(e)" [attr.aria-label]="'React ' + e">{{ e }}</button>
+        <button type="button" class="strip__btn" #plusBtn (click)="openPicker(plusBtn)" aria-label="More reactions" title="More reactions">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+        <span class="strip__sep" aria-hidden="true"></span>
+        <button type="button" class="strip__btn" (click)="onReply()" aria-label="Reply" title="Reply">
+          <i class="fa-solid fa-reply"></i>
+        </button>
+        <div ngbDropdown [placement]="mine ? 'bottom-end' : 'bottom-start'" container="body" (openChange)="onMenuOpenChange($event)">
+          <button type="button" class="strip__btn" ngbDropdownToggle aria-label="More options" title="More">
+            <i class="fa-solid fa-ellipsis-vertical"></i>
+          </button>
+          <div ngbDropdownMenu class="app-menu">
+            <button ngbDropdownItem type="button" (click)="copy.emit(message)"><i class="fa-regular fa-copy"></i>Copy</button>
+            <button ngbDropdownItem type="button" (click)="forward.emit(message)"><i class="fa-solid fa-share"></i>Forward</button>
+            <button ngbDropdownItem type="button" *ngIf="mine" class="text-danger" (click)="remove.emit(message)"><i class="fa-regular fa-trash-can"></i>Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Side reply (desktop hover), aligned with the bubble -->
+      <button type="button" class="side-reply" (click)="onReply()" aria-label="Reply" tabindex="-1">
+        <i class="fa-solid fa-reply"></i>
+      </button>
+    </ng-container>
+  </div>
+</div>
+
+<app-emoji-picker *ngIf="pickerOpen" [anchor]="pickerAnchor" (picked)="onPicked($event)" (closed)="closePicker()"></app-emoji-picker>

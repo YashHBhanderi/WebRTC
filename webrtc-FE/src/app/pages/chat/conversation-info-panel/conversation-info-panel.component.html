@@ -1,0 +1,131 @@
+<aside class="panel" [attr.aria-label]="isGroup ? 'Group info' : 'Contact info'">
+  <header class="panel__header">
+    <button type="button" class="icon-btn" (click)="close.emit()" aria-label="Close info">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <h2>{{ isGroup ? 'Group info' : 'Contact info' }}</h2>
+  </header>
+
+  <div class="panel__body">
+    <div class="state" *ngIf="loading">
+      <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+    </div>
+
+    <!-- ====================================================== 1:1 -->
+    <ng-container *ngIf="!loading && !isGroup && peer">
+      <section class="hero">
+        <app-avatar [src]="peer.avatar" [name]="peer.username" [size]="120"></app-avatar>
+        <h3 class="hero__name">{{ peer.username }}</h3>
+        <p class="hero__sub">{{ peer.isOnline ? 'Online' : (peer.lastSeen ? 'Last seen ' + (peer.lastSeen | date: 'medium') : peer.email) }}</p>
+      </section>
+      <section class="block">
+        <h4 class="block__label">About</h4>
+        <p class="block__text">{{ peer.bio || 'No bio yet' }}</p>
+      </section>
+    </ng-container>
+
+    <!-- ====================================================== group -->
+    <ng-container *ngIf="!loading && isGroup && group">
+      <section class="hero">
+        <label class="hero__photo" [class.hero__photo--editable]="isAdmin">
+          <app-avatar [src]="avatarPreview || group.groupAvatar" [name]="group.groupName" [size]="120"></app-avatar>
+          <span class="hero__photo-edit" *ngIf="isAdmin"><i class="fa-solid fa-camera"></i> Change</span>
+          <input *ngIf="isAdmin" type="file" accept="image/*" class="d-none" (change)="onAvatarChosen($event)" aria-label="Change group photo" />
+        </label>
+
+        <ng-container *ngIf="isAdmin; else readonlyName">
+          <input class="hero__name-input" [(ngModel)]="editName" maxlength="100" aria-label="Group name" placeholder="Group name" />
+        </ng-container>
+        <ng-template #readonlyName><h3 class="hero__name">{{ group.groupName }}</h3></ng-template>
+        <p class="hero__sub">Group · {{ group.members.length }} participants · {{ onlineCount }} online</p>
+      </section>
+
+      <section class="block">
+        <h4 class="block__label">Description</h4>
+        <textarea *ngIf="isAdmin; else readonlyDescription" class="block__textarea" rows="3" maxlength="500" [(ngModel)]="editDescription" placeholder="Add a group description" aria-label="Group description"></textarea>
+        <ng-template #readonlyDescription><p class="block__text">{{ group.groupDescription || 'No description' }}</p></ng-template>
+      </section>
+
+      <section class="block block--flush">
+        <h4 class="block__label block__label--padded">{{ group.members.length }} participants</h4>
+        <ul class="members">
+          <li class="member" *ngFor="let member of sortedMembers; trackBy: trackUser">
+            <app-avatar [src]="member.avatar" [name]="member.username" [size]="40" [online]="!!member.isOnline && member._id !== myUserId"></app-avatar>
+            <span class="member__text">
+              <span class="member__name">{{ member._id === myUserId ? 'You' : member.username }}</span>
+              <span class="member__sub">{{ member.isOnline || member._id === myUserId ? 'online' : (member.bio || 'offline') }}</span>
+            </span>
+            <span class="badge-admin" *ngIf="isMemberAdmin(member._id)">Admin</span>
+            <span class="spinner-border spinner-border-sm text-muted" *ngIf="busyMemberId === member._id" aria-hidden="true"></span>
+            <div ngbDropdown placement="bottom-end" container="body" *ngIf="isAdmin && member._id !== myUserId && busyMemberId !== member._id">
+              <button type="button" class="icon-btn icon-btn--sm" ngbDropdownToggle [attr.aria-label]="'Options for ' + member.username">
+                <i class="fa-solid fa-ellipsis-vertical"></i>
+              </button>
+              <div ngbDropdownMenu class="app-menu">
+                <button ngbDropdownItem type="button" *ngIf="!isMemberAdmin(member._id)" (click)="setAdmin(member, true)"><i class="fa-solid fa-user-shield"></i>Make group admin</button>
+                <button ngbDropdownItem type="button" *ngIf="isMemberAdmin(member._id)" (click)="setAdmin(member, false)"><i class="fa-solid fa-user-minus"></i>Dismiss as admin</button>
+                <button ngbDropdownItem type="button" class="text-danger" (click)="removeMember(member)"><i class="fa-solid fa-user-xmark"></i>Remove from group</button>
+              </div>
+            </div>
+          </li>
+
+          <li *ngIf="isAdmin">
+            <button type="button" class="member member--action" (click)="toggleAddMembers()" [attr.aria-expanded]="addingMembers">
+              <span class="member__icon"><i class="fa-solid fa-user-plus"></i></span>
+              <span class="member__name">Add members</span>
+            </button>
+          </li>
+        </ul>
+
+        <div class="add-members" *ngIf="addingMembers">
+          <input type="search" class="form-control form-control-sm" [(ngModel)]="memberSearch" placeholder="Search contacts" aria-label="Search contacts" />
+          <ul class="add-members__list">
+            <li *ngFor="let user of addCandidates; trackBy: trackUser">
+              <label class="candidate">
+                <input type="checkbox" class="form-check-input" [checked]="selectedToAdd.has(user._id)" (change)="toggleCandidate(user._id)" />
+                <app-avatar [src]="user.avatar" [name]="user.username" [size]="30"></app-avatar>
+                <span>{{ user.username }}</span>
+              </label>
+            </li>
+            <li class="state" *ngIf="!addCandidates.length">Everyone is already in this group</li>
+          </ul>
+          <div class="add-members__actions">
+            <button type="button" class="btn btn-sm btn-light" (click)="toggleAddMembers()">Cancel</button>
+            <button type="button" class="btn btn-sm btn-primary" [disabled]="!selectedToAdd.size || busyMemberId === 'add'" (click)="addSelected()">
+              Add{{ selectedToAdd.size ? ' (' + selectedToAdd.size + ')' : '' }}
+            </button>
+          </div>
+        </div>
+      </section>
+    </ng-container>
+
+    <!-- ====================================================== shared media (both) -->
+    <section class="block" *ngIf="!loading">
+      <h4 class="block__label">Media, links and docs <span class="text-muted">({{ media.length }})</span></h4>
+      <div class="media-grid" *ngIf="media.length; else noMedia">
+        <button type="button" class="media-cell" *ngFor="let item of media" (click)="open(item)" [attr.aria-label]="'Open ' + item.type">
+          <img *ngIf="item.type === 'image' || (item.type === 'video' && item.thumbnailUrl !== item.fileUrl)" [src]="item.thumbnailUrl" alt="" loading="lazy" />
+          <span class="media-cell__icon" *ngIf="item.type === 'video'"><i class="fa-solid fa-play"></i></span>
+          <span class="media-cell__icon media-cell__icon--doc" *ngIf="item.type === 'pdf'"><i class="fa-solid fa-file-pdf"></i></span>
+          <span class="media-cell__icon media-cell__icon--doc" *ngIf="item.type === 'audio'"><i class="fa-solid fa-music"></i></span>
+        </button>
+      </div>
+      <ng-template #noMedia><p class="block__text text-muted">No shared media yet</p></ng-template>
+    </section>
+
+    <section class="block" *ngIf="!loading && isGroup && group">
+      <button type="button" class="danger-row" (click)="leaveGroup.emit()">
+        <i class="fa-solid fa-arrow-right-from-bracket"></i> Exit group
+      </button>
+    </section>
+  </div>
+
+  <!-- Sticky footer, only while there are unsaved edits -->
+  <footer class="panel__footer" *ngIf="dirty">
+    <button type="button" class="btn btn-light" (click)="discardChanges()" [disabled]="saving">Discard</button>
+    <button type="button" class="btn btn-primary" (click)="save()" [disabled]="saving">
+      <span *ngIf="saving" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+      Save changes
+    </button>
+  </footer>
+</aside>

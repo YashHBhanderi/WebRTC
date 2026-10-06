@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { environment } from 'src/environments/environment';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
 import { Observable } from 'rxjs';
+import { UploadResult, UploadTarget } from '../interfaces/chat';
 
 /** Snapshot returned by `call:getState` for the meeting UI. */
 export interface CallStateSnapshot {
@@ -65,13 +66,21 @@ export class SocketService {
     this.socket.emit('joinConversation', conversationId);
   }
 
-  uploadFile(file: File) {
+  /** Stores a chat attachment or group photo; the returned storageKey is what gets sent back. */
+  uploadFile(file: File, target: UploadTarget) {
     const formData = new FormData();
-    formData.append("file", file);
-    return this.http.post<{ fileUrl: string, thumbnailUrl: string }>(`${environment.apiUrl}/upload`, formData);
+    formData.append('purpose', target.purpose);
+    if (target.purpose === 'message') {
+      formData.append('conversationId', target.conversationId);
+    } else {
+      formData.append('groupId', target.groupId);
+    }
+    formData.append('file', file);
+    return this.http.post<UploadResult>(`${environment.apiUrl}/upload`, formData);
   }
 
-  sendMessage(messageData: { user: string | any, conversationId: string, content: string, fileUrl?: string, thumbnailUrl?: string, type: string, replyTo?: string }) {
+  /** Media: pass the storageKey from uploadFile. Forward: pass forwardOf (source message id). */
+  sendMessage(messageData: { user: string | any, conversationId: string, content: string, fileUrl?: string, type: string, replyTo?: string | null, storageKey?: string, forwardOf?: string }) {
     this.socket.emit('sendMessage', messageData);
   }
 
@@ -375,6 +384,46 @@ export class SocketService {
     callback: (response: any) => void
   ): void {
     this.socket.emit(event, data, callback);
+  }
+
+  /** Acknowledged request; rejects with the server's message on `{ error }` or after a timeout. */
+  request<T = any>(event: string, data: Record<string, unknown>, timeoutMs = 10000): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('The server did not respond. Check your connection.')), timeoutMs);
+      this.socket.emit(event, data, (response: any) => {
+        clearTimeout(timer);
+        if (response?.error) {
+          reject(new Error(response.error));
+        } else {
+          resolve(response as T);
+        }
+      });
+    });
+  }
+
+  onGroupUpdated() {
+    return this.socket.fromEvent('group:updated');
+  }
+
+  onGroupAdded() {
+    return this.socket.fromEvent('group:added');
+  }
+
+  onGroupRemoved() {
+    return this.socket.fromEvent('group:removed');
+  }
+
+  /** Someone changed their name / picture / bio. */
+  onUserUpdated(): Observable<{ _id: string; username: string; avatar: string; bio?: string; status?: string }> {
+    return this.socket.fromEvent('user:updated');
+  }
+
+  onMessageRejected() {
+    return this.socket.fromEvent('message:rejected');
+  }
+
+  onCallError() {
+    return this.socket.fromEvent('call:error');
   }
 
   private iceConfigCache: { value: RTCConfiguration; fetchedAt: number } | null = null;

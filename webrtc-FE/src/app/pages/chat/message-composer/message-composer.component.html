@@ -1,0 +1,55 @@
+<div class="reply-bar" *ngIf="replyTo">
+  <div class="reply-bar__body">
+    <strong>{{ replyTo.author }}</strong>
+    <span>{{ replyTo.text }}</span>
+  </div>
+  <button type="button" class="icon-btn icon-btn--sm" (click)="cancelReply.emit()" aria-label="Cancel reply">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
+</div>
+
+<div class="attach-bar" *ngIf="file">
+  <div class="attach-bar__thumb" [ngSwitch]="fileKind">
+    <img *ngSwitchCase="'image'" [src]="filePreviewUrl" alt="Selected image" />
+    <video *ngSwitchCase="'video'" [src]="filePreviewUrl" muted></video>
+    <i *ngSwitchCase="'audio'" class="fa-solid fa-file-audio"></i>
+    <i *ngSwitchCase="'pdf'" class="fa-solid fa-file-pdf text-danger"></i>
+    <i *ngSwitchDefault class="fa-regular fa-file"></i>
+  </div>
+  <div class="attach-bar__info">
+    <strong>{{ file.name }}</strong>
+    <span>{{ sending ? 'Uploading…' : (file.size / 1024 / 1024 | number: '1.0-1') + ' MB' }}</span>
+  </div>
+  <button type="button" class="icon-btn icon-btn--sm" (click)="clearFile()" [disabled]="sending" aria-label="Remove attachment">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
+</div>
+
+<form class="composer" [class.composer--compact]="compact" (submit)="$event.preventDefault(); send()">
+  <button type="button" class="icon-btn" #emojiBtn (click)="openPicker(emojiBtn)" [class.is-active]="pickerOpen" aria-label="Emoji" [attr.aria-expanded]="pickerOpen">
+    <i class="fa-regular fa-face-smile"></i>
+  </button>
+  <button type="button" class="icon-btn" (click)="fileInput.click()" [disabled]="sending" aria-label="Attach a file" title="Photo, video, audio or PDF">
+    <i class="fa-solid fa-paperclip"></i>
+  </button>
+  <input type="file" #fileInput (change)="onFileChosen($event)" class="d-none" accept="image/*,application/pdf,video/*,audio/*" />
+
+  <textarea
+    #input
+    rows="1"
+    class="composer__input"
+    [placeholder]="placeholder"
+    aria-label="Message"
+    [(ngModel)]="text"
+    [ngModelOptions]="{ standalone: true }"
+    (input)="onInput()"
+    (keydown)="onKeydown($event)"
+  ></textarea>
+
+  <button type="submit" class="send-btn" [disabled]="!canSend" aria-label="Send message">
+    <span *ngIf="sending" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+    <i *ngIf="!sending" class="fa-solid fa-paper-plane"></i>
+  </button>
+</form>
+
+<app-emoji-picker *ngIf="pickerOpen" [anchor]="pickerAnchor" (picked)="insertEmoji($event)" (closed)="pickerOpen = false"></app-emoji-picker>

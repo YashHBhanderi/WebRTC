@@ -1,0 +1,90 @@
+<header class="sp-header">
+  <button type="button" class="sp-icon-btn" (click)="back.emit()" aria-label="Back to chats" title="Back">
+    <i class="fa-solid fa-arrow-left"></i>
+  </button>
+  <h1 class="sp-header__title">Profile</h1>
+</header>
+
+<div class="sp-body">
+  <div class="sp-photo">
+    <button type="button" class="sp-photo__btn" (click)="photoInput.click()" [disabled]="saving" aria-label="Change profile picture">
+      <app-avatar [src]="avatarPreview || user?.avatar" [name]="trimmedName || user?.username" [size]="148"></app-avatar>
+      <span class="sp-photo__overlay" aria-hidden="true">
+        <i class="fa-solid fa-camera"></i>
+        <span>Change photo</span>
+      </span>
+    </button>
+    <input #photoInput type="file" class="d-none" accept="image/jpeg,image/png,image/gif,image/webp" (change)="onAvatarChosen($event)" />
+    <button type="button" class="sp-link" *ngIf="avatarFile" (click)="discardAvatar()" [disabled]="saving">Keep current photo</button>
+  </div>
+
+  <section class="sp-field">
+    <div class="sp-field__head">
+      <label class="sp-field__label" for="sp-username">Username</label>
+      <button type="button" class="sp-icon-btn sp-icon-btn--sm" *ngIf="!editingName" (click)="editName()" aria-label="Edit username" title="Edit">
+        <i class="fa-solid fa-pen"></i>
+      </button>
+    </div>
+    <ng-container *ngIf="editingName; else nameView">
+      <input
+        #nameInput
+        id="sp-username"
+        class="sp-input"
+        type="text"
+        autocomplete="nickname"
+        [maxLength]="usernameMax"
+        [(ngModel)]="username"
+        [disabled]="saving"
+        [class.is-invalid]="nameChanged && usernameError"
+        (keydown.enter)="save()"
+      />
+      <div class="sp-field__meta">
+        <span class="sp-error" *ngIf="nameChanged && usernameError">{{ usernameError }}</span>
+        <span class="sp-count">{{ trimmedName.length }}/{{ usernameMax }}</span>
+      </div>
+    </ng-container>
+    <ng-template #nameView><p class="sp-field__value">{{ username }}</p></ng-template>
+  </section>
+
+  <section class="sp-field">
+    <div class="sp-field__head">
+      <label class="sp-field__label" for="sp-bio">Bio</label>
+      <button type="button" class="sp-icon-btn sp-icon-btn--sm" *ngIf="!editingBio" (click)="editBio()" aria-label="Edit bio" title="Edit">
+        <i class="fa-solid fa-pen"></i>
+      </button>
+    </div>
+    <ng-container *ngIf="editingBio; else bioView">
+      <textarea
+        #bioInput
+        id="sp-bio"
+        class="sp-input sp-input--area"
+        rows="3"
+        [maxLength]="bioMax"
+        [(ngModel)]="bio"
+        [disabled]="saving"
+        [class.is-invalid]="!!bioError"
+      ></textarea>
+      <div class="sp-field__meta">
+        <span class="sp-error" *ngIf="bioError">{{ bioError }}</span>
+        <span class="sp-count">{{ bio.trim().length }}/{{ bioMax }}</span>
+      </div>
+    </ng-container>
+    <ng-template #bioView>
+      <p class="sp-field__value" [class.sp-field__value--empty]="!bio">{{ bio || 'Add a few words about yourself' }}</p>
+    </ng-template>
+  </section>
+
+  <section class="sp-field">
+    <div class="sp-field__head">
+      <span class="sp-field__label" id="sp-email-label">Email</span>
+    </div>
+    <p class="sp-field__value sp-field__value--readonly" aria-labelledby="sp-email-label">{{ user?.email }}</p>
+  </section>
+</div>
+
+<footer class="sp-footer">
+  <button type="button" class="btn btn-primary sp-save" [disabled]="!canSave" (click)="save()">
+    <span class="spinner-border spinner-border-sm me-2" *ngIf="saving" aria-hidden="true"></span>
+    {{ saving ? 'Saving…' : 'Save changes' }}
+  </button>
+</footer>

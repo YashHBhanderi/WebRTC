@@ -64,4 +64,7 @@ const callSchema = new Schema(
   }
 );
 
+// getActiveCall: newest ringing/active call of a conversation
+callSchema.index({ conversationId: 1, callStatus: 1, createdAt: -1 });
+
 export default model("calls", callSchema);

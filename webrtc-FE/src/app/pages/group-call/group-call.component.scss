@@ -1,4 +1,4 @@
-// Full-viewport call surface layered over the chat. Minimized = floating card.
+// Full-viewport meeting surface layered over the chat. Minimized = floating card / phone bar.
 :host {
   --call-bg: #0b1120;
   --call-panel: #111a2e;
@@ -14,7 +14,7 @@
 
   position: fixed;
   inset: 0;
-  z-index: 1040; // below Bootstrap modals (1055) and SweetAlert (1060)
+  z-index: 1040; // below Bootstrap modals (1055) and SweetAlert
   display: block;
   height: 100vh;
   height: 100dvh;
@@ -41,59 +41,6 @@
   flex-direction: column;
   position: relative;
   overflow: hidden;
-}
-
-// ------------------------------------------------------------------ header
-
-.call__header {
-  flex: none;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: max(10px, env(safe-area-inset-top)) 16px 10px;
-}
-
-.call__heading {
-  flex: 1;
-  min-width: 0;
-}
-
-.call__title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.call__meta {
-  margin: 2px 0 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  color: var(--call-muted);
-  font-size: 0.8rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.call__presenting {
-  color: #93c5fd;
-}
-
-.dot-sep {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.6;
-}
-
-.call__header-actions {
-  display: flex;
-  gap: 6px;
 }
 
 .icon-btn {
@@ -126,10 +73,6 @@
     height: 32px;
   }
 
-  &::after {
-    display: none; // ngbDropdownToggle caret
-  }
-
   &--danger {
     background: var(--call-danger);
 
@@ -140,6 +83,82 @@
 
   &.is-off {
     color: #f87171;
+  }
+
+  &::after {
+    display: none; // ngbDropdownToggle caret
+  }
+}
+
+// ------------------------------------------------------------------ header strip: [minimize] title [timer]
+
+.meet-top {
+  flex: none;
+  position: relative;
+  z-index: 33; // header + bar (and their popovers) stay above stage sheets
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: max(6px, env(safe-area-inset-top)) 12px 4px;
+}
+
+.meet-top__left,
+.meet-top__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.meet-top__right {
+  justify-content: flex-end;
+}
+
+.meet-top__title {
+  margin: 0;
+  max-width: min(60vw, 560px);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meet-top__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.16);
+  color: #fcd34d;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.meet-top__presenting {
+  color: #93c5fd;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Timer: real call start time from the server (see CallDurationComponent)
+.meet-top__timer {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--call-text);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+
+  &:hover {
+    background: rgba(148, 163, 184, 0.2);
   }
 }
 
@@ -154,8 +173,8 @@
 }
 
 .call__info {
-  top: calc(100% - 4px);
-  right: 16px;
+  top: calc(100% + 4px);
+  right: 12px;
   width: min(300px, calc(100vw - 32px));
   padding: 12px 14px;
 
@@ -184,26 +203,265 @@
   }
 }
 
-.call__banner {
+// ------------------------------------------------------------------ control bar (Teams-like)
+
+.meet-bar {
   flex: none;
-  margin: 0 12px 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: rgba(251, 191, 36, 0.14);
-  color: #fcd34d;
-  font-size: 0.85rem;
+  position: relative;
+  z-index: 32;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0 12px 10px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(17, 26, 46, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.meet-bar__group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.meet-bar__group--secondary {
+  margin-right: auto; // secondary tools left, media + leave right (as in Teams)
+}
+
+.meet-bar__sep {
+  width: 1px;
+  height: 32px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.tool-wrap {
+  position: relative;
+}
+
+.tool {
+  position: relative;
+  min-width: 58px;
+  height: 52px;
+  padding: 6px 8px 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--call-text);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-size: 17px;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--call-ctrl-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--call-accent);
+    outline-offset: 1px;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &--active {
+    background: #1d3a66;
+    color: #bfdbfe;
+  }
+
+  &--off {
+    color: #fca5a5;
+  }
+
+  &--hand {
+    background: #fbbf24;
+    color: #1f2937;
+
+    &:hover:not(:disabled) {
+      background: #f59e0b;
+    }
+  }
+}
+
+.tool__label {
+  font-size: 0.66rem;
+  line-height: 1;
+  opacity: 0.9;
+}
+
+.tool__badge,
+.tool__count {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 0.65rem;
+  line-height: 18px;
+  text-align: center;
+}
+
+.tool__badge {
+  background: var(--call-danger);
+  color: #fff;
+}
+
+.tool__count {
+  background: #334155;
+}
+
+.leave-btn {
+  height: 44px;
+  margin-left: 6px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--call-danger);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+
+  &:hover {
+    background: #b91c1c;
+  }
+
+  &:focus-visible {
+    outline: 2px solid #fca5a5;
+    outline-offset: 2px;
+  }
+}
+
+.reactions-picker {
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 4px;
+
+  button {
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    font-size: 24px;
+    transition: transform 0.12s ease, background 0.12s ease;
+
+    &:hover,
+    &:focus-visible {
+      background: rgba(148, 163, 184, 0.14);
+      transform: scale(1.12);
+    }
+  }
+}
+
+.menu-card {
+  top: calc(100% + 8px);
+  left: 0;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+
+  > button {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--call-text);
+    text-align: left;
+    font-size: 0.9rem;
+
+    > i:first-child {
+      width: 18px;
+      text-align: center;
+      color: var(--call-muted);
+    }
+
+    &:hover:not(:disabled) {
+      background: rgba(148, 163, 184, 0.12);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+    }
+
+    &.text-danger i {
+      color: inherit;
+    }
+  }
+}
+
+.menu-card__check {
+  margin-left: auto;
+  color: var(--call-accent) !important;
+}
+
+.menu-card__count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--call-danger);
+  font-size: 0.7rem;
+}
+
+.more-menu {
+  left: auto;
+  right: 0;
+  width: 260px;
+}
+
+.more-menu__reactions {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 4px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+
+  button {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    font-size: 22px;
+  }
+}
+
+.only-narrow {
+  display: none !important;
+}
+
+.menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30; // above stage sheets (28), below the bar (32)
 }
 
 // ------------------------------------------------------------------ body / stage
 
 .call__body {
+  position: relative; // phone sheets (chat / people) cover the stage only, never the controls
   flex: 1;
   min-height: 0;
   display: flex;
   gap: 12px;
-  padding: 0 12px;
+  padding: 0 12px max(12px, env(safe-area-inset-bottom));
 }
 
 .call__stage {
@@ -229,6 +487,65 @@
   border-radius: 14px;
   box-shadow: 0 10px 30px rgba(2, 6, 23, 0.55);
   transition: width 0.25s ease, transform 0.25s ease;
+}
+
+// Gallery: tiles sized by DishLayoutDirective (--dish-w / --dish-h), centred, wrapping
+.gallery {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.gallery__tile {
+  width: var(--dish-w, 320px);
+  height: var(--dish-h, 180px);
+  flex: none;
+}
+
+.page-btn {
+  position: absolute;
+  top: 50%;
+  z-index: 4;
+  width: 40px;
+  height: 40px;
+  margin-top: -20px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.8);
+  color: var(--call-text);
+
+  &--prev {
+    left: 6px;
+  }
+
+  &--next {
+    right: 6px;
+  }
+
+  &:disabled {
+    opacity: 0.3;
+  }
+
+  &:hover:not(:disabled) {
+    background: rgba(30, 41, 59, 0.95);
+  }
+}
+
+.page-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  z-index: 4;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.8);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .unpin-btn {
@@ -324,7 +641,6 @@
   font-size: 0.85rem;
 }
 
-// 1:1 audio call
 .audio-call {
   position: absolute;
   inset: 0;
@@ -371,7 +687,7 @@
   font-size: 0.85rem;
 }
 
-// Side strip (desktop: right column)
+// Speaker view strip (desktop: right column, scrolls independently)
 .call__strip {
   flex: none;
   width: clamp(180px, 19vw, 260px);
@@ -390,7 +706,6 @@
   aspect-ratio: 16 / 10;
 }
 
-// Reactions
 .reactions-layer {
   position: absolute;
   inset: 0;
@@ -455,7 +770,7 @@
   text-align: center;
 }
 
-// ------------------------------------------------------------------ people panel
+// ------------------------------------------------------------------ side panels (people / chat)
 
 .call__panel {
   flex: none;
@@ -467,6 +782,11 @@
   background: var(--call-panel);
   border: 1px solid rgba(148, 163, 184, 0.12);
   overflow: hidden;
+
+  &--light {
+    border: 0;
+    background: transparent;
+  }
 }
 
 .panel__header {
@@ -604,212 +924,6 @@
   }
 }
 
-// ------------------------------------------------------------------ controls
-
-.call__controls {
-  flex: none;
-  display: flex;
-  justify-content: center;
-  padding: 12px 12px max(12px, env(safe-area-inset-bottom));
-}
-
-.controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-  border-radius: 20px;
-  background: rgba(17, 26, 46, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  max-width: 100%;
-}
-
-.ctrl-wrap {
-  position: relative;
-}
-
-.ctrl {
-  position: relative;
-  min-width: 60px;
-  height: 56px;
-  padding: 6px 8px 4px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--call-ctrl);
-  color: var(--call-text);
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  font-size: 18px;
-  transition: background 0.15s ease, color 0.15s ease;
-
-  &:hover:not(:disabled) {
-    background: var(--call-ctrl-hover);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--call-accent);
-    outline-offset: 2px;
-  }
-
-  &:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  &--off {
-    background: #3f1d24;
-    color: #fca5a5;
-
-    &:hover:not(:disabled) {
-      background: #57232c;
-    }
-  }
-
-  &--active {
-    background: #1d3a66;
-    color: #bfdbfe;
-  }
-
-  &--hand {
-    background: #fbbf24;
-    color: #1f2937;
-
-    &:hover:not(:disabled) {
-      background: #f59e0b;
-    }
-  }
-
-  &--hangup {
-    min-width: 72px;
-    background: var(--call-danger);
-
-    &:hover:not(:disabled) {
-      background: #b91c1c;
-    }
-  }
-}
-
-.ctrl__label {
-  font-size: 0.65rem;
-  line-height: 1;
-  color: inherit;
-  opacity: 0.85;
-}
-
-.ctrl__badge {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: #334155;
-  font-size: 0.65rem;
-  line-height: 18px;
-}
-
-.reactions-picker {
-  bottom: calc(100% + 10px);
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 4px;
-
-  button {
-    width: 44px;
-    height: 44px;
-    border: 0;
-    border-radius: 10px;
-    background: transparent;
-    font-size: 24px;
-    transition: transform 0.12s ease, background 0.12s ease;
-
-    &:hover,
-    &:focus-visible {
-      background: rgba(148, 163, 184, 0.14);
-      transform: scale(1.12);
-    }
-  }
-}
-
-.more-menu {
-  bottom: calc(100% + 10px);
-  right: 0;
-  width: 260px;
-  display: flex;
-  flex-direction: column;
-
-  > button {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    width: 100%;
-    min-height: 44px;
-    padding: 8px 12px;
-    border: 0;
-    border-radius: 10px;
-    background: transparent;
-    color: var(--call-text);
-    text-align: left;
-    font-size: 0.9rem;
-
-    i {
-      width: 18px;
-      text-align: center;
-      color: var(--call-muted);
-    }
-
-    &:hover:not(:disabled) {
-      background: rgba(148, 163, 184, 0.12);
-    }
-
-    &:disabled {
-      opacity: 0.45;
-    }
-
-    &.text-danger i {
-      color: inherit;
-    }
-  }
-}
-
-.more-menu__reactions {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 4px 8px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-
-  button {
-    width: 38px;
-    height: 38px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    font-size: 22px;
-  }
-}
-
-.only-narrow {
-  display: none !important;
-}
-
-.menu-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 20;
-}
-
-.call__controls,
-.call__header {
-  position: relative;
-  z-index: 25;
-}
-
 // ------------------------------------------------------------------ settings sheet / overlays
 
 .settings-sheet {
@@ -849,6 +963,16 @@
     background-color: var(--call-tile);
     border-color: #334155;
     color: var(--call-text);
+  }
+}
+
+.settings-sheet__toggles {
+  display: flex;
+  gap: 8px;
+
+  .tool {
+    flex: 1;
+    background: var(--call-ctrl);
   }
 }
 
@@ -937,8 +1061,8 @@
 :host(.is-minimized) {
   --call-radius: 0;
 
-  .call__header,
-  .call__banner,
+  .meet-top,
+  .meet-bar,
   .call__strip,
   .call__panel,
   .unpin-btn,
@@ -994,23 +1118,53 @@
 // ------------------------------------------------------------------ responsive
 
 @media (max-width: 1100px) {
-  .call--people-open .call__strip {
+  .call--panel-open .call__strip {
     display: none;
+  }
+
+  .tool {
+    min-width: 50px;
+  }
+}
+
+@media (max-width: 900px) {
+  .tool--optional {
+    display: none !important;
+  }
+
+  .only-narrow {
+    display: flex !important;
+  }
+
+  .meet-bar__group--secondary {
+    margin-right: 0;
+  }
+
+  .meet-bar {
+    justify-content: center;
+  }
+
+  .more-menu {
+    position: fixed;
+    top: calc(118px + env(safe-area-inset-top));
+    left: auto;
+    right: 8px;
+    width: min(300px, calc(100vw - 16px));
   }
 }
 
 @media (max-width: 768px) {
   .call__body {
-    padding: 0 8px;
+    padding: 0 8px max(8px, env(safe-area-inset-bottom));
   }
 
-  // Participants move to a horizontal bottom strip
-  .layout-sidebar {
+  // Speaker strip moves to a horizontal bottom row
+  .layout-speaker {
     flex-direction: column;
     gap: 8px;
   }
 
-  .layout-sidebar .call__strip {
+  .layout-speaker .call__strip {
     width: auto;
     height: 104px;
     flex-direction: row;
@@ -1019,13 +1173,13 @@
     padding: 0 0 2px;
   }
 
-  .layout-sidebar .strip-tile {
+  .layout-speaker .strip-tile {
     width: 132px;
     height: 100%;
     aspect-ratio: auto;
   }
 
-  .call--people-open .call__strip {
+  .call--panel-open .call__strip {
     display: flex;
   }
 
@@ -1036,52 +1190,58 @@
     bottom: 10px;
   }
 
-  // People panel becomes a full sheet over the stage
+  // People / chat become full sheets over the stage
   .call__panel {
     position: absolute;
     inset: 0;
     z-index: 28;
     width: auto;
     border-radius: 0;
+
+    &--light {
+      background: var(--app-chat-bg, #eef1f5);
+    }
   }
 
-  .ctrl--optional {
-    display: none !important;
-  }
-
-  .only-narrow {
-    display: flex !important;
-  }
-
-  .more-menu {
-    position: fixed;
-    left: 8px;
-    right: 8px;
-    bottom: calc(84px + env(safe-area-inset-bottom));
-    width: auto;
+  .meet-top__presenting {
+    display: none;
   }
 }
 
 @media (max-width: 480px) {
-  .controls {
-    gap: 4px;
-    padding: 6px;
+  .meet-bar {
+    margin: 0 8px 8px;
+    gap: 2px;
   }
 
-  .ctrl {
-    min-width: 52px;
-    height: 52px;
-    font-size: 17px;
+  .tool {
+    min-width: 48px;
+    height: 48px;
   }
 
-  .ctrl__label {
+  .tool__label,
+  .leave-btn__label {
     display: none;
   }
 
-  .ctrl--hangup {
-    min-width: 60px;
+  .leave-btn {
+    padding: 0 14px;
   }
 
+  .meet-top__title {
+    max-width: 52vw;
+    font-size: 0.88rem;
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .tool {
+    height: 42px;
+  }
+
+  .tool__label {
+    display: none;
+  }
 }
 
 // Phones: minimized call is a slim bar across the top (the chat leaves room for it)
@@ -1107,20 +1267,5 @@
     .mini-bar__info app-call-duration {
       color: rgba(255, 255, 255, 0.85);
     }
-  }
-}
-
-@media (max-height: 520px) and (orientation: landscape) {
-  .call__header {
-    padding-top: 6px;
-    padding-bottom: 6px;
-  }
-
-  .ctrl {
-    height: 46px;
-  }
-
-  .ctrl__label {
-    display: none;
   }
 }

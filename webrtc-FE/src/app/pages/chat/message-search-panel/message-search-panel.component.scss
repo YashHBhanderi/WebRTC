@@ -1,0 +1,209 @@
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+.panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--app-surface);
+}
+
+.panel__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  border-bottom: 1px solid var(--app-border);
+
+  h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--app-text);
+  }
+}
+
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--app-icon);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: var(--app-hover);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-brand);
+  }
+
+  &--sm {
+    width: 28px;
+    height: 28px;
+    font-size: 13px;
+  }
+}
+
+.search-box {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px;
+  padding: 0 8px 0 14px;
+  border-radius: 10px;
+  background: var(--app-input);
+  color: var(--app-muted);
+
+  &:focus-within {
+    outline: 2px solid var(--app-brand-soft);
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    height: 38px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--app-text);
+  }
+}
+
+.panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 12px;
+}
+
+.state {
+  padding: 24px 20px;
+  color: var(--app-muted);
+  font-size: 0.88rem;
+  text-align: center;
+
+  &--error {
+    color: var(--app-danger);
+  }
+}
+
+.group__label {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 10px 16px 6px;
+  background: var(--app-surface);
+  color: var(--app-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.result {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--app-border);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+
+  &:hover {
+    background: var(--app-hover);
+  }
+
+  &--active,
+  &--active:hover {
+    background: var(--app-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-brand);
+    outline-offset: -2px;
+  }
+}
+
+.result__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+// Sender name and date share one line; the date sits on the right
+.result__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.result__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result__date {
+  flex: none;
+  color: var(--app-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.result__text {
+  color: var(--app-text-2);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+
+  ::ng-deep mark {
+    padding: 0 1px;
+    border-radius: 3px;
+    background: var(--app-highlight);
+    color: var(--app-text);
+  }
+}
+
+.load-more {
+  display: block;
+  margin: 12px auto 0;
+  padding: 8px 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-surface);
+  color: var(--app-brand-strong);
+  font-size: 0.85rem;
+  font-weight: 500;
+
+  &:hover {
+    background: var(--app-hover);
+  }
+}

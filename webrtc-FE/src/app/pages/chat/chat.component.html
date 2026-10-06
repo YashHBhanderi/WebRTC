@@ -1,32 +1,42 @@
-<div class="app-shell" [class.show-chat]="showChatPane && hasOpenConversation" [class.has-call-bar]="!!activeCall && callMinimized">
+<div
+  class="app-shell"
+  [class.show-chat]="showChatPane && hasOpenConversation"
+  [class.has-call-bar]="!!activeCall && callMinimized"
+  [class.has-panel]="rightPanel !== 'none' && hasOpenConversation"
+>
   <!-- ============================================================ SIDEBAR -->
   <aside class="sidebar" aria-label="Conversations">
-    <header class="sidebar__header">
-      <div ngbDropdown placement="bottom-start" class="d-inline-block">
-        <button type="button" class="avatar-btn" ngbDropdownToggle aria-label="Account menu">
-          <img *ngIf="loginUserProfile; else meLetter" [src]="loginUserProfile" alt="" class="avatar avatar--sm" />
-          <ng-template #meLetter><span class="avatar avatar--sm avatar--letter">{{ (myUsername || '?').charAt(0) }}</span></ng-template>
+    <!-- Profile replaces the whole chat list (no popup) -->
+    <app-sidebar-profile *ngIf="sidebarMode === 'profile'; else chatList" (back)="setSidebarMode('chats')" (saved)="onProfileSaved($event)"></app-sidebar-profile>
+    <ng-template #chatList>
+    <!-- Default header: logged-in user + menu -->
+    <header class="sidebar__header" *ngIf="sidebarMode === 'chats'; else archivedHeader">
+      <app-avatar [src]="loginUserProfile" [name]="myUsername" [size]="40"></app-avatar>
+      <h1 class="sidebar__title" [title]="myUsername">{{ myUsername }}</h1>
+      <div ngbDropdown placement="bottom-end" class="d-inline-block">
+        <button type="button" class="icon-btn" ngbDropdownToggle aria-label="Menu">
+          <i class="fa-solid fa-ellipsis-vertical"></i>
         </button>
         <div ngbDropdownMenu class="app-menu">
-          <div class="app-menu__user">
-            <strong>{{ myUsername }}</strong>
-          </div>
-          <button ngbDropdownItem type="button" (click)="openUserProfile(myUserId)"><i class="fa-regular fa-user"></i>Profile</button>
-          <button ngbDropdownItem type="button" (click)="editCurrentUserProfile()"><i class="fa-regular fa-pen-to-square"></i>Edit profile</button>
+          <button ngbDropdownItem type="button" (click)="openCreateGroup()"><i class="fa-solid fa-user-group"></i>New group</button>
+          <button ngbDropdownItem type="button" (click)="setSidebarMode('archived')">
+            <i class="fa-solid fa-box-archive"></i>Archived chats
+            <span class="menu-count" *ngIf="archivedTotal">{{ archivedTotal }}</span>
+          </button>
+          <button ngbDropdownItem type="button" (click)="setSidebarMode('profile')"><i class="fa-regular fa-user"></i>Profile</button>
           <div class="dropdown-divider"></div>
           <button ngbDropdownItem type="button" class="text-danger" (click)="onLogoutClick()"><i class="fa-solid fa-arrow-right-from-bracket"></i>Log out</button>
         </div>
       </div>
-      <h1 class="sidebar__title">Chats</h1>
-      <div class="sidebar__actions">
-        <button type="button" class="icon-btn" (click)="openCreateGroup()" title="New group" aria-label="Create a new group">
-          <i class="fa-solid fa-user-plus"></i>
-        </button>
-        <button type="button" class="icon-btn" (click)="setSidebarFilter('contacts')" title="New chat" aria-label="Start a new chat">
-          <i class="fa-regular fa-pen-to-square"></i>
-        </button>
-      </div>
     </header>
+    <ng-template #archivedHeader>
+      <header class="sidebar__header">
+        <button type="button" class="icon-btn" (click)="setSidebarMode('chats')" aria-label="Back to chats">
+          <i class="fa-solid fa-arrow-left"></i>
+        </button>
+        <h1 class="sidebar__title">Archived</h1>
+      </header>
+    </ng-template>
 
     <div class="sidebar__search">
       <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
@@ -34,12 +44,12 @@
         type="search"
         [ngModel]="sidebarSearch"
         (ngModelChange)="onSidebarSearch($event)"
-        [placeholder]="sidebarFilter === 'contacts' ? 'Search contacts' : 'Search chats'"
+        [placeholder]="sidebarMode === 'archived' ? 'Search archived chats' : sidebarFilter === 'contacts' ? 'Search contacts' : 'Search chats'"
         aria-label="Search conversations"
       />
     </div>
 
-    <nav class="chips" aria-label="Filter conversations">
+    <nav class="chips" aria-label="Filter conversations" *ngIf="sidebarMode === 'chats'">
       <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'all'" (click)="setSidebarFilter('all')">All</button>
       <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'unread'" (click)="setSidebarFilter('unread')">Unread</button>
       <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'groups'" (click)="setSidebarFilter('groups')">Groups</button>
@@ -47,7 +57,13 @@
     </nav>
 
     <div class="sidebar__list">
-      <!-- Loading skeleton -->
+      <!-- "Archived (n)" entry, like WhatsApp -->
+      <button type="button" class="archived-row" *ngIf="sidebarMode === 'chats' && sidebarFilter === 'all' && archivedTotal && !sidebarSearch" (click)="setSidebarMode('archived')">
+        <span class="archived-row__icon"><i class="fa-solid fa-box-archive"></i></span>
+        <span class="archived-row__label">Archived</span>
+        <span class="archived-row__count">{{ archivedTotal }}</span>
+      </button>
+
       <ng-container *ngIf="listLoading && !sidebarItems.length">
         <div class="list-skeleton" *ngFor="let _ of [1, 2, 3, 4, 5, 6]">
           <ngx-skeleton-loader appearance="circle" [theme]="{ width: '48px', height: '48px', margin: 0 }"></ngx-skeleton-loader>
@@ -67,11 +83,7 @@
             [class.conv--unread]="item.unread > 0"
             (click)="openSidebarItem(item)"
           >
-            <span class="conv__avatar">
-              <img *ngIf="item.avatar; else itemLetter" [src]="item.avatar" alt="" class="avatar avatar--md" loading="lazy" />
-              <ng-template #itemLetter><span class="avatar avatar--md avatar--letter">{{ (item.title || '?').charAt(0) }}</span></ng-template>
-              <span class="presence" *ngIf="item.kind !== 'group' && item.online" aria-label="Online"></span>
-            </span>
+            <app-avatar [src]="item.avatar" [name]="item.title" [size]="48" [online]="item.kind !== 'group' && !!item.online"></app-avatar>
             <span class="conv__body">
               <span class="conv__row">
                 <span class="conv__title">
@@ -97,12 +109,15 @@
         </li>
       </ul>
 
-      <!-- Empty states -->
       <div class="empty-list" *ngIf="!listLoading && !sidebarItems.length">
         <ng-container [ngSwitch]="true">
           <ng-container *ngSwitchCase="!!sidebarSearch">
             <i class="fa-solid fa-magnifying-glass"></i>
             <p>No results for “{{ sidebarSearch }}”</p>
+          </ng-container>
+          <ng-container *ngSwitchCase="sidebarMode === 'archived'">
+            <i class="fa-solid fa-box-archive"></i>
+            <p>No archived chats</p>
           </ng-container>
           <ng-container *ngSwitchCase="sidebarFilter === 'unread'">
             <i class="fa-regular fa-circle-check"></i>
@@ -121,6 +136,7 @@
         </ng-container>
       </div>
     </div>
+    </ng-template>
   </aside>
 
   <!-- ============================================================ CONVERSATION -->
@@ -129,18 +145,13 @@
       <button type="button" class="icon-btn conv-header__back" (click)="backToList()" aria-label="Back to chats">
         <i class="fa-solid fa-arrow-left"></i>
       </button>
-      <button type="button" class="conv-header__who" (click)="isGroupChat ? openGroupInfo(conversationId) : openUserProfile(receiverId)" [attr.aria-label]="'Open ' + (isGroupChat ? groupname : peerName) + ' info'">
-        <span class="conv__avatar">
-          <ng-container *ngIf="isGroupChat; else peerAv">
-            <img *ngIf="groupAvatar; else groupLetter" [src]="groupAvatar" alt="" class="avatar avatar--md" />
-            <ng-template #groupLetter><span class="avatar avatar--md avatar--letter">{{ (groupname || '?').charAt(0) }}</span></ng-template>
-          </ng-container>
-          <ng-template #peerAv>
-            <img *ngIf="peerAvatar; else peerLetter" [src]="peerAvatar" alt="" class="avatar avatar--md" />
-            <ng-template #peerLetter><span class="avatar avatar--md avatar--letter">{{ (peerName || '?').charAt(0) }}</span></ng-template>
-            <span class="presence" *ngIf="isOnline"></span>
-          </ng-template>
-        </span>
+      <button type="button" class="conv-header__who" (click)="openInfoPanel()" [attr.aria-label]="(isGroupChat ? 'Group info: ' + groupname : 'Contact info: ' + peerName)">
+        <app-avatar
+          [src]="isGroupChat ? groupAvatar : peerAvatar"
+          [name]="isGroupChat ? groupname : peerName"
+          [size]="44"
+          [online]="!isGroupChat && isOnline"
+        ></app-avatar>
         <span class="conv-header__text">
           <span class="conv-header__name">{{ isGroupChat ? groupname : peerName }}</span>
           <span class="conv-header__sub" [class.is-typing]="isTyping" [class.is-online]="!isGroupChat && isOnline && !isTyping">{{ headerSubtitle }}</span>
@@ -148,29 +159,27 @@
       </button>
 
       <div class="conv-header__actions">
-        <!-- In this conversation's call already -->
         <button type="button" class="pill-btn pill-btn--live return-call" *ngIf="inCallHere" (click)="returnToCall()">
           <i class="fa-solid fa-phone-volume"></i><span>Return to call</span>
         </button>
 
         <ng-container *ngIf="!inCallHere">
+          <!-- 1:1: video + voice -->
           <ng-container *ngIf="!isGroupChat">
-            <button type="button" class="icon-btn" (click)="startVideoCall()" title="Video call" aria-label="Start video call">
+            <button type="button" class="icon-btn" (click)="startVideoCall()" [disabled]="blockedByMe" title="Video call" aria-label="Start video call">
               <i class="fa-solid fa-video"></i>
             </button>
-            <button type="button" class="icon-btn" (click)="startAudioCall()" title="Voice call" aria-label="Start voice call">
+            <button type="button" class="icon-btn" (click)="startAudioCall()" [disabled]="blockedByMe" title="Voice call" aria-label="Start voice call">
               <i class="fa-solid fa-phone"></i>
             </button>
           </ng-container>
 
+          <!-- Groups: meetings only -->
           <ng-container *ngIf="isGroupChat">
-            <button type="button" class="pill-btn pill-btn--live" *ngIf="currentMeeting; else groupStart" (click)="joinCurrentMeeting()">
+            <button type="button" class="pill-btn pill-btn--live" *ngIf="currentMeeting; else meetNowBtn" (click)="joinCurrentMeeting()">
               <i class="fa-solid fa-right-to-bracket"></i><span>Join</span>
             </button>
-            <ng-template #groupStart>
-              <button type="button" class="icon-btn" (click)="startGroupAudioCall(conversationId)" title="Group voice call" aria-label="Start group voice call">
-                <i class="fa-solid fa-phone"></i>
-              </button>
+            <ng-template #meetNowBtn>
               <button type="button" class="pill-btn" (click)="startMeetNow(conversationId)" title="Meet now" aria-label="Start a video meeting">
                 <i class="fa-solid fa-video"></i><span class="hide-sm">Meet now</span>
               </button>
@@ -178,64 +187,39 @@
           </ng-container>
         </ng-container>
 
-        <button type="button" class="icon-btn" (click)="toggleSearch()" [class.is-active]="showSearch" title="Search" aria-label="Search in conversation">
-          <i class="fa-solid fa-magnifying-glass"></i>
-        </button>
-
         <div ngbDropdown placement="bottom-end" class="d-inline-block">
           <button type="button" class="icon-btn" ngbDropdownToggle aria-label="Conversation menu">
             <i class="fa-solid fa-ellipsis-vertical"></i>
           </button>
           <div ngbDropdownMenu class="app-menu">
-            <button ngbDropdownItem type="button" *ngIf="isGroupChat" (click)="openGroupInfo(conversationId)"><i class="fa-solid fa-circle-info"></i>Group info</button>
-            <button ngbDropdownItem type="button" *ngIf="!isGroupChat" (click)="openUserProfile(receiverId)"><i class="fa-regular fa-user"></i>Contact info</button>
-            <button ngbDropdownItem type="button" (click)="toggleSearch()"><i class="fa-solid fa-magnifying-glass"></i>Search</button>
+            <button ngbDropdownItem type="button" (click)="openSearchPanel()"><i class="fa-solid fa-magnifying-glass"></i>Search messages</button>
+            <button ngbDropdownItem type="button" (click)="toggleArchive()">
+              <i class="fa-solid fa-box-archive"></i>{{ isArchived ? 'Unarchive chat' : 'Archive chat' }}
+            </button>
+            <button ngbDropdownItem type="button" (click)="clearChat()"><i class="fa-solid fa-eraser"></i>Clear chat</button>
             <div class="dropdown-divider"></div>
-            <button ngbDropdownItem type="button" class="text-danger" (click)="deleteConversation(conversationId)"><i class="fa-regular fa-trash-can"></i>Delete chat</button>
+            <button ngbDropdownItem type="button" *ngIf="!isGroupChat" class="text-danger" (click)="toggleBlock()">
+              <i class="fa-solid fa-ban"></i>{{ blockedByMe ? 'Unblock contact' : 'Block contact' }}
+            </button>
+            <button ngbDropdownItem type="button" *ngIf="isGroupChat" class="text-danger" (click)="leaveGroup()">
+              <i class="fa-solid fa-arrow-right-from-bracket"></i>Leave group
+            </button>
           </div>
         </div>
       </div>
     </header>
 
-    <!-- Search bar -->
-    <div class="search-bar" *ngIf="showSearch">
-      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-      <input
-        id="conversation-search"
-        type="search"
-        [ngModel]="searchTerm"
-        (ngModelChange)="onSearchTerm($event)"
-        (keydown.enter)="stepSearch($any($event).shiftKey ? 1 : -1)"
-        (keydown.escape)="closeSearch()"
-        placeholder="Search loaded messages"
-        aria-label="Search messages"
-      />
-      <span class="search-bar__count" *ngIf="searchTerm.length >= 2">
-        {{ searchMatches.length ? (searchIndex + 1) + ' of ' + searchMatches.length : 'No matches' }}
-      </span>
-      <button type="button" class="icon-btn icon-btn--sm" (click)="stepSearch(-1)" [disabled]="!searchMatches.length" aria-label="Previous (older) match">
-        <i class="fa-solid fa-chevron-up"></i>
-      </button>
-      <button type="button" class="icon-btn icon-btn--sm" (click)="stepSearch(1)" [disabled]="!searchMatches.length" aria-label="Next (newer) match">
-        <i class="fa-solid fa-chevron-down"></i>
-      </button>
-      <button type="button" class="icon-btn icon-btn--sm" (click)="closeSearch()" aria-label="Close search">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>
-
     <!-- Messages -->
     <div class="messages" #scrollContainer>
       <div #topElement class="messages__sentinel"></div>
 
-      <div class="messages__loader" *ngIf="isFetchingOldMessages && !messagesLoading && messageArray.length">
+      <div class="messages__loader" *ngIf="isFetchingOldMessages && !messagesLoading && messageArray.length && hasMoreMessages">
         <span class="spinner-border spinner-border-sm" role="status"><span class="visually-hidden">Loading older messages</span></span>
       </div>
       <div class="messages__start" *ngIf="!hasMoreMessages && messageArray.length && !messagesLoading">
-        <i class="fa-solid fa-lock"></i> Beginning of the conversation
+        <i class="fa-solid fa-lock"></i> {{ chatState?.clearedAt ? 'Chat cleared' : 'Beginning of the conversation' }}
       </div>
 
-      <!-- Skeleton -->
       <ng-container *ngIf="messagesLoading">
         <div class="bubble-skeleton" *ngFor="let w of [180, 240, 140, 260, 200, 160]; let i = index" [class.bubble-skeleton--mine]="i % 2 === 1">
           <ngx-skeleton-loader [theme]="{ width: w + 'px', height: '44px', 'border-radius': '12px', margin: 0 }"></ngx-skeleton-loader>
@@ -244,7 +228,7 @@
 
       <div class="messages__empty" *ngIf="!messagesLoading && !messageArray.length">
         <i class="fa-regular fa-hand"></i>
-        <p>No messages yet. Say hello!</p>
+        <p>{{ chatState?.clearedAt ? 'This chat was cleared.' : 'No messages yet. Say hello!' }}</p>
       </div>
 
       <ng-container *ngIf="!messagesLoading">
@@ -252,7 +236,7 @@
           <div class="day-sep" *ngIf="isNewDay(i)"><span>{{ dayLabel(msg.createdAt) }}</span></div>
 
           <!-- Call event -->
-          <div class="call-event" *ngIf="msg.type === 'call'; else regular" [id]="'message-' + msg._id">
+          <div class="call-event" *ngIf="msg.type === 'call'" [id]="'message-' + msg._id">
             <span class="call-event__pill" [class.call-event__pill--missed]="isMissedCall(msg)">
               <i class="fa-solid" [class.fa-video]="isVideoCallMessage(msg)" [class.fa-phone]="!isVideoCallMessage(msg) && !isMissedCall(msg)" [class.fa-phone-slash]="isMissedCall(msg)"></i>
               <span>{{ msg.content || 'Call' }}</span>
@@ -261,86 +245,35 @@
             </span>
           </div>
 
-          <ng-template #regular>
-            <div
-              class="msg"
-              [id]="'message-' + msg._id"
-              [class.msg--mine]="isMine(msg)"
-              [class.msg--first]="isFirstOfRun(i)"
-              [class.msg--highlight]="highlightedMessageId === msg._id"
-              [class.msg--hit]="isSearchHit(msg)"
-              [class.msg--reacted]="!!msg.reactions?.length"
-            >
-              <span class="msg__avatar" *ngIf="isGroupChat && !isMine(msg)">
-                <ng-container *ngIf="isFirstOfRun(i)">
-                  <img *ngIf="msg.user?.avatar; else senderLetter" [src]="msg.user.avatar" alt="" class="avatar avatar--xs" (click)="openUserProfile(msg.user._id)" />
-                  <ng-template #senderLetter><span class="avatar avatar--xs avatar--letter">{{ senderName(msg).charAt(0) }}</span></ng-template>
-                </ng-container>
-              </span>
+          <!-- Group notice ("Alice added Bob") -->
+          <div class="system-event" *ngIf="msg.type === 'system'" [id]="'message-' + msg._id">
+            <span>{{ msg.content }}</span>
+          </div>
 
-              <div class="bubble" (appLongPress)="msgMenu.open()">
-                <button type="button" class="bubble__sender" *ngIf="isGroupChat && !isMine(msg) && isFirstOfRun(i)" [style.color]="senderColor(msg)" (click)="openUserProfile(msg.user?._id || msg.userId!)">
-                  {{ senderName(msg) }}
-                </button>
-
-                <button type="button" class="bubble__quote" *ngIf="msg.replyTo && (msg.replyTo.content || msg.replyTo.type)" (click)="scrollToMessage(msg.replyTo._id)">
-                  <span class="bubble__quote-author">{{ replyAuthor(msg.replyTo) }}</span>
-                  <span class="bubble__quote-text">{{ msg.replyTo.type === 'text' || !msg.replyTo.type ? msg.replyTo.content : (msg.replyTo.type | titlecase) }}</span>
-                </button>
-
-                <!-- Media -->
-                <button type="button" class="bubble__media" *ngIf="msg.type === 'image'" (click)="openPreview(msg.fileUrl!, 'image')" aria-label="Open image">
-                  <img [src]="msg.thumbnailUrl || msg.fileUrl" alt="Shared image" loading="lazy" />
-                </button>
-                <video *ngIf="msg.type === 'video'" class="bubble__video" controls preload="metadata" [poster]="msg.thumbnailUrl && msg.thumbnailUrl !== msg.fileUrl ? msg.thumbnailUrl : null">
-                  <source [src]="msg.fileUrl" />
-                </video>
-                <audio *ngIf="msg.type === 'audio'" class="bubble__audio" controls preload="metadata">
-                  <source [src]="msg.fileUrl" />
-                </audio>
-                <button type="button" class="bubble__doc" *ngIf="msg.type === 'pdf'" (click)="openPreview(msg.fileUrl!, 'pdf')">
-                  <i class="fa-solid fa-file-pdf"></i>
-                  <span class="bubble__doc-name">{{ fileNameOf(msg.fileUrl) }}</span>
-                  <i class="fa-solid fa-arrow-up-right-from-square bubble__doc-open"></i>
-                </button>
-
-                <!-- Text / caption (inline spacer keeps the time clear of the last line) -->
-                <p class="bubble__text" *ngIf="hasText(msg); else metaRow">
-                  <ng-container *ngIf="isSearchHit(msg); else plainText"><span [innerHTML]="msg.content | highlight: searchTerm"></span></ng-container>
-                  <ng-template #plainText>{{ msg.content }}</ng-template>
-                  <span class="bubble__spacer" [class.bubble__spacer--tick]="isMine(msg) && !isGroupChat" aria-hidden="true"></span>
-                </p>
-                <ng-template #metaRow><div class="bubble__meta-row" aria-hidden="true"></div></ng-template>
-
-                <span class="bubble__meta">
-                  <time [attr.datetime]="msg.createdAt">{{ msg.createdAt | date: 'shortTime' }}</time>
-                  <i *ngIf="isMine(msg) && !isGroupChat" class="fa-solid tick" [class.fa-check-double]="msg.isRead" [class.fa-check]="!msg.isRead" [class.tick--read]="msg.isRead" [attr.aria-label]="msg.isRead ? 'Seen' : 'Sent'"></i>
-                </span>
-
-                <div class="bubble__reactions" *ngIf="msg.reactions?.length">
-                  <button type="button" *ngFor="let emoji of getUniqueReactions(msg.reactions || [])" class="reaction" [class.reaction--mine]="hasReacted(msg.reactions || [], emoji)" (click)="addReaction(msg._id, emoji)">
-                    {{ emoji }} <span>{{ getReactionCount(msg.reactions || [], emoji) }}</span>
-                  </button>
-                </div>
-
-                <div class="bubble__menu" ngbDropdown #msgMenu="ngbDropdown" [placement]="isMine(msg) ? 'bottom-end' : 'bottom-start'" container="body">
-                  <button type="button" class="bubble__menu-btn" ngbDropdownToggle aria-label="Message options">
-                    <i class="fa-solid fa-chevron-down"></i>
-                  </button>
-                  <div ngbDropdownMenu class="app-menu">
-                    <div class="emoji-row">
-                      <button type="button" *ngFor="let emoji of popularEmojis" (click)="addReaction(msg._id, emoji)" [attr.aria-label]="'React with ' + emoji" ngbDropdownItem>{{ emoji }}</button>
-                    </div>
-                    <div class="dropdown-divider"></div>
-                    <button ngbDropdownItem type="button" (click)="setReply(msg)"><i class="fa-solid fa-reply"></i>Reply</button>
-                    <button ngbDropdownItem type="button" (click)="onCopyMessage(msg)"><i class="fa-regular fa-copy"></i>Copy</button>
-                    <button ngbDropdownItem type="button" *ngIf="canForward(msg)" (click)="forwardMessage(msg)"><i class="fa-solid fa-share"></i>Forward</button>
-                    <button ngbDropdownItem type="button" *ngIf="isMine(msg)" class="text-danger" (click)="deleteMessage(msg)"><i class="fa-regular fa-trash-can"></i>Delete</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </ng-template>
+          <app-message-item
+            *ngIf="msg.type !== 'call' && msg.type !== 'system'"
+            [id]="'message-' + msg._id"
+            [message]="msg"
+            [mine]="isMine(msg)"
+            [isGroup]="isGroupChat"
+            [first]="isFirstOfRun(i)"
+            [senderName]="senderName(msg)"
+            [senderAvatar]="senderAvatar(msg)"
+            [replyAuthor]="replyAuthor(msg.replyTo)"
+            [showTicks]="isMine(msg) && !isGroupChat"
+            [highlighted]="highlightedMessageId === msg._id"
+            [searchHit]="searchHitId === msg._id"
+            [searchTerm]="searchTerm"
+            [myUserId]="myUserId"
+            (reply)="setReply($event)"
+            (react)="addReaction(msg._id, $event)"
+            (copy)="onCopyMessage($event)"
+            (forward)="forwardMessage($event)"
+            (remove)="deleteMessage($event)"
+            (quoteClick)="jumpToMessage($event)"
+            (avatarClick)="openInfoPanel()"
+            (openMedia)="openPreview($event.url, $event.type)"
+          ></app-message-item>
         </ng-container>
       </ng-container>
 
@@ -354,68 +287,45 @@
       <i class="fa-solid fa-chevron-down"></i>
     </button>
 
-    <!-- Reply preview -->
-    <div class="reply-bar" *ngIf="replyingTo">
-      <div class="reply-bar__body">
-        <strong>{{ isMine(replyingTo) ? 'You' : senderName(replyingTo) }}</strong>
-        <span>{{ replyingTo.type === 'text' ? replyingTo.content : (replyingTo.type | titlecase) }}</span>
-      </div>
-      <button type="button" class="icon-btn icon-btn--sm" (click)="cancelReply()" aria-label="Cancel reply">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
+    <!-- Composer, or the blocked notice -->
+    <div class="blocked-bar" *ngIf="blockedByMe; else composer">
+      <span>You blocked {{ peerName }}.</span>
+      <button type="button" class="btn btn-sm btn-outline-primary" (click)="toggleBlock()">Unblock</button>
     </div>
-
-    <!-- Attachment preview -->
-    <div class="attach-bar" *ngIf="file">
-      <div class="attach-bar__thumb" [ngSwitch]="fileKind">
-        <img *ngSwitchCase="'image'" [src]="filePreviewUrl" alt="Selected image" />
-        <video *ngSwitchCase="'video'" [src]="filePreviewUrl" muted></video>
-        <i *ngSwitchCase="'audio'" class="fa-solid fa-file-audio"></i>
-        <i *ngSwitchCase="'pdf'" class="fa-solid fa-file-pdf text-danger"></i>
-        <i *ngSwitchDefault class="fa-regular fa-file"></i>
-      </div>
-      <div class="attach-bar__info">
-        <strong>{{ file.name }}</strong>
-        <span>{{ uploading ? 'Uploading…' : (file.size / 1024 / 1024 | number: '1.0-1') + ' MB' }}</span>
-      </div>
-      <button type="button" class="icon-btn icon-btn--sm" (click)="clearSelectedFile()" [disabled]="uploading" aria-label="Remove attachment">
-        <i class="fa-solid fa-xmark"></i>
-      </button>
-    </div>
-
-    <!-- Composer -->
-    <form class="composer" [formGroup]="formData" (ngSubmit)="sendMessage()">
-      <div class="composer__emoji">
-        <button type="button" class="icon-btn" (click)="showComposerEmoji = !showComposerEmoji" [class.is-active]="showComposerEmoji" aria-label="Emoji" [attr.aria-expanded]="showComposerEmoji">
-          <i class="fa-regular fa-face-smile"></i>
-        </button>
-        <div class="emoji-panel" *ngIf="showComposerEmoji" role="dialog" aria-label="Emoji picker">
-          <button type="button" *ngFor="let e of composerEmojis" (click)="insertEmoji(e)" [attr.aria-label]="e">{{ e }}</button>
-        </div>
-      </div>
-
-      <button type="button" class="icon-btn" (click)="fileInput.click()" [disabled]="uploading" aria-label="Attach a file" title="Photo, video, audio or PDF">
-        <i class="fa-solid fa-paperclip"></i>
-      </button>
-      <input type="file" #fileInput (change)="handleFileUpload($event)" class="d-none" accept="image/*,application/pdf,video/*,audio/*" />
-
-      <textarea
-        #composerInput
-        rows="1"
-        formControlName="message"
-        class="composer__input"
-        placeholder="Type a message"
-        aria-label="Message"
-        (input)="typing(); autoGrow(composerInput)"
-        (keydown)="onComposerKeydown($event)"
-      ></textarea>
-
-      <button type="submit" class="send-btn" [disabled]="!canSend" aria-label="Send message">
-        <span *ngIf="uploading" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-        <i *ngIf="!uploading" class="fa-solid fa-paper-plane"></i>
-      </button>
-    </form>
+    <ng-template #composer>
+      <app-message-composer
+        [submit]="sendDraft"
+        [replyTo]="replyPreview"
+        [pasteFromDocument]="true"
+        (cancelReply)="cancelReply()"
+        (typing)="typing()"
+      ></app-message-composer>
+    </ng-template>
   </main>
+
+  <!-- ============================================================ RIGHT PANELS -->
+  <section class="right-panel" *ngIf="hasOpenConversation && rightPanel !== 'none'">
+    <app-message-search-panel
+      *ngIf="rightPanel === 'search'"
+      [conversationId]="conversationId"
+      [myUserId]="myUserId"
+      [activeMessageId]="searchHitId"
+      (jump)="onSearchJump($event)"
+      (close)="closeRightPanel()"
+    ></app-message-search-panel>
+    <app-conversation-info-panel
+      *ngIf="rightPanel === 'info'"
+      [conversationId]="conversationId"
+      [isGroup]="isGroupChat"
+      [peerId]="receiverId"
+      [myUserId]="myUserId"
+      [contacts]="contactsForPanel"
+      (close)="closeRightPanel()"
+      (openMedia)="openPreview($event.url, $event.type)"
+      (leaveGroup)="leaveGroup()"
+      (groupChanged)="onPanelGroupChanged($event)"
+    ></app-conversation-info-panel>
+  </section>
 
   <!-- ============================================================ WELCOME -->
   <ng-template #welcome>
@@ -428,7 +338,7 @@
 </div>
 
 <!-- Media preview -->
-<div class="lightbox" *ngIf="previewUrl" (click)="closePreview()" (keydown.escape)="closePreview()" role="dialog" aria-modal="true" aria-label="Media preview" tabindex="-1">
+<div class="lightbox" *ngIf="previewUrl" (click)="closePreview()" role="dialog" aria-modal="true" aria-label="Media preview" tabindex="-1">
   <div class="lightbox__bar" (click)="$event.stopPropagation()">
     <a class="icon-btn" [href]="previewUrl" target="_blank" rel="noopener" aria-label="Open original"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
     <button type="button" class="icon-btn" (click)="closePreview()" aria-label="Close preview"><i class="fa-solid fa-xmark"></i></button>
@@ -489,8 +399,7 @@
           <li *ngFor="let user of memberCandidates">
             <label class="member-option">
               <input type="checkbox" class="form-check-input" [checked]="isSelected(user)" (change)="toggleMember(user)" />
-              <img *ngIf="user.avatar; else optLetter" [src]="user.avatar" alt="" class="avatar avatar--xs" />
-              <ng-template #optLetter><span class="avatar avatar--xs avatar--letter">{{ user.username?.charAt(0) }}</span></ng-template>
+              <app-avatar [src]="user.avatar" [name]="user.username" [size]="28"></app-avatar>
               <span>{{ user.username }}</span>
             </label>
           </li>
@@ -521,8 +430,7 @@
     <ul class="member-list member-list--tall">
       <li *ngFor="let target of forwardTargets; trackBy: trackBySidebar">
         <button type="button" class="member-option member-option--btn" (click)="confirmForward(target)" [disabled]="forwardSending">
-          <img *ngIf="target.avatar; else fwdLetter" [src]="target.avatar" alt="" class="avatar avatar--xs" />
-          <ng-template #fwdLetter><span class="avatar avatar--xs avatar--letter">{{ (target.title || "?").charAt(0) }}</span></ng-template>
+          <app-avatar [src]="target.avatar" [name]="target.title" [size]="28"></app-avatar>
           <span class="flex-grow-1 text-start">{{ target.title }}</span>
           <i class="fa-solid fa-share text-muted"></i>
         </button>

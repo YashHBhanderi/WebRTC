@@ -1,0 +1,61 @@
+<aside class="panel" aria-label="Search messages">
+  <header class="panel__header">
+    <button type="button" class="icon-btn" (click)="close.emit()" aria-label="Close search">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
+    <h2>Search messages</h2>
+  </header>
+
+  <div class="search-box">
+    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+    <input
+      #input
+      type="text"
+      [ngModel]="query"
+      (ngModelChange)="onQuery($event)"
+      (keydown)="onKeydown($event)"
+      placeholder="Search"
+      aria-label="Search messages in this chat"
+      autocomplete="off"
+    />
+    <button type="button" class="icon-btn icon-btn--sm" *ngIf="query" (click)="clearQuery()" aria-label="Clear search">
+      <i class="fa-solid fa-circle-xmark"></i>
+    </button>
+  </div>
+
+  <div class="panel__body">
+    <div class="state" *ngIf="loading">
+      <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Searching…
+    </div>
+    <div class="state state--error" *ngIf="error && !loading" role="alert">{{ error }}</div>
+    <div class="state" *ngIf="!loading && !error && !searched && query.trim().length < 2">
+      Search for messages in this chat.
+    </div>
+    <div class="state" *ngIf="!loading && !error && searched && !total">No messages found</div>
+
+    <section class="group" *ngFor="let group of groups; trackBy: trackGroup">
+      <h3 class="group__label">{{ group.label }}</h3>
+      <button
+        type="button"
+        class="result"
+        *ngFor="let result of group.items; trackBy: trackResult"
+        [class.result--active]="result._id === activeMessageId"
+        (click)="open(result)"
+      >
+        <app-avatar [src]="result.user.avatar" [name]="senderLabel(result)" [size]="36"></app-avatar>
+        <span class="result__body">
+          <span class="result__top">
+            <span class="result__name">{{ senderLabel(result) }}</span>
+            <time class="result__date" [attr.datetime]="result.createdAt">{{ shortDate(result.createdAt) }}</time>
+          </span>
+          <span class="result__text" [innerHTML]="snippet(result.content) | highlight: query"></span>
+        </span>
+      </button>
+    </section>
+
+    <button type="button" class="load-more" *ngIf="hasMore && !loading" (click)="loadMore()" [disabled]="loadingMore">
+      <span *ngIf="loadingMore" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+      Load more results
+    </button>
+  </div>
+</aside>

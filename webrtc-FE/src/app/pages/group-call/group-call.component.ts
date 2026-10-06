@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
   Component,
+  ElementRef,
   EventEmitter,
   HostBinding,
   HostListener,
@@ -62,7 +63,9 @@ interface PersonRow {
 }
 
 type CallPhase = 'prejoin' | 'joining' | 'live' | 'ended';
-type StageLayout = 'solo' | 'pip' | 'sidebar';
+/** solo = alone · pip = 2 people (P2P) · speaker = main + side strip · gallery = grid */
+type StageLayout = 'solo' | 'pip' | 'speaker' | 'gallery';
+type ViewMode = 'gallery' | 'speaker';
 
 /** Profiles survive across calls so re-joins don't refetch everyone. */
 const profileCache = new Map<string, { name: string; avatar?: string }>();
@@ -129,6 +132,12 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   sideItems: StageItem[] = [];
   remoteAudio: RemoteParticipant[] = [];
   layout: StageLayout = 'solo';
+  /** Chosen view for 3+ participants (2 people always use the P2P layout). */
+  viewMode: ViewMode = 'gallery';
+  galleryItems: StageItem[] = [];
+  galleryPage = 0;
+  galleryPages = 1;
+  galleryCount = 0;
   audioLayout = false;
   statusLabel = '';
   people: PersonRow[] = [];
@@ -142,6 +151,10 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   showReactions = false;
   showSettings = false;
   showInfo = false;
+  showView = false;
+  showChat = false;
+  chatUnread = 0;
+  isFullscreen = false;
   peopleSearch = '';
   reactions: FloatingReaction[] = [];
   notice: string | null = null;
@@ -169,6 +182,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     private userService: UserService,
     private screenOverlay: ScreenShareOverlayService,
     private cdr: ChangeDetectorRef,
+    private host: ElementRef<HTMLElement>,
   ) { }
 
   // ---------------------------------------------------------------- lifecycle
@@ -378,6 +392,22 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
   private bindEvents(): void {
     const sameCall = (data: any) => data?.callId != null && String(data.callId) === String(this.callId);
+
+    // Unread badge on the Chat button while the meeting chat is closed
+    this.subs.add(this.socketService.newMessageReceived().subscribe((data: any) => {
+      const fromOther = String(data?.user?._id || data?.userId || '') !== this.myUserId;
+      if (!this.showChat && fromOther && String(data?.conversationId) === String(this.launch.groupId) && data?.type !== 'system') {
+        this.chatUnread++;
+        this.render();
+      }
+    }));
+
+    const onFullscreen = () => {
+      this.isFullscreen = !!document.fullscreenElement;
+      this.render();
+    };
+    document.addEventListener('fullscreenchange', onFullscreen);
+    this.subs.add(() => document.removeEventListener('fullscreenchange', onFullscreen));
 
     this.subs.add(this.mediasoupService.remoteStream$.subscribe((data) => {
       // Delayed re-emits can arrive after someone left; never resurrect them as a dead tile
@@ -779,7 +809,25 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
     this.mainItem = all.find((i) => i.key === mainKey) || self;
     this.sideItems = all.filter((i) => i.key !== this.mainItem!.key);
-    this.layout = all.length === 1 ? 'solo' : all.length === 2 ? 'pip' : 'sidebar';
+    const people = [self, ...remoteItems];
+    if (all.length === 1) {
+      this.layout = 'solo';
+    } else if (all.length === 2) {
+      this.layout = 'pip'; // two people: person-to-person view
+    } else if (screenItem || this.pinnedKey || this.viewMode === 'speaker') {
+      this.layout = 'speaker';
+    } else {
+      this.layout = 'gallery';
+    }
+
+    // Gallery pages (people only; a shared screen always uses the speaker view)
+    this.galleryCount = people.length;
+    const perPage = this.galleryPageSize();
+    this.galleryPages = Math.max(1, Math.ceil(people.length / perPage));
+    this.galleryPage = Math.min(this.galleryPage, this.galleryPages - 1);
+    this.galleryItems = this.layout === 'gallery'
+      ? people.slice(this.galleryPage * perPage, (this.galleryPage + 1) * perPage)
+      : [];
     this.audioLayout =
       !this.isGroup && !screenItem && this.phase !== 'prejoin' && ![self, ...remoteItems].some((i) => i.showVideo);
     this.remoteAudio = ordered;
@@ -787,11 +835,64 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
     // Simulcast: the main remote gets the top layer; thumbnails get the lowest
     const main = this.mainItem;
-    const focus = main.kind === 'remote' ? main.userId : this.layout === 'sidebar' ? `stage:${main.key}` : null;
+    const focus = this.layout === 'gallery'
+      ? null
+      : main.kind === 'remote' ? main.userId : this.layout === 'speaker' ? `stage:${main.key}` : null;
     this.mediasoupService.setFocusedUser(focus);
 
     this.statusLabel = this.computeStatus(remoteItems);
     this.people = this.buildPeople(self, remoteItems);
+  }
+
+  /** Up to 5x3 tiles per gallery page, fewer on smaller screens. */
+  private galleryPageSize(): number {
+    const width = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    if (width >= 1200) return 15;
+    if (width >= 900) return 12;
+    if (width >= 600) return 9;
+    return 6;
+  }
+
+  @HostListener('window:resize')
+  onResize(): void {
+    if (this.layout === 'gallery') {
+      this.render();
+    }
+  }
+
+  get meetingTitle(): string {
+    return this.isGroup ? `Meeting in ${this.launch.title}` : this.launch.title;
+  }
+
+  setViewMode(mode: ViewMode): void {
+    this.viewMode = mode;
+    this.pinnedKey = null;
+    this.showView = false;
+    this.render();
+  }
+
+  galleryPrev(): void {
+    this.galleryPage = Math.max(0, this.galleryPage - 1);
+    this.render();
+  }
+
+  galleryNext(): void {
+    this.galleryPage = Math.min(this.galleryPages - 1, this.galleryPage + 1);
+    this.render();
+  }
+
+  async toggleFullscreen(): Promise<void> {
+    this.showMore = false;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await this.host.nativeElement.requestFullscreen();
+      }
+    } catch {
+      this.showNotice('Full screen is not available here');
+    }
+    this.render();
   }
 
   private screenItem(userId: string, name: string, stream: MediaStream): StageItem {
@@ -1079,17 +1180,24 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     this.minimizedChange.emit(value);
   }
 
-  toggleMenu(menu: 'more' | 'reactions' | 'people' | 'info'): void {
-    const next = {
-      more: !this.showMore && menu === 'more',
-      reactions: !this.showReactions && menu === 'reactions',
-      people: menu === 'people' ? !this.showPeople : this.showPeople,
-      info: !this.showInfo && menu === 'info',
-    };
-    this.showMore = next.more;
-    this.showReactions = next.reactions;
-    this.showPeople = next.people;
-    this.showInfo = next.info;
+  /** Popovers are exclusive; the People and Chat side panels are exclusive with each other. */
+  toggleMenu(menu: 'more' | 'reactions' | 'people' | 'info' | 'view' | 'chat'): void {
+    const wasOpen = { more: this.showMore, reactions: this.showReactions, info: this.showInfo, view: this.showView };
+    this.showMore = menu === 'more' && !wasOpen.more;
+    this.showReactions = menu === 'reactions' && !wasOpen.reactions;
+    this.showInfo = menu === 'info' && !wasOpen.info;
+    this.showView = menu === 'view' && !wasOpen.view;
+    if (menu === 'people') {
+      this.showPeople = !this.showPeople;
+      this.showChat = this.showChat && !this.showPeople;
+    }
+    if (menu === 'chat') {
+      this.showChat = !this.showChat;
+      this.showPeople = this.showPeople && !this.showChat;
+      if (this.showChat) {
+        this.chatUnread = 0;
+      }
+    }
     this.render();
   }
 
@@ -1097,6 +1205,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     this.showMore = false;
     this.showReactions = false;
     this.showInfo = false;
+    this.showView = false;
     this.showSettings = false;
     this.render();
   }

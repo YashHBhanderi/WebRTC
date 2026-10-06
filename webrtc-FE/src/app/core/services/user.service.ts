@@ -49,8 +49,8 @@ export class UserService {
     return this.http.get<IUser[]>(`${this.apiUrl}/web/users`, { headers: this.getHeaders() });
   }
 
-  getUserConversations(): Observable<IApiResponse<IConversation[]>> {
-    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/conversations`, { headers: this.getHeaders() });
+  getUserConversations(archived = false): Observable<IApiResponse<IConversation[]>> {
+    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/conversations${archived ? '?archived=true' : ''}`, { headers: this.getHeaders() });
   }
 
   getMessages(conversationId: string, page: number = 1, pageSize: number = 20): Observable<any> {
@@ -81,8 +81,8 @@ export class UserService {
     return this.http.put(`${this.apiUrl}/conversations/group/${conversationId}/remove-member`, { userId }, { headers: this.getHeaders() });
   }
 
-  getUserGropuConversations(): Observable<IApiResponse<IConversation[]>> {
-    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/groupConversations`, { headers: this.getHeaders() });
+  getUserGropuConversations(archived = false): Observable<IApiResponse<IConversation[]>> {
+    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/groupConversations${archived ? '?archived=true' : ''}`, { headers: this.getHeaders() });
   }
 
   getGroupInfo(conversationId: string): Observable<any> {
