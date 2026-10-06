@@ -38,6 +38,8 @@ export interface StageItem {
   kind: StageItemKind;
   userId: string;
   name: string;
+  /** Real name for the generated avatar when `name` is a label such as "You". */
+  avatarName?: string;
   avatar?: string;
   stream: MediaStream | null;
   /** A live video track exists and the owner has the camera on */

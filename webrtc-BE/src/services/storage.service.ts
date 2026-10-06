@@ -47,6 +47,12 @@ class StorageService {
         if (!this.client) {
             this.client = new S3Client({
                 region: storageConfig.region,
+                // Explicit key pair from the environment; the default chain (instance role) is not used
+                credentials: {
+                    accessKeyId: storageConfig.accessKeyId,
+                    secretAccessKey: storageConfig.secretAccessKey,
+                    sessionToken: storageConfig.sessionToken,
+                },
                 endpoint: storageConfig.endpoint,
                 forcePathStyle: storageConfig.forcePathStyle,
                 // S3-compatible servers often can't decode the SDK's default streaming checksums

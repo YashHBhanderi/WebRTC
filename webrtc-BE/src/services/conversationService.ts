@@ -150,10 +150,12 @@ export default class ConversationService {
         const name = optionalString(groupName, "Group name", 100);
         if (!name || memberIds.length < 3) throw new AppError("A group must have a name and at least 2 members");
         const description = optionalString(groupDescription, "Description", 500) || "";
-        if (!file) throw new AppError("Please choose a group photo");
 
+        // Photo is optional: without one, clients show a generated initials avatar
         const groupId = new mongoose.Types.ObjectId();
-        const { stored } = await storeUpload(file, { purpose: "group-avatar", groupId: String(groupId) }, String(groupAdmin));
+        const stored = file
+            ? (await storeUpload(file, { purpose: "group-avatar", groupId: String(groupId) }, String(groupAdmin))).stored
+            : null;
         try {
             return await new Conversation({
                 _id: groupId,
@@ -162,8 +164,8 @@ export default class ConversationService {
                 groupName: name,
                 groupAdmin,
                 groupAdmins: [groupAdmin],
-                groupAvatar: publicFileUrl(stored.storageKey),
-                groupAvatarFile: stored,
+                groupAvatar: stored ? publicFileUrl(stored.storageKey) : "",
+                ...(stored ? { groupAvatarFile: stored } : {}),
                 groupDescription: description,
             }).save();
         } catch (error) {

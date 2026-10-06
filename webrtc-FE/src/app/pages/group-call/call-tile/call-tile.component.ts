@@ -1,3 +1,4 @@
+import { AvatarColors, avatarColors, avatarInitials } from 'src/app/core/utils/avatar.util';
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import { StageItem } from '../call.models';
 
@@ -17,7 +18,11 @@ export class CallTileComponent {
   @Output() activate = new EventEmitter<string>();
 
   get initial(): string {
-    return (this.item?.name || '?').trim().charAt(0).toUpperCase();
+    return avatarInitials(this.item?.avatarName || this.item?.name);
+  }
+
+  get colors(): AvatarColors {
+    return avatarColors(this.item?.avatarName || this.item?.name);
   }
 
   onActivate(): void {

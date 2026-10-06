@@ -40,7 +40,6 @@ import { DishLayoutDirective } from './group-call/dish-layout.directive';
     IncomingCallComponent,
     HighlightPipe,
     LongPressDirective,
-    AvatarComponent,
     EmojiPickerComponent,
     MessageItemComponent,
     MessageComposerComponent,
@@ -52,6 +51,7 @@ import { DishLayoutDirective } from './group-call/dish-layout.directive';
   ],
   imports: [
     SharedModule,
+    AvatarComponent,
     CommonModule,
     PageRoutingModule,
     NgbModule,

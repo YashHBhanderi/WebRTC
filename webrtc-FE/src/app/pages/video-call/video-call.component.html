@@ -4,7 +4,7 @@
         <div class="remote-video-container">
             <video #userVideo autoplay playsinline class="remote-video" (playing)="onRemoteVideoPlaying()"></video>
             <div class="profile-fallback" *ngIf="!remoteVideoActive">
-                <img [src]="remoteUserAvatar" alt="User profile" class="profile-image">
+                <app-avatar [src]="remoteUserAvatar" [name]="remoteUserName" [size]="120"></app-avatar>
                 <div class="profile-name">{{ remoteUserName }}</div>
             </div>
         </div>
@@ -12,7 +12,7 @@
         <div class="local-video-container" id="localVideo">
             <video #myVideo autoplay playsinline class="local-video" muted  (playing)="onLocalVideoPlaying()"></video>
             <div class="profile-fallback" *ngIf="!localVideoActive">
-                <img [src]="localUserAvatar" alt="Your profile" class="profile-image">
+                <app-avatar [src]="localUserAvatar" [name]="localUserName" [size]="120"></app-avatar>
                 <div class="profile-name">You</div>
             </div>
         </div>

@@ -1,3 +1,4 @@
+import { AvatarColors, avatarColors, avatarInitials } from 'src/app/core/utils/avatar.util';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -47,7 +48,11 @@ export class IncomingCallComponent implements OnInit, OnDestroy {
   }
 
   get initial(): string {
-    return (this.title || '?').charAt(0).toUpperCase();
+    return avatarInitials(this.title);
+  }
+
+  get colors(): AvatarColors {
+    return avatarColors(this.title);
   }
 
   ngOnInit(): void {

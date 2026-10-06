@@ -4,7 +4,7 @@
     <div class="form-side">
         <div class="register-container card p-4 p-md-5">
             <div class="text-center mb-4">
-                <img src="../../../assets/doge.png" alt="Logo" class="logo mb-3" />
+                <img src="../../../assets/Group-2186.webp" alt="Logo" class="logo mb-3" />
                 <h2 class="mb-0 text-primary">Register</h2>
             </div>
 
@@ -46,15 +46,17 @@
                 </div>
 
                 <div class="form-group mt-3">
-                    <label for="avatar" class="form-label">Profile Picture</label>
-                    <input type="file" (change)="onFileSelected($event)" formControlName="avatar" class="form-control"
-                        id="avatar" />
-                    <div *ngIf="avatarPreview" class="mt-2">
-                        <img [src]="avatarPreview" class="rounded-circle shadow-sm" width="90" height="90"
-                            alt="Avatar Preview" />
-                    </div>
-                    <div *ngIf="hasError('avatar', 'required')" class="text-danger small">
-                        *Profile picture is required
+                    <label for="avatar" class="form-label">Profile Picture <span class="text-muted small">(optional)</span></label>
+                    <div class="avatar-pick">
+                        <!-- Chosen photo, or the generated avatar others will see if you skip it -->
+                        <app-avatar [src]="avatarPreview" [name]="registerForm.get('username')?.value" [size]="56"></app-avatar>
+                        <div class="avatar-pick__input">
+                            <input #avatarInput type="file" (change)="onFileSelected($event)" class="form-control"
+                                id="avatar" accept="image/jpeg,image/png,image/gif,image/webp" />
+                            <button type="button" class="btn btn-link btn-sm p-0 mt-1" *ngIf="avatarFile"
+                                (click)="removeAvatar(avatarInput)">Remove photo</button>
+                            <div class="form-text mt-1" *ngIf="!avatarFile">Skip it and we'll use your initials.</div>
+                        </div>
                     </div>
                 </div>
 

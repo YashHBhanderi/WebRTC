@@ -1,3 +1,4 @@
+import { avatarColors, avatarInitials } from 'src/app/core/utils/avatar.util';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -52,6 +53,8 @@ interface FloatingReaction {
 interface PersonRow {
   userId: string;
   name: string;
+  /** Name without the "(You)" label, for the generated avatar. */
+  avatarName: string;
   avatar?: string;
   isSelf: boolean;
   isHost: boolean;
@@ -770,6 +773,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       kind: 'self',
       userId: this.myUserId,
       name: 'You',
+      avatarName: this.authService.getLoggedInUser()?.username || 'You',
       avatar: this.myAvatar,
       stream: this.localStream,
       // Camera and screen share run together: your camera tile stays live while presenting
@@ -877,6 +881,10 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     }
   }
 
+  /** Generated avatar for people without a picture (same initials/colour as the chat). */
+  readonly initialsOf = avatarInitials;
+  readonly avatarColorsOf = avatarColors;
+
   get meetingTitle(): string {
     return this.isGroup ? `Meeting in ${this.launch.title}` : this.launch.title;
   }
@@ -953,6 +961,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     const row = (i: StageItem): PersonRow => ({
       userId: i.userId,
       name: i.kind === 'self' ? `${this.authService.getLoggedInUser()?.username || 'You'} (You)` : i.name,
+      avatarName: i.avatarName || i.name,
       avatar: i.avatar,
       isSelf: i.kind === 'self',
       isHost: i.isHost,

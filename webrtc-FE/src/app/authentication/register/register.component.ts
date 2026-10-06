@@ -4,6 +4,9 @@ import { Router } from '@angular/router';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
 import { AuthService } from 'src/app/core/services/auth.service';
 
+const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+const AVATAR_MAX_MB = 5;
+
 @Component({
   selector: 'app-register',
   templateUrl: './register.component.html',
@@ -28,20 +31,39 @@ export class RegisterComponent implements OnInit {
       username: ['', [Validators.required, Validators.minLength(3)]],
       email: ['', [Validators.required, Validators.email]],
       password: ['', [Validators.required, Validators.minLength(6)]],
-      avatar: [null, Validators.required]
     });
   }
 
+  /** Optional picture: same rules as the server (JPG/PNG/GIF/WebP, up to 5 MB). */
   onFileSelected(event: Event) {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
-      this.avatarFile = input.files[0];
+      const file = input.files[0];
+      if (!AVATAR_TYPES.includes(file.type)) {
+        this.alertService.warning('Please choose a JPG, PNG, GIF or WebP image.');
+        this.removeAvatar(input);
+        return;
+      }
+      if (file.size > AVATAR_MAX_MB * 1024 * 1024) {
+        this.alertService.warning(`Profile pictures can be up to ${AVATAR_MAX_MB} MB.`);
+        this.removeAvatar(input);
+        return;
+      }
+      this.avatarFile = file;
 
       const reader = new FileReader();
       reader.onload = () => {
         this.avatarPreview = reader.result as string;
       };
       reader.readAsDataURL(this.avatarFile);
+    }
+  }
+
+  removeAvatar(input?: HTMLInputElement) {
+    this.avatarFile = null;
+    this.avatarPreview = null;
+    if (input) {
+      input.value = '';
     }
   }
 

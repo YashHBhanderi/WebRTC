@@ -1,3 +1,4 @@
+import { AvatarComponent } from '../pages/shared/avatar.component';
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AuthenticationRoutingModule } from './authentication-routing.module';
@@ -18,7 +19,8 @@ import { SharedModule } from '../_shared/shared.module';
     SharedModule,
     AuthenticationRoutingModule,
     FormsModule,
-    ReactiveFormsModule
+    ReactiveFormsModule,
+    AvatarComponent,
   ]
 })
 export class AuthenticationModule { }

@@ -36,6 +36,7 @@ export class VideoCallComponent implements OnInit, OnDestroy {
   receiverId!: string;
   recordedVideoUrl: string | null = null;
   localUserAvatar!: string;
+  localUserName = '';
   remoteUserAvatar!: string;
   remoteUserName!: string;
 
@@ -90,6 +91,7 @@ export class VideoCallComponent implements OnInit, OnDestroy {
     this.listenForScreenShareEvents();
     this.loadRemoteUserInfo(this.receiverId);
     this.localUserAvatar = this.authService.getLoggedInUser().avatar;
+    this.localUserName = this.authService.getLoggedInUser().username || '';
     this.socketService.onCallEnded()
       .pipe(takeUntil(this.destroy$))
       .subscribe(() => {

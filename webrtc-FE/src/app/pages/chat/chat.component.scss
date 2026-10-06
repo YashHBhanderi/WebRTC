@@ -749,6 +749,17 @@
 
 // ------------------------------------------------------------------ modals (group / forward)
 
+.photo-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.photo-pick__input {
+  flex: 1;
+  min-width: 0;
+}
+
 .member-chips {
   display: flex;
   flex-wrap: wrap;

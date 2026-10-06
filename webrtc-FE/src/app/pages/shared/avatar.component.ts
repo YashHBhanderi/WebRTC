@@ -1,18 +1,30 @@
+import { NgIf } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input, OnChanges } from '@angular/core';
+import { avatarColors, avatarInitials } from 'src/app/core/utils/avatar.util';
 
 /** Image URLs that already failed once — never retried, so broken avatars don't refetch per row. */
 const failedSources = new Set<string>();
 
 /**
- * Profile / group picture with a letter fallback and optional online dot.
+ * Profile / group picture with an optional online dot. Without a picture (or if it fails to
+ * load) it shows a generated avatar: initials on a colour derived from the name.
  * Identical URLs are served from the browser cache; images load lazily off-screen.
  */
 @Component({
   selector: 'app-avatar',
+  standalone: true,
+  imports: [NgIf],
   template: `
-    <span class="av" [style.width.px]="size" [style.height.px]="size" [style.font-size.px]="size * 0.4">
+    <span
+      class="av"
+      [style.width.px]="size"
+      [style.height.px]="size"
+      [style.font-size.px]="size * (initial.length > 1 ? 0.36 : 0.42)"
+      [style.background]="showImage ? null : colors.bg"
+      [style.color]="showImage ? null : colors.fg"
+    >
       <img
-        *ngIf="src && !failed; else letter"
+        *ngIf="showImage; else letter"
         [src]="src"
         alt=""
         loading="lazy"
@@ -61,8 +73,16 @@ export class AvatarComponent implements OnChanges {
 
   failed = false;
 
+  get showImage(): boolean {
+    return !!this.src && !this.failed;
+  }
+
   get initial(): string {
-    return (this.name || '?').trim().charAt(0) || '?';
+    return avatarInitials(this.name);
+  }
+
+  get colors() {
+    return avatarColors(this.name);
   }
 
   ngOnChanges(): void {

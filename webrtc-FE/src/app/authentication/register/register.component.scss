@@ -120,3 +120,14 @@ body {
     border: none;
   }
 }
+
+.avatar-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.avatar-pick__input {
+  flex: 1;
+  min-width: 0;
+}

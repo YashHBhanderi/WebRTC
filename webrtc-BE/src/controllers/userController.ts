@@ -24,17 +24,19 @@ export default class UserController {
             if (typeof email !== 'string' || typeof password !== 'string') throw new AppError('Email and password are required');
             // Check before uploading so a duplicate sign-up leaves no file behind
             if (await userServices.emailExists(email)) throw new AppError('User already exists', 409);
-            if (!req.file) throw new AppError("Please choose a profile picture");
 
+            // Picture is optional: without one, clients show a generated initials avatar
             const userId = new mongoose.Types.ObjectId();
-            uploaded = (await storeUpload(req.file, { purpose: "avatar", userId: String(userId) }, String(userId))).stored;
+            if (req.file) {
+                uploaded = (await storeUpload(req.file, { purpose: "avatar", userId: String(userId) }, String(userId))).stored;
+            }
             const user = await userServices.createUser({
                 _id: userId as unknown as mongoose.Schema.Types.ObjectId,
                 username: name,
                 email,
                 password,
-                avatar: publicFileUrl(uploaded.storageKey),
-                avatarFile: uploaded,
+                avatar: uploaded ? publicFileUrl(uploaded.storageKey) : "",
+                ...(uploaded ? { avatarFile: uploaded } : {}),
             });
             res.status(200).json({ status: true, data: user, message: 'User Created Successfully' });
         } catch (error) {

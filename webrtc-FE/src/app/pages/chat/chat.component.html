@@ -383,8 +383,15 @@
         <textarea class="form-control" id="groupDescription" rows="2" formControlName="groupDescription"></textarea>
       </div>
       <div class="mb-3">
-        <label for="groupAvatar" class="form-label">Group photo</label>
-        <input type="file" class="form-control" id="groupAvatar" accept="image/*" (change)="onFileSelected($event)" />
+        <label for="groupAvatar" class="form-label">Group photo <span class="text-muted">(optional)</span></label>
+        <div class="photo-pick">
+          <!-- Chosen photo, or the generated avatar the group gets without one -->
+          <app-avatar [src]="selectedFilePreview" [name]="groupForm.get('groupName')?.value || 'Group'" [size]="52"></app-avatar>
+          <div class="photo-pick__input">
+            <input #groupPhotoInput type="file" class="form-control" id="groupAvatar" accept="image/jpeg,image/png,image/gif,image/webp" (change)="onFileSelected($event)" />
+            <button type="button" class="btn btn-link btn-sm p-0 mt-1" *ngIf="selectedFile" (click)="clearGroupPhoto(groupPhotoInput)">Remove photo</button>
+          </div>
+        </div>
       </div>
       <div>
         <label class="form-label">Members <span class="text-muted">({{ selectedMembers.length }} selected, at least 2)</span></label>

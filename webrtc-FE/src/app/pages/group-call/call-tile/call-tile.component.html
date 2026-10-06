@@ -26,7 +26,8 @@
   ></video>
 
   <div class="tile__avatar" *ngIf="!item.showVideo">
-    <div class="avatar" [class.avatar--lg]="variant === 'main'">
+    <div class="avatar" [class.avatar--lg]="variant === 'main'"
+      [style.background]="item.avatar ? null : colors.bg" [style.color]="item.avatar ? null : colors.fg">
       <img *ngIf="item.avatar; else letter" [src]="item.avatar" alt="" />
       <ng-template #letter><span>{{ initial }}</span></ng-template>
     </div>

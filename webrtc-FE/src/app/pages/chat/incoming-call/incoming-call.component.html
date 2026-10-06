@@ -1,6 +1,6 @@
 <div class="incoming" role="alertdialog" aria-modal="true" aria-labelledby="incoming-title" aria-describedby="incoming-sub">
   <div class="incoming__card">
-    <div class="incoming__avatar">
+    <div class="incoming__avatar" [style.background]="call.avatar ? null : colors.bg" [style.color]="call.avatar ? null : colors.fg">
       <img *ngIf="call.avatar; else letter" [src]="call.avatar" alt="" />
       <ng-template #letter><span>{{ initial }}</span></ng-template>
     </div>

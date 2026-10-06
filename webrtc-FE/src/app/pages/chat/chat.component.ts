@@ -126,6 +126,8 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   groupForm!: FormGroup;
   selectedMembers: any[] = [];
   selectedFile: File | null = null;
+  /** Object URL for the chosen group photo (revoked when replaced/closed). */
+  selectedFilePreview: string | null = null;
   creatingGroup = false;
   memberSearch = '';
 
@@ -1532,7 +1534,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   openCreateGroup(): void {
     this.groupForm.reset({ groupName: '', groupDescription: '', groupMembers: [], groupAvatar: null });
     this.selectedMembers = [];
-    this.selectedFile = null;
+    this.clearGroupPhoto();
     this.memberSearch = '';
     if (!this.users.length) {
       this.loadUsers();
@@ -1540,10 +1542,36 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     this.groupModalRef = this.modalService.open(this.groupModalTpl, { centered: true, scrollable: true, windowClass: 'app-modal' });
   }
 
+  /** Optional group photo: same rules as the server (JPG/PNG/GIF/WebP, up to 5 MB). */
   onFileSelected(event: Event): void {
     const target = event.target as HTMLInputElement;
-    if (target.files && target.files.length) {
-      this.selectedFile = target.files[0];
+    const file = target.files?.[0];
+    if (!file) {
+      return;
+    }
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      this.alertService.warning('Please choose a JPG, PNG, GIF or WebP image.');
+      this.clearGroupPhoto(target);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      this.alertService.warning('Group photos can be up to 5 MB.');
+      this.clearGroupPhoto(target);
+      return;
+    }
+    this.clearGroupPhoto();
+    this.selectedFile = file;
+    this.selectedFilePreview = URL.createObjectURL(file);
+  }
+
+  clearGroupPhoto(input?: HTMLInputElement): void {
+    if (this.selectedFilePreview) {
+      URL.revokeObjectURL(this.selectedFilePreview);
+    }
+    this.selectedFile = null;
+    this.selectedFilePreview = null;
+    if (input) {
+      input.value = '';
     }
   }
 
@@ -1582,18 +1610,14 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       this.alertService.error('Please provide a group name and select at least 2 members.');
       return;
     }
-    if (!this.selectedFile) {
-      // The API requires an avatar image for new groups
-      this.alertService.error('Please choose a group photo.');
-      return;
-    }
-
     const formData = new FormData();
     formData.append('groupName', this.groupForm.get('groupName')?.value);
     formData.append('groupAdmin', this.myUserId);
     formData.append('groupMembers', JSON.stringify(this.groupForm.get('groupMembers')?.value));
     formData.append('groupDescription', this.groupForm.get('groupDescription')?.value || '');
-    formData.append('image', this.selectedFile);
+    if (this.selectedFile) {
+      formData.append('image', this.selectedFile);
+    }
 
     this.creatingGroup = true;
     this.userService.createGroup(formData).subscribe({
@@ -1604,7 +1628,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
         this.groupModalRef?.close();
         this.groupForm.reset();
         this.selectedMembers = [];
-        this.selectedFile = null;
+        this.clearGroupPhoto();
       },
       error: (error) => {
         this.creatingGroup = false;
