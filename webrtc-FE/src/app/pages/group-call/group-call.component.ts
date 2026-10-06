@@ -356,9 +356,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   private applyState(state: CallStateSnapshot): void {
     this.hostIds = new Set(state.hostIds || []);
     this.isGroup = state.isGroup;
-    if (state.startedAt) {
-      this.startedAt = new Date(state.startedAt).getTime();
-    }
+    this.applyStartTime(state);
     if (state.callType) {
       this.callType = state.callType;
     }
@@ -386,6 +384,24 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       }
     }
     this.render();
+  }
+
+  /**
+   * The timer counts from `startedAt` on this device's clock. Device clocks are often minutes off
+   * from the server's (a clock behind the server froze the timer at 00:00; one ahead started it
+   * at minutes), so the start is derived from the server-measured elapsed time instead.
+   */
+  private applyStartTime(state: CallStateSnapshot): void {
+    let start: number | null = null;
+    if (typeof state.elapsedMs === 'number' && state.elapsedMs >= 0) {
+      start = Date.now() - state.elapsedMs;
+    } else if (state.startedAt) {
+      start = new Date(state.startedAt).getTime(); // older server: best effort
+    }
+    // Ignore sub-second network jitter on repeated refreshes so the timer doesn't jump
+    if (start !== null && (this.startedAt === null || Math.abs(start - this.startedAt) > 1500)) {
+      this.startedAt = start;
+    }
   }
 
   // ---------------------------------------------------------------- events

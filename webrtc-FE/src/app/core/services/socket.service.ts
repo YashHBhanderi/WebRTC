@@ -15,6 +15,8 @@ export interface CallStateSnapshot {
   mode: 'ring' | 'meetNow';
   callStatus: string;
   startedAt: string | null;
+  /** Server-measured call duration at response time (absent on older servers). */
+  elapsedMs?: number | null;
   isGroup: boolean;
   hostIds: string[];
   participants: string[];

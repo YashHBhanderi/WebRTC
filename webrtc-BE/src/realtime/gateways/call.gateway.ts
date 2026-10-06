@@ -327,6 +327,9 @@ export function registerCallGateway(socket: AuthedSocket): void {
                 mode: (call as any).mode || "ring",
                 callStatus: call.callStatus,
                 startedAt: call.startedAt || null,
+                // Clients' clocks can be minutes off from the server's: they derive the start time
+                // from this (their clock − elapsed) instead of comparing their clock to startedAt
+                elapsedMs: call.startedAt ? Math.max(0, Date.now() - new Date(call.startedAt).getTime()) : null,
                 isGroup: !!group?.isGroup,
                 groupName: group?.groupName || null,
                 hostIds: hostIdsOf(call, group),
