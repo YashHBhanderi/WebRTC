@@ -18,6 +18,7 @@ import { IncomingCallComponent } from './chat/incoming-call/incoming-call.compon
 import { HighlightPipe } from './chat/highlight.pipe';
 import { LongPressDirective } from './chat/long-press.directive';
 import { AvatarComponent } from './shared/avatar.component';
+import { MediaUrlPipe } from './shared/media-url.pipe';
 import { EmojiPickerComponent } from './shared/emoji-picker.component';
 import { MessageItemComponent } from './chat/message-item/message-item.component';
 import { MessageComposerComponent } from './chat/message-composer/message-composer.component';
@@ -52,6 +53,7 @@ import { DishLayoutDirective } from './group-call/dish-layout.directive';
   imports: [
     SharedModule,
     AvatarComponent,
+    MediaUrlPipe,
     CommonModule,
     PageRoutingModule,
     NgbModule,

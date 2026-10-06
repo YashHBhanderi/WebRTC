@@ -5,7 +5,7 @@ import groupService from "./group.service";
 import { getGroupForMember } from "./authorization.service";
 import { AppError, NotFoundError } from "../utils/errors";
 import { optionalString, requireObjectIds } from "../utils/validation";
-import { publicFileUrl, releaseFile, releaseMessageFiles, storeUpload } from "./file.service";
+import { releaseFile, releaseMessageFiles, storeUpload } from "./file.service";
 
 /** $map that keeps only public user fields (no password hash / verification token). */
 const publicUsers = (input: string) => ({
@@ -164,7 +164,7 @@ export default class ConversationService {
                 groupName: name,
                 groupAdmin,
                 groupAdmins: [groupAdmin],
-                groupAvatar: stored ? publicFileUrl(stored.storageKey) : "",
+                groupAvatar: stored ? stored.storageKey : "",
                 ...(stored ? { groupAvatarFile: stored } : {}),
                 groupDescription: description,
             }).save();

@@ -3,7 +3,7 @@ import Conversation, { IConversation } from "../models/conversationModel";
 import User from "../models/userModel";
 import { adminIds, getGroupForAdmin, getGroupForMember, isMember } from "./authorization.service";
 import { AppError, NotFoundError } from "../utils/errors";
-import { attachGroupAvatar, publicFileUrl, releaseFile } from "./file.service";
+import { attachGroupAvatar, releaseFile } from "./file.service";
 import { optionalString, PUBLIC_USER_FIELDS, requireObjectId, requireObjectIds } from "../utils/validation";
 
 const oid = (id: string) => new mongoose.Types.ObjectId(id);
@@ -65,7 +65,7 @@ class GroupService {
         }
         const avatar = input.groupAvatarKey ? await attachGroupAvatar(input.groupAvatarKey, String(group._id), actorId) : null;
         if (avatar) {
-            set.groupAvatar = publicFileUrl(avatar.storageKey);
+            set.groupAvatar = avatar.storageKey;
             set.groupAvatarFile = avatar;
         }
         if (!Object.keys(set).length) {

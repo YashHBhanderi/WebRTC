@@ -9,7 +9,7 @@ import connectDB from "../config/database";
 import User from "../models/userModel";
 import Conversation from "../models/conversationModel";
 import Message from "../models/messageModel";
-import { MediaKind, MEDIA_RULES, publicFileUrl, storeUpload, UploadTarget } from "../services/file.service";
+import { MediaKind, MEDIA_RULES, storeUpload, UploadTarget } from "../services/file.service";
 import { compatibleMimeTypes, readHead } from "../utils/file-signature";
 
 /**
@@ -88,13 +88,13 @@ async function run(): Promise<void> {
     for await (const user of User.find({ avatar: EXTERNAL, avatarFile: { $exists: false } }).select("avatar").cursor()) {
         const id = String(user._id);
         await copy("users", id, user.avatar, imageTypes, { purpose: "avatar", userId: id }, id, ({ stored }) =>
-            User.updateOne({ _id: user._id, avatarFile: { $exists: false } }, { $set: { avatar: publicFileUrl(stored.storageKey), avatarFile: stored } }));
+            User.updateOne({ _id: user._id, avatarFile: { $exists: false } }, { $set: { avatar: stored.storageKey, avatarFile: stored } }));
     }
 
     for await (const group of Conversation.find({ isGroup: true, groupAvatar: EXTERNAL, groupAvatarFile: { $exists: false } }).select("groupAvatar groupAdmin").cursor()) {
         const id = String(group._id);
         await copy("groups", id, group.groupAvatar!, imageTypes, { purpose: "group-avatar", groupId: id }, String(group.groupAdmin || id), ({ stored }) =>
-            Conversation.updateOne({ _id: group._id, groupAvatarFile: { $exists: false } }, { $set: { groupAvatar: publicFileUrl(stored.storageKey), groupAvatarFile: stored } }));
+            Conversation.updateOne({ _id: group._id, groupAvatarFile: { $exists: false } }, { $set: { groupAvatar: stored.storageKey, groupAvatarFile: stored } }));
     }
 
     const media = Object.keys(MEDIA_RULES) as MediaKind[];

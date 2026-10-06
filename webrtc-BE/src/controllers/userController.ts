@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import userServices, { parseProfileUpdate, validateUsername } from "../services/userServices";
 import CustomRequest from "../types/customRequest";
 import { IStoredFile } from "../models/storedFile.schema";
-import { publicFileUrl, releaseFile, storeUpload } from "../services/file.service";
+import { releaseFile, storeUpload } from "../services/file.service";
 import { discardTempFile } from "../utils/multer";
 import { AppError, publicMessage } from "../utils/errors";
 import { io } from "../realtime/io";
@@ -35,7 +35,7 @@ export default class UserController {
                 username: name,
                 email,
                 password,
-                avatar: uploaded ? publicFileUrl(uploaded.storageKey) : "",
+                avatar: uploaded ? uploaded.storageKey : "",
                 ...(uploaded ? { avatarFile: uploaded } : {}),
             });
             res.status(200).json({ status: true, data: user, message: 'User Created Successfully' });

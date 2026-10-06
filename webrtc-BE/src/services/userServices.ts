@@ -3,7 +3,7 @@ import { IUser } from "../models/userModel";
 import bcrypt from 'bcrypt'
 import { JwtUtills } from "../utils/jwtUtiils"
 import { IStoredFile } from "../models/storedFile.schema";
-import { publicFileUrl, releaseFile } from "./file.service";
+import { releaseFile } from "./file.service";
 import { AppError, NotFoundError } from "../utils/errors";
 
 const USER_STATUSES = ['Available', 'Away', 'Busy'] as const;
@@ -126,7 +126,7 @@ class UserServices {
         if (!userId) throw new Error('User Id is required');
         const set: Record<string, unknown> = { ...update };
         if (avatar) {
-            set.avatar = publicFileUrl(avatar.storageKey);
+            set.avatar = avatar.storageKey;
             set.avatarFile = avatar;
         }
         if (!Object.keys(set).length) throw new AppError('Nothing to update');

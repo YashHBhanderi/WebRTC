@@ -178,7 +178,7 @@
         <div class="audio-call" *ngIf="audioLayout">
           <div class="audio-call__avatar" [class.is-speaking]="peer.speaking"
             [style.background]="peer.avatar ? null : avatarColorsOf(peer.name).bg" [style.color]="peer.avatar ? null : avatarColorsOf(peer.name).fg">
-            <img *ngIf="peer.avatar; else peerLetter" [src]="peer.avatar" alt="" />
+            <img *ngIf="peer.avatar; else peerLetter" [src]="peer.avatar | mediaUrl" alt="" />
             <ng-template #peerLetter><span>{{ initialsOf(peer.name) }}</span></ng-template>
           </div>
           <h3 class="audio-call__name">{{ peer.name }}</h3>
@@ -235,7 +235,7 @@
           <div class="stage-status" *ngIf="!isGroup && statusLabel && phase === 'live'">
             <div class="stage-status__avatar"
               [style.background]="peer.avatar ? null : avatarColorsOf(peer.name).bg" [style.color]="peer.avatar ? null : avatarColorsOf(peer.name).fg">
-              <img *ngIf="peer.avatar; else statusLetter" [src]="peer.avatar" alt="" />
+              <img *ngIf="peer.avatar; else statusLetter" [src]="peer.avatar | mediaUrl" alt="" />
               <ng-template #statusLetter><span>{{ initialsOf(peer.name) }}</span></ng-template>
             </div>
             <strong>{{ peer.name }}</strong>
@@ -300,7 +300,7 @@
             <button type="button" class="person__main" (click)="pinPerson(person.userId)" [attr.aria-label]="'Show ' + person.name + ' in the main view'">
               <span class="person__avatar"
                 [style.background]="person.avatar ? null : avatarColorsOf(person.avatarName).bg" [style.color]="person.avatar ? null : avatarColorsOf(person.avatarName).fg">
-                <img *ngIf="person.avatar; else personLetter" [src]="person.avatar" alt="" />
+                <img *ngIf="person.avatar; else personLetter" [src]="person.avatar | mediaUrl" alt="" />
                 <ng-template #personLetter>{{ initialsOf(person.avatarName) }}</ng-template>
               </span>
               <span class="person__text">

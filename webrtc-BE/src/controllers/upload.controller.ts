@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import CustomRequest from "../types/customRequest";
 import blockService from "../services/block.service";
 import { directPeerId, getConversationForMember, getGroupForAdmin } from "../services/authorization.service";
-import { publicFileUrl, signedFileUrl, storeUpload, UploadTarget } from "../services/file.service";
+import { signedMediaUrl, storeUpload, UploadTarget } from "../services/file.service";
 import { discardTempFile } from "../utils/multer";
 import { AppError, ForbiddenError, publicMessage } from "../utils/errors";
 
@@ -10,8 +10,9 @@ import { AppError, ForbiddenError, publicMessage } from "../utils/errors";
  * POST /upload (multipart: file, purpose, conversationId | groupId). Requires a logged-in user.
  *   purpose=message       chat attachment for a conversation the user belongs to
  *   purpose=group-avatar  new photo for a group the user administers
- * Returns the storage key the client sends back with sendMessage / group:update, plus a URL for
- * an immediate preview. Profile pictures go through PATCH /web/user/profile instead.
+ * Returns the storage key the client sends back with sendMessage / group:update, plus what to
+ * preview it with: a pre-signed URL for an attachment, the key itself for a group photo (public
+ * object, the client prefixes its S3 base URL). Profile pictures go through PATCH /web/user/profile instead.
  */
 export default async function uploadFile(req: Request, res: Response) {
     const userId = String((req as CustomRequest).userId);
@@ -33,7 +34,7 @@ export default async function uploadFile(req: Request, res: Response) {
         }
 
         const { stored, kind } = await storeUpload(req.file, target, userId);
-        const url = target.purpose === "message" ? signedFileUrl(stored.storageKey) : publicFileUrl(stored.storageKey);
+        const url = target.purpose === "message" ? await signedMediaUrl(stored.storageKey) : stored.storageKey;
         res.status(200).json({
             storageKey: stored.storageKey,
             fileUrl: url,

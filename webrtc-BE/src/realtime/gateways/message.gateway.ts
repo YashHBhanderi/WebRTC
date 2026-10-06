@@ -131,8 +131,8 @@ export function registerMessageGateway(socket: AuthedSocket): void {
 
             const populatedMessage = await Message.findById(newMessage._id).populate("replyTo");
             const conversationId = String(conversation._id);
-            // Signed links instead of storage keys
-            const stored = populatedMessage ? { ...populatedMessage.toObject(), ...messageMedia(populatedMessage), file: undefined } : {};
+            // Pre-signed links instead of storage keys
+            const stored = populatedMessage ? { ...populatedMessage.toObject(), ...(await messageMedia(populatedMessage)), file: undefined } : {};
 
             io().to(conversationId).emit("receiveMessage", {
                 ...stored,

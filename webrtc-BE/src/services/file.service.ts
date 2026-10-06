@@ -17,9 +17,10 @@ import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
  *   {prefix}/groups/{groupId}/avatar/{uuid}.{ext}                                 group photos
  *   {prefix}/conversations/{conversationId}/{images|videos|audio|documents}/{yyyy}/{mm}/{uuid}.{ext}
  *
- * Profile and group pictures get a stable, unguessable link (they are shown to every signed-in
- * user, as before). Chat attachments are private: each response carries a signed, expiring link.
- * Both kinds of link point at GET /files/*, which redirects to a short-lived S3 pre-signed URL.
+ * The database stores keys, never URLs.
+ *   Profile/group pictures  public objects with unguessable keys; clients load {s3BaseUrl}/{key}
+ *                           (the bucket policy allows public reads of the avatar folders only).
+ *   Chat attachments        private; every response carries a pre-signed S3 URL that expires.
  */
 
 const MB = 1024 * 1024;
@@ -78,10 +79,6 @@ const MESSAGE_KEY = new RegExp(`^${P}/conversations/(${OID})/(images|videos|audi
 /** Only keys this service creates are ever served, attached or deleted. */
 export function isManagedKey(key: string): boolean {
     return AVATAR_KEY.test(key) || MESSAGE_KEY.test(key);
-}
-
-export function isPublicKey(key: string): boolean {
-    return AVATAR_KEY.test(key);
 }
 
 function buildKey(target: UploadTarget, rule: KindRule, ext: string): string {
@@ -161,7 +158,7 @@ export async function storeUpload(file: Express.Multer.File | undefined, target:
             contentLength: file.size,
             metadata: { "uploader-id": uploaderId, "original-name": encodeURIComponent(originalName) },
             // Keys are never reused, so the object itself can be cached for good
-            cacheControl: "private, max-age=31536000, immutable",
+            cacheControl: `${isAvatar ? "public" : "private"}, max-age=31536000, immutable`,
         });
         return {
             stored: { storageKey: key, storageProvider: storageConfig.provider, mimeType, originalName, size: file.size },
@@ -213,49 +210,22 @@ export async function attachGroupAvatar(key: unknown, groupId: string, uploaderI
 
 // ------------------------------------------------------------------ links
 
-function sign(key: string, exp: number): string {
-    return crypto.createHmac("sha256", storageConfig.fileUrlSecret).update(`${key}\n${exp}`).digest("base64url");
-}
-
-/** Stable link for profile/group pictures (safe to store in the database). */
-export function publicFileUrl(key: string): string {
-    return `${storageConfig.fileUrlBase}/files/${key}`;
-}
-
 /**
- * Signed, expiring link for a private file. The expiry is aligned to a time window, so the same
- * file gets the same URL for a while and the browser can reuse its cached copy.
+ * Pre-signed S3 URL for a private chat attachment. The signing time is aligned to a window, so
+ * the same file gets the same URL for a while (browser cache hits) and every URL handed out
+ * stays valid for at least half the TTL.
  */
-export function signedFileUrl(key: string, nowMs = Date.now()): string {
-    const window = Math.max(60, Math.floor(storageConfig.fileUrlTtlSeconds / 2));
-    const exp = (Math.floor(nowMs / 1000 / window) + 2) * window;
-    return `${storageConfig.fileUrlBase}/files/${key}?exp=${exp}&sig=${sign(key, exp)}`;
-}
-
-export function verifySignedFileUrl(key: string, exp: unknown, sig: unknown, nowMs = Date.now()): boolean {
-    const expiry = Number(exp);
-    if (!Number.isInteger(expiry) || expiry * 1000 < nowMs || typeof sig !== "string") {
-        return false;
-    }
-    const expected = Buffer.from(sign(key, expiry));
-    const given = Buffer.from(sig);
-    return expected.length === given.length && crypto.timingSafeEqual(expected, given);
-}
-
-/** Short-lived S3 URL for a redirect; window-aligned so repeated requests reuse one URL. */
-export async function storageRedirect(key: string, nowMs = Date.now()): Promise<{ url: string; cacheSeconds: number }> {
+export async function signedMediaUrl(key: string, nowMs = Date.now()): Promise<string> {
     const ttl = Math.max(120, storageConfig.s3UrlTtlSeconds);
     const window = Math.floor(ttl / 2);
     const signingDate = new Date(Math.floor(nowMs / 1000 / window) * window * 1000);
-    const url = await storage.signedGetUrl(key, { expiresInSeconds: ttl, signingDate });
-    // The pre-signed URL stays valid for at least `window` more seconds
-    return { url, cacheSeconds: Math.max(0, window - 30) };
+    return storage.signedGetUrl(key, { expiresInSeconds: ttl, signingDate });
 }
 
-/** URL fields a client renders for a message (signed for stored files, as-is for legacy/call links). */
-export function messageMedia(m: { file?: IStoredFile | null; fileUrl?: string; thumbnailUrl?: string }) {
+/** URL fields a client renders for a message (pre-signed for stored files, as-is for legacy/call links). */
+export async function messageMedia(m: { file?: IStoredFile | null; fileUrl?: string; thumbnailUrl?: string }) {
     if (m.file?.storageKey) {
-        const url = signedFileUrl(m.file.storageKey);
+        const url = await signedMediaUrl(m.file.storageKey);
         return { fileUrl: url, thumbnailUrl: url, fileName: m.file.originalName, fileSize: m.file.size, mimeType: m.file.mimeType };
     }
     return { fileUrl: m.fileUrl || "", thumbnailUrl: m.thumbnailUrl || m.fileUrl || "" };

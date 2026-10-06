@@ -1,13 +1,15 @@
 import { NgIf } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input, OnChanges } from '@angular/core';
 import { avatarColors, avatarInitials } from 'src/app/core/utils/avatar.util';
+import { mediaUrl } from 'src/app/core/utils/media-url.util';
 
 /** Image URLs that already failed once — never retried, so broken avatars don't refetch per row. */
 const failedSources = new Set<string>();
 
 /**
- * Profile / group picture with an optional online dot. Without a picture (or if it fails to
- * load) it shows a generated avatar: initials on a colour derived from the name.
+ * Profile / group picture with an optional online dot. `src` is an S3 key, a full URL or a local
+ * preview. Without a picture (or if it fails to load) it shows a generated avatar: initials on a
+ * colour derived from the name.
  * Identical URLs are served from the browser cache; images load lazily off-screen.
  */
 @Component({
@@ -25,7 +27,7 @@ const failedSources = new Set<string>();
     >
       <img
         *ngIf="showImage; else letter"
-        [src]="src"
+        [src]="url"
         alt=""
         loading="lazy"
         decoding="async"
@@ -72,9 +74,10 @@ export class AvatarComponent implements OnChanges {
   @Input() online = false;
 
   failed = false;
+  url = '';
 
   get showImage(): boolean {
-    return !!this.src && !this.failed;
+    return !!this.url && !this.failed;
   }
 
   get initial(): string {
@@ -86,12 +89,13 @@ export class AvatarComponent implements OnChanges {
   }
 
   ngOnChanges(): void {
-    this.failed = !!this.src && failedSources.has(this.src);
+    this.url = mediaUrl(this.src);
+    this.failed = !!this.url && failedSources.has(this.url);
   }
 
   onError(): void {
-    if (this.src) {
-      failedSources.add(this.src);
+    if (this.url) {
+      failedSources.add(this.url);
     }
     this.failed = true;
   }

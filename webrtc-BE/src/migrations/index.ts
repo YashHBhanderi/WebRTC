@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Conversation from "../models/conversationModel";
+import User from "../models/userModel";
 import Message from "../models/messageModel";
 import Call from "../models/callModel";
 import ConversationUserState from "../models/conversationUserStateModel";
@@ -8,7 +9,8 @@ import Block from "../models/blockModel";
 /**
  * Additive, idempotent data migrations. Each runs once and is recorded in the
  * `migrations` collection; a re-run (or a crash halfway) is safe because every step only
- * fills in missing data and never deletes or overwrites existing values.
+ * fills in missing data and never deletes anything. The one overwrite (avatar-storage-keys)
+ * replaces a link derived from a stored key with that key.
  */
 interface Migration {
     id: string;
@@ -72,6 +74,22 @@ const migrations: Migration[] = [
         up: async () => {
             await Message.createIndexes();
             return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-08-avatar-storage-keys",
+        description: "Store S3 keys instead of /api/files/... links in users.avatar and conversations.groupAvatar",
+        up: async () => {
+            // The stored-file reference is the source of truth; only the derived link is replaced
+            const users = await User.updateMany(
+                { "avatarFile.storageKey": { $type: "string" }, $expr: { $ne: ["$avatar", "$avatarFile.storageKey"] } },
+                [{ $set: { avatar: "$avatarFile.storageKey" } }]
+            );
+            const groups = await Conversation.updateMany(
+                { "groupAvatarFile.storageKey": { $type: "string" }, $expr: { $ne: ["$groupAvatar", "$groupAvatarFile.storageKey"] } },
+                [{ $set: { groupAvatar: "$groupAvatarFile.storageKey" } }]
+            );
+            return `${users.modifiedCount} user(s), ${groups.modifiedCount} group(s) updated`;
         },
     },
 ];

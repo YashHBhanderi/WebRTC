@@ -61,13 +61,13 @@ export default class MessageService {
             .populate({ path: "replyTo", select: "content type userId" })
             .lean();
 
-        return docs.reverse().map((m: any) => {
+        return Promise.all(docs.reverse().map(async (m: any) => {
             const author = m.userId && typeof m.userId === "object" ? m.userId : null;
             return {
                 _id: m._id,
                 content: m.content,
                 type: m.type,
-                ...messageMedia(m),
+                ...(await messageMedia(m)),
                 isDeleted: m.isDeleted,
                 isRead: m.isRead,
                 createdAt: m.createdAt,
@@ -85,7 +85,7 @@ export default class MessageService {
                     : {},
                 replyTo: m.replyTo ? { _id: m.replyTo._id, content: m.replyTo.content, type: m.replyTo.type, userId: m.replyTo.userId } : null,
             };
-        });
+        }));
     }
 
     /**
@@ -180,12 +180,12 @@ export default class MessageService {
             .limit(300)
             .select("file fileUrl thumbnailUrl type createdAt")
             .lean();
-        return docs.map((m: any) => ({
+        return Promise.all(docs.map(async (m: any) => ({
             _id: m._id,
-            ...messageMedia(m),
+            ...(await messageMedia(m)),
             type: m.type,
             createdAt: m.createdAt,
-        }));
+        })));
     }
 
     /**
