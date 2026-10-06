@@ -2,10 +2,13 @@ import { Injectable } from '@angular/core';
 
 export interface ScreenShareOverlayHandlers {
   onToggleMute: () => void;
+  /** Camera keeps running while presenting; toggle it from the overlay too. */
+  onToggleVideo?: () => void | Promise<void>;
   onStopShare: () => void;
   onLeave?: () => void;
   isMuted: () => boolean;
   hasAudio: () => boolean;
+  isVideoOn?: () => boolean;
 }
 
 /**
@@ -100,6 +103,8 @@ export class ScreenShareOverlayService {
 
     const muted = this.handlers.isMuted();
     const hasAudio = this.handlers.hasAudio();
+    const canVideo = !!this.handlers.onToggleVideo;
+    const videoOn = !!this.handlers.isVideoOn?.();
 
     win.document.head.innerHTML = `
       <style>
@@ -123,6 +128,7 @@ export class ScreenShareOverlayService {
           border: none; cursor: pointer; font-size: 16px;
           background: #333; color: #fff;
         }
+        button.off { background: #5f2120; }
         button.danger { background: #c62828; }
         button.primary { background: #1565c0; }
         button:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -133,6 +139,7 @@ export class ScreenShareOverlayService {
       <div class="label">You are sharing your screen</div>
       <div class="row">
         <button id="muteBtn" title="Mute" ${hasAudio ? '' : 'disabled'}>${muted || !hasAudio ? '🔇' : '🎤'}</button>
+        ${canVideo ? `<button id="videoBtn" class="${videoOn ? '' : 'off'}" title="${videoOn ? 'Turn camera off' : 'Turn camera on'}">${videoOn ? '📷' : '🚫'}</button>` : ''}
         <button id="stopBtn" class="primary" title="Stop sharing">🛑</button>
         <button id="leaveBtn" class="danger" title="Leave call">📞</button>
       </div>
@@ -141,6 +148,9 @@ export class ScreenShareOverlayService {
     win.document.getElementById('muteBtn')?.addEventListener('click', () => {
       this.handlers?.onToggleMute();
       this.refresh();
+    });
+    win.document.getElementById('videoBtn')?.addEventListener('click', () => {
+      void Promise.resolve(this.handlers?.onToggleVideo?.()).then(() => this.refresh());
     });
     win.document.getElementById('stopBtn')?.addEventListener('click', () => {
       this.handlers?.onStopShare();

@@ -131,7 +131,7 @@
           type="button"
           class="tool"
           [class.tool--off]="!isVideoEnabled"
-          [disabled]="phase !== 'live' || isScreenSharing"
+          [disabled]="phase !== 'live'"
           (click)="toggleVideo()"
           [attr.aria-pressed]="!isVideoEnabled"
           [attr.aria-label]="isVideoEnabled ? 'Turn camera off' : 'Turn camera on'"
@@ -369,7 +369,7 @@
           <button type="button" class="tool" [class.tool--off]="isMuted || !hasAudioDevice" [disabled]="phase !== 'live'" (click)="toggleMute()">
             <i class="fa-solid" [class.fa-microphone]="!isMuted" [class.fa-microphone-slash]="isMuted"></i><span class="tool__label">{{ isMuted ? 'Unmute' : 'Mute' }}</span>
           </button>
-          <button type="button" class="tool" [class.tool--off]="!isVideoEnabled" [disabled]="phase !== 'live' || isScreenSharing" (click)="toggleVideo()">
+          <button type="button" class="tool" [class.tool--off]="!isVideoEnabled" [disabled]="phase !== 'live'" (click)="toggleVideo()">
             <i class="fa-solid" [class.fa-video]="isVideoEnabled" [class.fa-video-slash]="!isVideoEnabled"></i><span class="tool__label">Camera</span>
           </button>
         </div>

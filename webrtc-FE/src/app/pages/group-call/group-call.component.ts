@@ -756,7 +756,8 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       name: 'You',
       avatar: this.myAvatar,
       stream: this.localStream,
-      showVideo: this.isVideoEnabled && this.hasVideoDevice && !this.isScreenSharing && liveVideo(this.localStream),
+      // Camera and screen share run together: your camera tile stays live while presenting
+      showVideo: this.isVideoEnabled && this.hasVideoDevice && liveVideo(this.localStream),
       mirror: true,
       audioOn: !this.isMuted && this.hasAudioDevice,
       speaking: this.speaking.has(this.myUserId),
@@ -1039,10 +1040,6 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   }
 
   async toggleVideo(): Promise<void> {
-    if (this.isScreenSharing) {
-      return;
-    }
-
     // Audio call (or joined camera-off) → start the camera now
     if (this.callType === 'audio' || (!this.isVideoEnabled && !this.mediasoupService.hasVideoDevice)) {
       try {
@@ -1053,6 +1050,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
         this.localStream = stream;
         this.mediaKick++;
         this.broadcastMediaState();
+        this.screenOverlay.refresh();
         this.render();
         await this.socketService.upgradeGroupCall(this.callId, 'video');
       } catch (error: any) {
@@ -1068,6 +1066,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     this.isVideoEnabled = !this.isVideoEnabled;
     this.mediasoupService.setVideoEnabled(this.isVideoEnabled);
     this.broadcastMediaState();
+    this.screenOverlay.refresh();
     this.render();
   }
 
@@ -1279,7 +1278,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     this.socketService.sendCallMediaState(
       this.callId,
       !this.isMuted && this.hasAudioDevice,
-      this.isVideoEnabled && this.hasVideoDevice && !this.isScreenSharing
+      this.isVideoEnabled && this.hasVideoDevice
     );
   }
 
@@ -1364,12 +1363,14 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   private async openShareOverlay(): Promise<void> {
     await this.screenOverlay.show({
       onToggleMute: () => this.toggleMute(),
+      onToggleVideo: () => this.toggleVideo(),
       onStopShare: () => {
         void this.stopLocalScreenShare();
       },
       onLeave: () => this.leaveCall(),
       isMuted: () => this.isMuted,
       hasAudio: () => this.hasAudioDevice,
+      isVideoOn: () => this.isVideoEnabled && this.hasVideoDevice,
     });
   }
 

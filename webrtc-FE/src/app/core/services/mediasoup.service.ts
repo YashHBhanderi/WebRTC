@@ -848,7 +848,7 @@ export class MediasoupService {
   }
 
   setVideoEnabled(enabled: boolean): void {
-    if (!this.hasVideoDevice || this.screenStream) {
+    if (!this.hasVideoDevice) {
       return;
     }
     this.localStream?.getVideoTracks().forEach((track) => {
@@ -892,8 +892,29 @@ export class MediasoupService {
     }
 
     this.videoProducer = await this.produceCamera(videoTrack);
+    if (this.screenProducer) {
+      await this.limitCameraForScreenShare(true);
+    }
     this.localStreamSubject.next(this.localStream);
     return this.localStream;
+  }
+
+  /**
+   * Camera and screen are sent together. While presenting, the camera's top simulcast layer is
+   * dropped so the shared screen keeps priority on the uplink (others see the camera as a
+   * thumbnail anyway); the full camera quality comes back when sharing stops.
+   */
+  private async limitCameraForScreenShare(limit: boolean): Promise<void> {
+    const producer = this.videoProducer;
+    const layers = producer?.rtpParameters?.encodings?.length || 1;
+    if (!producer || producer.closed || layers < 2) {
+      return;
+    }
+    try {
+      await producer.setMaxSpatialLayer(limit ? layers - 2 : layers - 1);
+    } catch (error) {
+      console.warn('[mediasoup] could not adjust camera layers for screen share', error);
+    }
   }
 
   async startScreenShare(): Promise<MediaStream> {
@@ -917,15 +938,7 @@ export class MediasoupService {
       // ignore
     }
 
-    // Keep camera producer, publish screen as its own producer
-    if (this.videoProducer) {
-      try {
-        await this.videoProducer.pause();
-      } catch {
-        // ignore
-      }
-    }
-
+    // Screen is its own producer; the camera keeps running alongside it (state unchanged)
     this.screenProducer = await this.sendTransport.produce({
       track: screenTrack,
       appData: { source: 'screen' },
@@ -933,6 +946,7 @@ export class MediasoupService {
       codecOptions: { videoGoogleStartBitrate: 1000 },
     });
     await this.setDegradationPreference(this.screenProducer, 'maintain-resolution');
+    await this.limitCameraForScreenShare(true);
 
     screenTrack.onended = () => {
       void this.stopScreenShare().then(() => {
@@ -958,13 +972,8 @@ export class MediasoupService {
     this.screenStream?.getTracks().forEach((track) => track.stop());
     this.screenStream = null;
 
-    if (this.videoProducer && this.hasVideoDevice) {
-      try {
-        await this.videoProducer.resume();
-      } catch {
-        // ignore
-      }
-    }
+    // Camera was never paused for the share (on/off stays as the user left it); restore quality
+    await this.limitCameraForScreenShare(false);
 
     return this.localStream || null;
   }
