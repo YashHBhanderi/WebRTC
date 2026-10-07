@@ -1,4 +1,4 @@
-import { NgModule, isDevMode } from '@angular/core';
+import { APP_INITIALIZER, NgModule, isDevMode } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { AppRoutingModule } from './app-routing.module';
 import { AppComponent } from './app.component';
@@ -10,6 +10,7 @@ import { SimplebarAngularModule } from 'simplebar-angular';
 import { AuthInterceptor } from './core/interceptors/auth.interceptor';
 import { ErrorInterceptor } from './core/interceptors/error.interceptor';
 import { ServiceWorkerModule } from '@angular/service-worker';
+import { loadMediaBaseUrl } from './core/utils/media-url.util';
 
 const socketConfig = {
   url: typeof window !== 'undefined' ? window.location.origin : 'https://localhost:4200',
@@ -55,6 +56,7 @@ const socketConfig = {
   ],
   providers: [
     // {provide:APP_INITIALIZER,useFactory:getUsers,deps:[UserService],multi:true},
+    { provide: APP_INITIALIZER, useFactory: loadMediaBaseUrl, multi: true },
     { provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true },
     { provide: HTTP_INTERCEPTORS, useClass: ErrorInterceptor, multi: true }
   ],

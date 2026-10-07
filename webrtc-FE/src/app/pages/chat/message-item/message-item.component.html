@@ -31,21 +31,39 @@
         <span class="bubble__quote-text">{{ quoteText }}</span>
       </button>
 
-      <button type="button" class="bubble__media" *ngIf="message.type === 'image'" (click)="openFile('image')" aria-label="Open image">
-        <img [src]="message.thumbnailUrl || message.fileUrl" alt="Shared image" loading="lazy" />
-      </button>
-      <video *ngIf="message.type === 'video'" class="bubble__video" controls preload="metadata"
-        [poster]="message.thumbnailUrl && message.thumbnailUrl !== message.fileUrl ? message.thumbnailUrl : null">
-        <source [src]="message.fileUrl" />
-      </video>
-      <audio *ngIf="message.type === 'audio'" class="bubble__audio" controls preload="metadata">
-        <source [src]="message.fileUrl" />
-      </audio>
-      <button type="button" class="bubble__doc" *ngIf="message.type === 'pdf'" (click)="openFile('pdf')">
-        <i class="fa-solid fa-file-pdf"></i>
-        <span class="bubble__doc-name">{{ fileName() }}</span>
-        <i class="fa-solid fa-arrow-up-right-from-square bubble__doc-open"></i>
-      </button>
+      <div class="bubble__media-wrap" *ngIf="message.type === 'image' || message.type === 'video'">
+        <button type="button" class="bubble__media" *ngIf="message.type === 'image'" (click)="openFile('image')" aria-label="Open image">
+          <img [src]="message.thumbnailUrl || message.fileUrl" alt="Shared image" loading="lazy" />
+        </button>
+        <video *ngIf="message.type === 'video'" class="bubble__video" controls preload="metadata"
+          [poster]="message.thumbnailUrl && message.thumbnailUrl !== message.fileUrl ? message.thumbnailUrl : null">
+          <source [src]="message.fileUrl" />
+        </video>
+        <a *ngIf="downloadHref" class="bubble__download bubble__download--overlay" [href]="downloadHref" [attr.target]="downloadTarget"
+          rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
+          <i class="fa-solid fa-download"></i>
+        </a>
+      </div>
+      <div class="bubble__file-row" *ngIf="message.type === 'audio'">
+        <audio class="bubble__audio" controls preload="metadata">
+          <source [src]="message.fileUrl" />
+        </audio>
+        <a *ngIf="downloadHref" class="bubble__download" [href]="downloadHref" [attr.target]="downloadTarget"
+          rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
+          <i class="fa-solid fa-download"></i>
+        </a>
+      </div>
+      <div class="bubble__file-row" *ngIf="message.type === 'pdf'">
+        <button type="button" class="bubble__doc" (click)="openFile('pdf')" [title]="'Open ' + fileName()">
+          <i class="fa-solid fa-file-pdf"></i>
+          <span class="bubble__doc-name">{{ fileName() }}</span>
+          <i class="fa-solid fa-arrow-up-right-from-square bubble__doc-open"></i>
+        </button>
+        <a *ngIf="downloadHref" class="bubble__download" [href]="downloadHref" [attr.target]="downloadTarget"
+          rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
+          <i class="fa-solid fa-download"></i>
+        </a>
+      </div>
 
       <p class="bubble__text" *ngIf="hasText; else metaRow">
         <ng-container *ngIf="searchHit && searchTerm; else plain"><span [innerHTML]="visibleText | highlight: searchTerm"></span></ng-container>
@@ -84,6 +102,7 @@
           </button>
           <div ngbDropdownMenu class="app-menu">
             <button ngbDropdownItem type="button" (click)="copy.emit(message)"><i class="fa-regular fa-copy"></i>Copy</button>
+            <a ngbDropdownItem *ngIf="downloadHref" [href]="downloadHref" [attr.target]="downloadTarget" rel="noopener" download><i class="fa-solid fa-download"></i>Download</a>
             <button ngbDropdownItem type="button" (click)="forward.emit(message)"><i class="fa-solid fa-share"></i>Forward</button>
             <button ngbDropdownItem type="button" *ngIf="mine" class="text-danger" (click)="remove.emit(message)"><i class="fa-regular fa-trash-can"></i>Delete</button>
           </div>

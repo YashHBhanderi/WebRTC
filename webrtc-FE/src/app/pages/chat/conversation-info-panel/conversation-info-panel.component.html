@@ -103,12 +103,18 @@
     <section class="block" *ngIf="!loading">
       <h4 class="block__label">Media, links and docs <span class="text-muted">({{ media.length }})</span></h4>
       <div class="media-grid" *ngIf="media.length; else noMedia">
-        <button type="button" class="media-cell" *ngFor="let item of media" (click)="open(item)" [attr.aria-label]="'Open ' + item.type">
-          <img *ngIf="item.type === 'image' || (item.type === 'video' && item.thumbnailUrl !== item.fileUrl)" [src]="item.thumbnailUrl" alt="" loading="lazy" />
-          <span class="media-cell__icon" *ngIf="item.type === 'video'"><i class="fa-solid fa-play"></i></span>
-          <span class="media-cell__icon media-cell__icon--doc" *ngIf="item.type === 'pdf'"><i class="fa-solid fa-file-pdf"></i></span>
-          <span class="media-cell__icon media-cell__icon--doc" *ngIf="item.type === 'audio'"><i class="fa-solid fa-music"></i></span>
-        </button>
+        <div class="media-cell-wrap" *ngFor="let item of media">
+          <button type="button" class="media-cell" (click)="open(item)" [attr.aria-label]="'Open ' + (item.fileName || item.type)" [title]="item.fileName || ''">
+            <img *ngIf="item.type === 'image' || (item.type === 'video' && item.thumbnailUrl !== item.fileUrl)" [src]="item.thumbnailUrl" alt="" loading="lazy" />
+            <span class="media-cell__icon" *ngIf="item.type === 'video'"><i class="fa-solid fa-play"></i></span>
+            <span class="media-cell__icon media-cell__icon--doc" *ngIf="item.type === 'pdf'"><i class="fa-solid fa-file-pdf"></i></span>
+            <span class="media-cell__icon media-cell__icon--doc" *ngIf="item.type === 'audio'"><i class="fa-solid fa-music"></i></span>
+          </button>
+          <a class="media-cell__download" [href]="item.downloadUrl || item.fileUrl" [attr.target]="item.downloadUrl ? null : '_blank'" rel="noopener" download
+            [attr.aria-label]="'Download ' + (item.fileName || item.type)" title="Download">
+            <i class="fa-solid fa-download"></i>
+          </a>
+        </div>
       </div>
       <ng-template #noMedia><p class="block__text text-muted">No shared media yet</p></ng-template>
     </section>

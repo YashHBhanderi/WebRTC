@@ -20,7 +20,11 @@ import { ChatMessage, messageHasText } from 'src/app/core/interfaces/chat';
 export interface MediaOpenEvent {
   url: string;
   type: string;
+  /** Link that saves the file (falls back to `url` for legacy media). */
+  downloadUrl?: string;
 }
+
+const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'pdf']);
 
 /**
  * One chat message: sender avatar, bubble (quote, media, text with Read more), reactions,
@@ -233,8 +237,18 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
 
   openFile(type: string): void {
     if (this.message.fileUrl) {
-      this.openMedia.emit({ url: this.message.fileUrl, type });
+      this.openMedia.emit({ url: this.message.fileUrl, type, downloadUrl: this.downloadHref || undefined });
     }
+  }
+
+  /** Download link for media messages ('' for text/call/system messages). */
+  get downloadHref(): string {
+    return MEDIA_TYPES.has(this.message.type) ? this.message.downloadUrl || this.message.fileUrl || '' : '';
+  }
+
+  /** Pre-signed download links answer with "attachment"; legacy links open in a new tab instead. */
+  get downloadTarget(): string | null {
+    return this.message.downloadUrl ? null : '_blank';
   }
 
   fileName(): string {

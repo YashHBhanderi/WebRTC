@@ -32,6 +32,8 @@ export interface ChatMessage {
   conversationId?: string;
   /** Stored attachments: original file name, size in bytes and MIME type. */
   fileName?: string;
+  /** Pre-signed link that downloads the attachment under its original name. */
+  downloadUrl?: string;
   fileSize?: number;
   mimeType?: string;
 }

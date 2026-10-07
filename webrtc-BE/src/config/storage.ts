@@ -17,6 +17,9 @@ dotenv.config();
  *   AWS_SESSION_TOKEN          optional, only for temporary (STS) keys
  *   STORAGE_KEY_PREFIX         top-level key folder, default NODE_ENV (e.g. "production")
  *   S3_SIGNED_URL_TTL_SECONDS  lifetime of pre-signed links to chat attachments, default 21600 (6 h), max 7 days
+ *   S3_PUBLIC_BASE_URL         optional, where browsers load public objects from (e.g. a CloudFront
+ *                              domain); default https://{bucket}.s3.{region}.amazonaws.com. Clients get
+ *                              it from GET /config, so frontend builds need no bucket address.
  *   S3_ENDPOINT                optional S3-compatible endpoint (local emulators); unset for AWS
  *   S3_FORCE_PATH_STYLE        "true" for most S3-compatible emulators
  */
@@ -55,16 +58,37 @@ function customEndpoint(value: string | undefined): string | undefined {
 }
 
 const endpoint = customEndpoint(process.env.S3_ENDPOINT);
+const forcePathStyle = !!endpoint && process.env.S3_FORCE_PATH_STYLE === "true";
+
+/** Base URL of the bucket as browsers reach it; a key is appended to read a public object. */
+function publicBaseUrl(bucket: string, region: string): string {
+    const explicit = (process.env.S3_PUBLIC_BASE_URL || "").trim();
+    if (explicit) {
+        return explicit.replace(/\/+$/, "");
+    }
+    if (!bucket) {
+        return "";
+    }
+    if (endpoint) {
+        const url = new URL(endpoint);
+        return forcePathStyle ? `${url.origin}/${bucket}` : `${url.protocol}//${bucket}.${url.host}`;
+    }
+    return region ? `https://${bucket}.s3.${region}.amazonaws.com` : "";
+}
+
+const bucket = (process.env.S3_BUCKET || "").trim();
+const region = (process.env.AWS_REGION || "").trim();
 
 export const storageConfig = {
     provider: "s3" as const,
-    region: (process.env.AWS_REGION || "").trim(),
-    bucket: (process.env.S3_BUCKET || "").trim(),
+    region,
+    bucket,
     accessKeyId: (process.env.AWS_ACCESS_KEY_ID || "").trim(),
     secretAccessKey: (process.env.AWS_SECRET_ACCESS_KEY || "").trim(),
     sessionToken: (process.env.AWS_SESSION_TOKEN || "").trim() || undefined,
     endpoint,
-    forcePathStyle: !!endpoint && process.env.S3_FORCE_PATH_STYLE === "true",
+    forcePathStyle,
+    publicBaseUrl: publicBaseUrl(bucket, region),
     keyPrefix: keyPrefix(process.env.STORAGE_KEY_PREFIX || process.env.NODE_ENV || "development"),
     // SigV4 pre-signed URLs cannot outlive 7 days
     s3UrlTtlSeconds: Math.min(positiveInt(process.env.S3_SIGNED_URL_TTL_SECONDS, 6 * 60 * 60), 7 * 24 * 60 * 60),

@@ -20,7 +20,8 @@ import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
  * The database stores keys, never URLs.
  *   Profile/group pictures  public objects with unguessable keys; clients load {s3BaseUrl}/{key}
  *                           (the bucket policy allows public reads of the avatar folders only).
- *   Chat attachments        private; every response carries a pre-signed S3 URL that expires.
+ *   Chat attachments        private; every response carries pre-signed S3 URLs that expire: one to
+ *                           view the file and one that downloads it under its original name.
  */
 
 const MB = 1024 * 1024;
@@ -215,18 +216,32 @@ export async function attachGroupAvatar(key: unknown, groupId: string, uploaderI
  * the same file gets the same URL for a while (browser cache hits) and every URL handed out
  * stays valid for at least half the TTL.
  */
-export async function signedMediaUrl(key: string, nowMs = Date.now()): Promise<string> {
+export async function signedMediaUrl(key: string, nowMs = Date.now(), downloadName?: string): Promise<string> {
     const ttl = Math.max(120, storageConfig.s3UrlTtlSeconds);
     const window = Math.floor(ttl / 2);
     const signingDate = new Date(Math.floor(nowMs / 1000 / window) * window * 1000);
-    return storage.signedGetUrl(key, { expiresInSeconds: ttl, signingDate });
+    return storage.signedGetUrl(key, {
+        expiresInSeconds: ttl,
+        signingDate,
+        contentDisposition: downloadName === undefined ? undefined : attachmentDisposition(downloadName),
+    });
+}
+
+/** `attachment` with an ASCII fallback name plus the exact UTF-8 name (RFC 6266 / 5987). */
+function attachmentDisposition(name: string): string {
+    const clean = name.replace(/[\u0000-\u001f\u007f"\\/]/g, "_").trim() || "file";
+    const ascii = clean.replace(/[^\x20-\x7e]/g, "_");
+    const encoded = encodeURIComponent(clean).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`;
 }
 
 /** URL fields a client renders for a message (pre-signed for stored files, as-is for legacy/call links). */
 export async function messageMedia(m: { file?: IStoredFile | null; fileUrl?: string; thumbnailUrl?: string }) {
     if (m.file?.storageKey) {
-        const url = await signedMediaUrl(m.file.storageKey);
-        return { fileUrl: url, thumbnailUrl: url, fileName: m.file.originalName, fileSize: m.file.size, mimeType: m.file.mimeType };
+        const key = m.file.storageKey;
+        const name = m.file.originalName || key.split("/").pop() || "file";
+        const [url, downloadUrl] = await Promise.all([signedMediaUrl(key), signedMediaUrl(key, Date.now(), name)]);
+        return { fileUrl: url, thumbnailUrl: url, downloadUrl, fileName: m.file.originalName, fileSize: m.file.size, mimeType: m.file.mimeType };
     }
     return { fileUrl: m.fileUrl || "", thumbnailUrl: m.thumbnailUrl || m.fileUrl || "" };
 }

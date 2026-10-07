@@ -29,6 +29,7 @@ import { ChatMessage, ChatState, ChatUser, GroupSummary, MessageDraft, messagePr
 import { CallLaunch, CallMember } from '../group-call/call.models';
 import { IncomingCall } from './incoming-call/incoming-call.component';
 import { ReplyPreview } from './message-composer/message-composer.component';
+import { MediaOpenEvent } from './message-item/message-item.component';
 
 export interface ActiveGroupMeeting {
   callId: string;
@@ -111,6 +112,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   // ---- media preview
   previewUrl: string | null = null;
   previewType: string | null = null;
+  previewDownloadUrl: string | null = null;
 
   // ---- calls
   activeGroupCalls: { [groupId: string]: ActiveGroupMeeting } = {};
@@ -1367,18 +1369,21 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ================================================================ message actions
 
-  openPreview(url: string, type: string): void {
+  openPreview(event: MediaOpenEvent): void {
+    const { url, type } = event;
     if (type === 'pdf' || type === 'application/pdf' || type === 'audio') {
       window.open(url, '_blank', 'noopener');
       return;
     }
     this.previewUrl = url;
     this.previewType = type;
+    this.previewDownloadUrl = event.downloadUrl || null;
   }
 
   closePreview(): void {
     this.previewUrl = null;
     this.previewType = null;
+    this.previewDownloadUrl = null;
   }
 
   onCopyMessage(msg: ChatMessage): void {

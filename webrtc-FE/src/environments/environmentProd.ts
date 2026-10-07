@@ -7,7 +7,7 @@ export const environment = {
   production: true,
   apiUrl: '/api',
   socketUrl: '', // unused — app.module connects the socket to window.location.origin
-  // Production bucket (or CDN in front of it) for profile/group pictures — set before building
+  // Fallback only: the backend's value (GET /config, from its .env) is used when reachable
   s3BaseUrl: '',
   BASE_URL:
     typeof window !== 'undefined' && window.location?.origin

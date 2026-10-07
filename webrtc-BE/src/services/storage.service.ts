@@ -31,6 +31,8 @@ export interface SignedUrlOptions {
     expiresInSeconds: number;
     /** Fixed signing time → identical URLs within a window, so browsers can cache the object. */
     signingDate?: Date;
+    /** Content-Disposition S3 should answer with (e.g. to force a download with a file name). */
+    contentDisposition?: string;
 }
 
 /**
@@ -121,7 +123,7 @@ class StorageService {
         try {
             return await getSignedUrl(
                 this.s3(),
-                new GetObjectCommand({ Bucket: storageConfig.bucket, Key: key }),
+                new GetObjectCommand({ Bucket: storageConfig.bucket, Key: key, ResponseContentDisposition: options.contentDisposition }),
                 { expiresIn: options.expiresInSeconds, signingDate: options.signingDate }
             );
         } catch (error) {

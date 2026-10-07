@@ -164,6 +164,9 @@
   img {
     display: block;
     width: 100%;
+    // Tiny images stay tappable around the download button
+    min-width: 96px;
+    min-height: 96px;
     max-width: 320px;
     max-height: 340px;
     object-fit: cover;
@@ -216,6 +219,72 @@
 .bubble__doc-open {
   color: var(--app-muted);
   font-size: 0.75rem;
+}
+
+// Download: overlay on photos/videos, inline next to documents and audio
+.bubble__media-wrap {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+
+  &:hover .bubble__download--overlay,
+  &:focus-within .bubble__download--overlay {
+    opacity: 1;
+  }
+}
+
+.bubble__file-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+
+  .bubble__doc,
+  .bubble__audio {
+    margin-bottom: 0;
+  }
+}
+
+.bubble__download {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--app-muted);
+  font-size: 0.85rem;
+  text-decoration: none;
+
+  &:hover,
+  &:focus-visible {
+    background: var(--app-quote);
+    color: var(--app-text);
+  }
+
+  &--overlay {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(2, 6, 23, 0.55);
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+
+    &:hover,
+    &:focus-visible {
+      background: rgba(2, 6, 23, 0.75);
+      color: #fff;
+    }
+  }
+}
+
+// Touch screens have no hover: keep the download button visible
+@media (hover: none) {
+  .bubble__download--overlay {
+    opacity: 1;
+  }
 }
 
 // Inline spacer keeps the time/ticks clear of the last text line

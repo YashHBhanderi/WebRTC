@@ -25,6 +25,8 @@ interface SharedMediaItem {
   fileUrl: string;
   thumbnailUrl: string;
   type: string;
+  fileName?: string;
+  downloadUrl?: string;
 }
 
 /**
@@ -269,7 +271,7 @@ export class ConversationInfoPanelComponent implements OnInit, OnChanges, OnDest
   }
 
   open(item: SharedMediaItem): void {
-    this.openMedia.emit({ url: item.fileUrl, type: item.type });
+    this.openMedia.emit({ url: item.fileUrl, type: item.type, downloadUrl: item.downloadUrl || item.fileUrl });
   }
 
   // ---------------------------------------------------------------- loading

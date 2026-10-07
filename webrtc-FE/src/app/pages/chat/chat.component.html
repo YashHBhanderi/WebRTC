@@ -272,7 +272,7 @@
             (remove)="deleteMessage($event)"
             (quoteClick)="jumpToMessage($event)"
             (avatarClick)="openInfoPanel()"
-            (openMedia)="openPreview($event.url, $event.type)"
+            (openMedia)="openPreview($event)"
           ></app-message-item>
         </ng-container>
       </ng-container>
@@ -321,7 +321,7 @@
       [myUserId]="myUserId"
       [contacts]="contactsForPanel"
       (close)="closeRightPanel()"
-      (openMedia)="openPreview($event.url, $event.type)"
+      (openMedia)="openPreview($event)"
       (leaveGroup)="leaveGroup()"
       (groupChanged)="onPanelGroupChanged($event)"
     ></app-conversation-info-panel>
@@ -340,7 +340,8 @@
 <!-- Media preview -->
 <div class="lightbox" *ngIf="previewUrl" (click)="closePreview()" role="dialog" aria-modal="true" aria-label="Media preview" tabindex="-1">
   <div class="lightbox__bar" (click)="$event.stopPropagation()">
-    <a class="icon-btn" [href]="previewUrl" target="_blank" rel="noopener" aria-label="Open original"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
+    <a class="icon-btn" *ngIf="previewDownloadUrl" [href]="previewDownloadUrl" download aria-label="Download" title="Download"><i class="fa-solid fa-download"></i></a>
+    <a class="icon-btn" [href]="previewUrl" target="_blank" rel="noopener" aria-label="Open original" title="Open original"><i class="fa-solid fa-arrow-up-right-from-square"></i></a>
     <button type="button" class="icon-btn" (click)="closePreview()" aria-label="Close preview"><i class="fa-solid fa-xmark"></i></button>
   </div>
   <img *ngIf="previewType === 'image'" [src]="previewUrl" alt="Shared image" (click)="$event.stopPropagation()" />
