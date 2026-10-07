@@ -16,14 +16,20 @@ export function createApp(corsOrigin: string[] | "*") {
     app.use(express.json({ limit: "1000mb" }));
     app.use(express.urlencoded({ extended: true, limit: "1000mb" }));
     app.use(cors({ origin: corsOrigin }));
-    app.use("/", router);
 
+    const api = express.Router();
+    api.use(router);
     // Stored files (S3): upload needs a session; clients read straight from S3 (see file.service)
-    app.post("/upload", verifyToken, uploadSingle("file"), uploadFile);
+    api.post("/upload", verifyToken, uploadSingle("file"), uploadFile);
     // Public client settings (no secrets): where to load public objects (profile/group pictures) from
-    app.get("/config", (_req, res) => {
+    api.get("/config", (_req, res) => {
         res.json({ status: true, data: { s3BaseUrl: storageConfig.publicBaseUrl }, message: "" });
     });
+
+    // Every endpoint answers with and without the /api prefix, so it works whether the reverse
+    // proxy strips the prefix (dev proxy.conf.js) or forwards /api/* unchanged (nginx on the server)
+    app.use("/api", api);
+    app.use("/", api);
     app.use("/uploads", express.static(path.join(__dirname, "/uploads")));
 
     return app;

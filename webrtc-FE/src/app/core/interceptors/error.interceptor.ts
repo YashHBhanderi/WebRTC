@@ -37,6 +37,10 @@ export class ErrorInterceptor implements HttpInterceptor {
               case 404:
                 errorMessage = 'Not Found';
                 break;
+              case 413:
+                // Usually the reverse proxy's body-size limit (the HTML page has no message)
+                errorMessage = 'This file is too large to upload';
+                break;
               case 500:
                 errorMessage = 'Internal Server Error';
                 break;
