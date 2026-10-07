@@ -7,12 +7,32 @@ import { IUser } from '../interfaces/user';
 import { environment } from 'src/environments/environment';
 
 
+const TOKEN_KEY = 'auth_token';
+const USER_KEY = 'user';
+
+/** True when the JWT's `exp` has passed (or the token can't be read). Checked locally, no request. */
+export function tokenExpired(token: string, nowMs = Date.now()): boolean {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const { exp } = JSON.parse(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')));
+    return typeof exp === 'number' && exp * 1000 <= nowMs;
+  } catch {
+    return true;
+  }
+}
+
+/** Forget the stored session. Plain function so the HTTP interceptor can use it without DI cycles. */
+export function clearStoredSession(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService {
   private apiUrl = `${environment.apiUrl}/web/user`;  
-  private tokenKey = 'auth_token';
+  private tokenKey = TOKEN_KEY;
 
   constructor(
     private http: HttpClient, 
@@ -42,8 +62,17 @@ export class AuthService {
     return localStorage.getItem(this.tokenKey);
   }
 
+  /** Signed in = a stored user and a token that has not expired. An expired session is cleared. */
   loggedIn(): boolean {
-    return !!localStorage.getItem('user');
+    const token = this.getToken();
+    if (!token || !localStorage.getItem(USER_KEY)) {
+      return false;
+    }
+    if (tokenExpired(token)) {
+      clearStoredSession();
+      return false;
+    }
+    return true;
   }
 
   getHeaders(): HttpHeaders {
@@ -55,8 +84,7 @@ export class AuthService {
   }
 
   logout() {
-    localStorage.removeItem(this.tokenKey);
-    localStorage.removeItem('user');
+    clearStoredSession();
     this.router.navigate(['/auth/login']);
   }
 

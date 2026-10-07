@@ -1269,3 +1269,80 @@
     }
   }
 }
+
+// Folded phones and watches: title left-aligned and shrinkable, compact icon-only control bar
+@media (max-width: 300px) {
+  .meet-top {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px;
+    padding: max(4px, env(safe-area-inset-top)) 4px 2px;
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+    }
+  }
+
+  .meet-top__title {
+    max-width: none;
+    font-size: 0.78rem;
+    text-align: left;
+  }
+
+  .meet-top__timer {
+    padding: 2px 6px;
+    font-size: 0.72rem;
+  }
+
+  .meet-bar {
+    margin: 0 4px 4px;
+    padding: 2px;
+    gap: 0;
+    border-radius: 10px;
+  }
+
+  .meet-bar__sep {
+    display: none;
+  }
+
+  .tool {
+    min-width: 32px;
+    height: 38px;
+    padding: 2px;
+    font-size: 15px;
+  }
+
+  .leave-btn {
+    height: 36px;
+    margin-left: 2px;
+    padding: 0 10px;
+  }
+
+  .stage-waiting {
+    bottom: 8px;
+    max-width: calc(100% - 16px);
+    padding: 6px 10px;
+    font-size: 0.72rem;
+  }
+}
+
+// Watches: the "only one here" hint would cover the whole picture
+@media (max-width: 240px) {
+  .stage-waiting {
+    display: none;
+  }
+}
+
+// Large monitors: bigger controls to match the scaled text
+@media (min-width: 3000px) {
+  .tool {
+    min-width: 76px;
+    height: 68px;
+    font-size: 22px;
+  }
+
+  .leave-btn {
+    height: 56px;
+    padding: 0 24px;
+  }
+}

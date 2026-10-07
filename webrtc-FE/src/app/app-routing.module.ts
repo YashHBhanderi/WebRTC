@@ -1,5 +1,6 @@
 import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
+import { guestGuard } from './core/guards/guest.guard';
 
 const routes: Routes = [
   {
@@ -9,6 +10,7 @@ const routes: Routes = [
   },
   {
     path: 'auth',
+    canActivate: [guestGuard],
     loadChildren: () => import('./authentication/authentication.module').then(m => m.AuthenticationModule),
   },
   {

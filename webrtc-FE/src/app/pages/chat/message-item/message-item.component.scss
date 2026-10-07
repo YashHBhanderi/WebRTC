@@ -578,3 +578,22 @@
     transition: none;
   }
 }
+
+@media (max-width: 300px) {
+  .msg-row__body {
+    max-width: 92%;
+  }
+
+  .bubble__media img,
+  .bubble__video,
+  .bubble__audio,
+  .bubble__doc {
+    max-width: 100%;
+  }
+}
+
+@media (min-width: 2200px) {
+  .msg-row__body {
+    max-width: min(72%, 760px);
+  }
+}

@@ -7,7 +7,7 @@ async function verifyToken(req: Request, res: Response, next: NextFunction): Pro
 
     const token = req.header('Authorization')?.split(' ')[1];
     if (!token) {
-        res.status(404).json({ success: false, message: "Authentication token not found. Please log in to continue!" });
+        res.status(401).json({ success: false, message: "Authentication token not found. Please log in to continue!" });
         return;
     }
     try {
@@ -15,7 +15,8 @@ async function verifyToken(req: Request, res: Response, next: NextFunction): Pro
         (req as CustomRequest).userId = decoded.userId;
         next();
     } catch (error) {
-        res.status(500).json({ success: false, message: "Session expired. Please log in again." });
+        // 401 tells the client to end the session and show the login page
+        res.status(401).json({ success: false, message: "Session expired. Please log in again." });
     }
 }
 

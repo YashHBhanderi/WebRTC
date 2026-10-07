@@ -11,6 +11,8 @@ const failedSources = new Set<string>();
  * preview. Without a picture (or if it fails to load) it shows a generated avatar: initials on a
  * colour derived from the name.
  * Identical URLs are served from the browser cache; images load lazily off-screen.
+ * `size` is the preferred size: the avatar shrinks (initials too) when its container is narrower,
+ * so a parent can cap it with CSS (e.g. `app-avatar { width: 36px }`) on small screens.
  */
 @Component({
   selector: 'app-avatar',
@@ -20,8 +22,7 @@ const failedSources = new Set<string>();
     <span
       class="av"
       [style.width.px]="size"
-      [style.height.px]="size"
-      [style.font-size.px]="size * (initial.length > 1 ? 0.36 : 0.42)"
+      [style.font-size]="fontSize"
       [style.background]="showImage ? null : colors.bg"
       [style.color]="showImage ? null : colors.fg"
     >
@@ -38,9 +39,12 @@ const failedSources = new Set<string>();
     </span>
   `,
   styles: [`
-    :host { display: inline-flex; flex: none; }
+    :host { display: inline-flex; flex: none; max-width: 100%; }
     .av {
       position: relative;
+      max-width: 100%;
+      aspect-ratio: 1;
+      container-type: inline-size;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -86,6 +90,12 @@ export class AvatarComponent implements OnChanges {
 
   get colors() {
     return avatarColors(this.name);
+  }
+
+  /** Initials scale with the rendered width (cqi), never above the size-based value. */
+  get fontSize(): string {
+    const ratio = this.initial.length > 1 ? 0.36 : 0.42;
+    return `min(${this.size * ratio}px, ${ratio * 100}cqi)`;
   }
 
   ngOnChanges(): void {

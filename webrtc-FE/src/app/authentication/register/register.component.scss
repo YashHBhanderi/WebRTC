@@ -131,3 +131,47 @@ body {
   flex: 1;
   min-width: 0;
 }
+
+// Small and short screens (small phones, watches, landscape phones): compact header, no wasted padding
+@media (max-width: 360px), (max-height: 520px) {
+  .form-side {
+    padding: 1rem;
+  }
+
+  .form-wrapper > .text-center {
+    margin-bottom: 1.25rem !important;
+  }
+
+  .logo {
+    height: 36px;
+    margin-bottom: 0.5rem !important;
+  }
+
+  h2 {
+    font-size: 1.35rem;
+  }
+}
+
+@media (max-width: 240px) {
+  .form-side {
+    padding: 0.6rem;
+  }
+
+  .logo {
+    height: 26px;
+  }
+
+  h2 {
+    font-size: 1.1rem;
+  }
+
+  p,
+  .form-label {
+    font-size: 0.8rem;
+  }
+
+  .form-control {
+    padding: 8px 10px;
+    font-size: 0.85rem;
+  }
+}

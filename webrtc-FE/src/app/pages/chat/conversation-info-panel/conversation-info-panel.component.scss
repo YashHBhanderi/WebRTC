@@ -415,3 +415,7 @@
   font-weight: 500;
   text-align: left;
 }
+
+.hero app-avatar {
+  width: min(120px, 45vw, 30vh);
+}

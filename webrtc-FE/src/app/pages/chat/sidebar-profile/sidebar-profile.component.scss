@@ -233,3 +233,14 @@
   border-radius: 10px;
   font-weight: 600;
 }
+
+// Photo shrinks on narrow or short screens so the fields stay in view
+.sp-photo app-avatar {
+  width: min(148px, 50vw, 32vh);
+}
+
+@media (max-width: 300px) {
+  .sp-photo {
+    padding: 4px 0 12px;
+  }
+}

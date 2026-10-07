@@ -157,3 +157,57 @@
     outline-offset: 2px;
   }
 }
+
+// One-line placeholder: on narrow screens it is cut with "…" instead of wrapping out of view
+.composer__input::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 300px) {
+  .composer {
+    gap: 2px;
+    padding: 6px 4px max(6px, env(safe-area-inset-bottom));
+  }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+  }
+
+  .composer__input {
+    min-height: 36px;
+    padding: 8px 10px;
+    border-radius: 18px;
+    font-size: 0.88rem;
+  }
+
+  .send-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .attach-bar,
+  .reply-bar {
+    padding-left: 8px;
+    padding-right: 4px;
+  }
+}
+
+// Watches: the system keyboard has emoji, so the picker button gives its room to the text box
+@media (max-width: 240px) {
+  .composer > .icon-btn:first-child {
+    display: none;
+  }
+}
+
+@media (min-width: 3000px) {
+  .icon-btn,
+  .send-btn {
+    width: 52px;
+    height: 52px;
+    font-size: 20px;
+  }
+}
