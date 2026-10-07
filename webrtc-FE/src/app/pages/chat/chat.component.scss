@@ -219,6 +219,64 @@
   overscroll-behavior: contain;
 }
 
+.notify-prompt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 12px 8px;
+  padding: 8px 6px 8px 12px;
+  border-radius: 10px;
+  background: var(--app-brand-soft);
+  color: var(--app-text);
+  font-size: 0.8rem;
+
+  > i {
+    color: var(--app-brand-strong);
+  }
+}
+
+.notify-prompt__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.notify-prompt__on {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-brand);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.78rem;
+
+  &:hover {
+    background: var(--app-brand-strong);
+  }
+}
+
+.notify-prompt__close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--app-muted);
+
+  &:hover {
+    background: rgba(15, 23, 42, 0.06);
+  }
+}
+
+@media (max-width: 300px) {
+  .notify-prompt {
+    flex-wrap: wrap;
+    margin: 0 8px 6px;
+  }
+}
+
 .archived-row {
   width: calc(100% - 12px);
   margin: 0 6px 2px;

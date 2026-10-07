@@ -4,11 +4,15 @@ import {
   Component,
   EventEmitter,
   Input,
-  NgZone,
+  OnChanges,
   OnDestroy,
   OnInit,
   Output,
+  SimpleChanges,
 } from '@angular/core';
+import { RingtoneService } from 'src/app/core/services/ringtone.service';
+import { CallNotificationService } from 'src/app/core/services/call-notification.service';
+import { mediaUrl } from 'src/app/core/utils/media-url.util';
 
 export interface IncomingCall {
   callId: string;
@@ -21,22 +25,26 @@ export interface IncomingCall {
   groupName?: string;
 }
 
-/** Ringing screen for an incoming call. Plays a synthesized ring (no asset) and vibrates on phones. */
+/**
+ * Ringing screen for an incoming call. Person-to-person calls also ring with this device's
+ * ringtone and raise a system notification while the tab isn't in front; group calls (and
+ * "Meet now", which never shows this card) stay silent. Both stop when the card goes away
+ * (accepted, declined, cancelled by the caller or timed out).
+ */
 @Component({
   selector: 'app-incoming-call',
   templateUrl: './incoming-call.component.html',
   styleUrls: ['./incoming-call.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class IncomingCallComponent implements OnInit, OnDestroy {
+export class IncomingCallComponent implements OnInit, OnChanges, OnDestroy {
   @Input() call!: IncomingCall;
   @Output() accept = new EventEmitter<void>();
   @Output() decline = new EventEmitter<void>();
 
-  private audioCtx: AudioContext | null = null;
-  private ringTimer: ReturnType<typeof setInterval> | null = null;
+  private alerting = false;
 
-  constructor(private zone: NgZone) {}
+  constructor(private ringtone: RingtoneService, private notifications: CallNotificationService) {}
 
   get title(): string {
     return this.call.isGroup ? this.call.groupName || 'Group call' : this.call.callerName;
@@ -56,56 +64,35 @@ export class IncomingCallComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.zone.runOutsideAngular(() => {
-      this.ring();
-      this.ringTimer = setInterval(() => this.ring(), 3000);
-    });
+    if (this.call.isGroup) {
+      return;
+    }
+    this.alerting = true;
+    void this.ringtone.start();
+    this.notify();
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    // The caller's name/picture can arrive after the card opened: refresh the notification
+    const prev = changes['call']?.previousValue as IncomingCall | undefined;
+    if (this.alerting && prev && (prev.callerName !== this.call.callerName || prev.avatar !== this.call.avatar)) {
+      this.notify();
+    }
   }
 
   ngOnDestroy(): void {
-    if (this.ringTimer) {
-      clearInterval(this.ringTimer);
+    if (this.alerting) {
+      this.ringtone.stop();
+      void this.notifications.close(this.call.callId);
     }
-    try {
-      navigator.vibrate?.(0);
-    } catch {
-      // ignore
-    }
-    void this.audioCtx?.close().catch(() => undefined);
-    this.audioCtx = null;
   }
 
-  /** Two short tones. Browsers may block audio before any user gesture; that's fine. */
-  private ring(): void {
-    try {
-      navigator.vibrate?.([400, 200, 400]);
-    } catch {
-      // ignore
-    }
-    try {
-      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!Ctx) {
-        return;
-      }
-      this.audioCtx = this.audioCtx || new Ctx();
-      const ctx = this.audioCtx!;
-      if (ctx.state === 'suspended') {
-        void ctx.resume().catch(() => undefined);
-      }
-      [0, 0.45].forEach((offset) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 440;
-        gain.gain.setValueAtTime(0, ctx.currentTime + offset);
-        gain.gain.linearRampToValueAtTime(0.08, ctx.currentTime + offset + 0.03);
-        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + offset + 0.35);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(ctx.currentTime + offset);
-        osc.stop(ctx.currentTime + offset + 0.4);
-      });
-    } catch {
-      // ignore
-    }
+  private notify(): void {
+    void this.notifications.showIncoming({
+      callId: this.call.callId,
+      callerName: this.call.callerName,
+      callType: this.call.callType,
+      icon: mediaUrl(this.call.avatar) || undefined,
+    });
   }
 }

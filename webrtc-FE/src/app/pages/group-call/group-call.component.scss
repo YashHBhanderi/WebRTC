@@ -35,6 +35,27 @@
   box-shadow: 0 18px 50px rgba(2, 6, 23, 0.45);
 }
 
+// Floating card can be dragged anywhere (see onPointerDown); a tap still expands / presses buttons
+@media (min-width: 601px) {
+  :host(.is-minimized) {
+    touch-action: none;
+
+    .mini-bar {
+      cursor: grab;
+    }
+  }
+
+  :host(.is-minimized.is-dragging) {
+    cursor: grabbing;
+    user-select: none;
+    box-shadow: 0 24px 60px rgba(2, 6, 23, 0.55);
+
+    * {
+      cursor: grabbing !important;
+    }
+  }
+}
+
 .call {
   height: 100%;
   display: flex;

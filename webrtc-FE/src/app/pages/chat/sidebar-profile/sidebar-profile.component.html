@@ -80,6 +80,46 @@
     </div>
     <p class="sp-field__value sp-field__value--readonly" aria-labelledby="sp-email-label">{{ user?.email }}</p>
   </section>
+
+  <!-- Saved immediately in this browser; not part of "Save changes" -->
+  <section class="sp-field sp-device" aria-labelledby="sp-device-title">
+    <div class="sp-field__head">
+      <span class="sp-field__label" id="sp-device-title">Calls on this device</span>
+    </div>
+
+    <div class="sp-device__row">
+      <label class="sp-device__label" for="sp-ringtone">Ringtone</label>
+      <div class="sp-device__control">
+        <select id="sp-ringtone" class="sp-select" [ngModel]="ringtone" (ngModelChange)="chooseRingtone($event)">
+          <option *ngFor="let t of ringtones" [value]="t.id">{{ t.label }}{{ t.id === 'classic' ? ' (default)' : '' }}</option>
+          <option *ngIf="customRingtoneName" [value]="customRingtone">{{ customRingtoneName }}</option>
+        </select>
+        <button type="button" class="sp-icon-btn sp-icon-btn--sm" (click)="previewing ? stopRingtonePreview() : previewRingtone()"
+          [attr.aria-label]="previewing ? 'Stop preview' : 'Play ringtone'" [title]="previewing ? 'Stop' : 'Play'">
+          <i class="fa-solid" [class.fa-play]="!previewing" [class.fa-stop]="previewing"></i>
+        </button>
+      </div>
+    </div>
+    <div class="sp-device__links">
+      <button type="button" class="sp-link" (click)="ringtoneInput.click()">{{ customRingtoneName ? 'Use a different file' : 'Use my own sound' }}</button>
+      <button type="button" class="sp-link" *ngIf="customRingtoneName" (click)="removeCustomRingtone()">Remove my sound</button>
+      <input #ringtoneInput type="file" class="d-none" accept="audio/*" (change)="onRingtoneFileChosen($event)" />
+    </div>
+    <p class="sp-error sp-device__note" *ngIf="ringtoneError">{{ ringtoneError }}</p>
+
+    <div class="sp-device__row">
+      <span class="sp-device__label">Call notifications</span>
+      <ng-container [ngSwitch]="callNotifications.permission">
+        <span *ngSwitchCase="'granted'" class="sp-device__status sp-device__status--on"><i class="fa-solid fa-check"></i> On</span>
+        <button *ngSwitchCase="'default'" type="button" class="btn btn-primary btn-sm sp-device__btn" (click)="enableNotifications()">Turn on</button>
+        <span *ngSwitchCase="'denied'" class="sp-device__status">Blocked</span>
+        <span *ngSwitchDefault class="sp-device__status">Not available</span>
+      </ng-container>
+    </div>
+    <p class="sp-device__note" *ngIf="callNotifications.permission === 'denied'">Allow notifications for this site in your browser settings.</p>
+    <p class="sp-device__note" *ngIf="callNotifications.permission === 'unsupported'">This browser can't show notifications. On iPhone and iPad, add the app to your Home Screen first.</p>
+    <p class="sp-device__note">The ringtone plays while this app is open in a tab. Saved on this device only.</p>
+  </section>
 </div>
 
 <footer class="sp-footer">

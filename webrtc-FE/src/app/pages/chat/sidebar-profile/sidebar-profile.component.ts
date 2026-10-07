@@ -13,6 +13,8 @@ import { ChatUser } from 'src/app/core/interfaces/chat';
 import { AuthService } from 'src/app/core/services/auth.service';
 import { UserService } from 'src/app/core/services/user.service';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
+import { BUILT_IN_RINGTONES, CUSTOM_RINGTONE, RingtoneService } from 'src/app/core/services/ringtone.service';
+import { CallNotificationService } from 'src/app/core/services/call-notification.service';
 
 /** Same rules as the server (webrtc-BE userServices). */
 export const USERNAME_MIN = 3;
@@ -25,7 +27,7 @@ const AVATAR_MAX_MB = 5;
 /**
  * The signed-in user's profile, shown in place of the chat list (sidebar → ⋮ → Profile).
  * Picture, username and bio are editable; email is read-only. One "Save changes" sends only
- * what changed.
+ * what changed. "Calls on this device" (ringtone, notifications) is saved right away, per browser.
  */
 @Component({
   selector: 'app-sidebar-profile',
@@ -53,14 +55,30 @@ export class SidebarProfileComponent implements OnInit, OnDestroy {
   avatarPreview = '';
   saving = false;
 
+  readonly ringtones = BUILT_IN_RINGTONES;
+  readonly customRingtone = CUSTOM_RINGTONE;
+  ringtone: string;
+  customRingtoneName: string | null = null;
+  ringtoneError = '';
+  previewing = false;
+  private previewTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor(
     private auth: AuthService,
     private users: UserService,
     private alert: AlertService,
     private cdr: ChangeDetectorRef,
-  ) {}
+    private tones: RingtoneService,
+    public callNotifications: CallNotificationService,
+  ) {
+    this.ringtone = this.tones.selected;
+  }
 
   ngOnInit(): void {
+    void this.tones.customName().then((name) => {
+      this.customRingtoneName = name;
+      this.cdr.markForCheck();
+    });
     const me = this.auth.getLoggedInUser();
     if (me) {
       this.applyUser(me);
@@ -80,6 +98,71 @@ export class SidebarProfileComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.revokePreview();
+    this.stopRingtonePreview();
+  }
+
+  // ---------------------------------------------------------------- calls on this device
+
+  chooseRingtone(id: string): void {
+    this.tones.select(id);
+    this.ringtone = this.tones.selected;
+    this.ringtoneError = '';
+    void this.previewRingtone();
+  }
+
+  async previewRingtone(): Promise<void> {
+    this.stopRingtonePreview();
+    this.previewing = true;
+    this.cdr.markForCheck();
+    await this.tones.preview(this.ringtone);
+    this.previewTimer = setTimeout(() => {
+      this.previewing = false;
+      this.cdr.markForCheck();
+    }, 4000);
+  }
+
+  stopRingtonePreview(): void {
+    if (this.previewTimer) {
+      clearTimeout(this.previewTimer);
+      this.previewTimer = null;
+    }
+    if (this.previewing) {
+      this.tones.stop();
+    }
+    this.previewing = false;
+  }
+
+  async onRingtoneFileChosen(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) {
+      return;
+    }
+    try {
+      await this.tones.setCustom(file);
+      this.customRingtoneName = file.name;
+      this.ringtone = this.tones.selected;
+      this.ringtoneError = '';
+      void this.previewRingtone();
+    } catch (error) {
+      this.ringtoneError = error instanceof Error ? error.message : 'Could not use that file.';
+    }
+    this.cdr.markForCheck();
+  }
+
+  async removeCustomRingtone(): Promise<void> {
+    this.stopRingtonePreview();
+    await this.tones.removeCustom();
+    this.customRingtoneName = null;
+    this.ringtone = this.tones.selected;
+    this.cdr.markForCheck();
+  }
+
+  async enableNotifications(): Promise<void> {
+    await this.callNotifications.requestPermission();
+    this.callNotifications.dismissPrompt();
+    this.cdr.markForCheck();
   }
 
   get trimmedName(): string {

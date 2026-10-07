@@ -56,6 +56,15 @@
       <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'contacts'" (click)="setSidebarFilter('contacts')">Contacts</button>
     </nav>
 
+    <div class="notify-prompt" *ngIf="showNotificationPrompt" role="status">
+      <i class="fa-regular fa-bell" aria-hidden="true"></i>
+      <span class="notify-prompt__text">Get notified about incoming calls when this tab isn't open in front.</span>
+      <button type="button" class="notify-prompt__on" (click)="enableCallNotifications()">Turn on</button>
+      <button type="button" class="notify-prompt__close" (click)="dismissNotificationPrompt()" aria-label="Not now" title="Not now">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
     <div class="sidebar__list">
       <!-- "Archived (n)" entry, like WhatsApp -->
       <button type="button" class="archived-row" *ngIf="sidebarMode === 'chats' && sidebarFilter === 'all' && archivedTotal && !sidebarSearch" (click)="setSidebarMode('archived')">

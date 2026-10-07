@@ -30,6 +30,7 @@ import { CallLaunch, CallMember } from '../group-call/call.models';
 import { IncomingCall } from './incoming-call/incoming-call.component';
 import { ReplyPreview } from './message-composer/message-composer.component';
 import { MediaOpenEvent } from './message-item/message-item.component';
+import { CallNotificationService } from 'src/app/core/services/call-notification.service';
 
 export interface ActiveGroupMeeting {
   callId: string;
@@ -186,6 +187,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     private chatActions: ChatActionsService,
     private sender: MessageSenderService,
     private zone: NgZone,
+    public callNotifications: CallNotificationService,
     @Inject(CHAT_CONFIG) config: ChatConfig,
   ) {
     this.pageSize = config.historyPageSize;
@@ -1649,6 +1651,19 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   // ================================================================ calls
 
   private setupCallNotifications(): void {
+    // Accept / Decline pressed on the system notification (service-worker notifications)
+    this.subs.add(this.callNotifications.actions$.subscribe(({ callId, action }) => {
+      if (!this.incomingCall || this.incomingCall.callId !== callId) {
+        return;
+      }
+      if (action === 'accept') {
+        this.acceptIncomingCall();
+      } else if (action === 'decline') {
+        this.declineIncomingCall();
+      }
+      this.cdr.markForCheck();
+    }));
+
     // Legacy 1:1 P2P offer (older clients). Current clients ring through call:incoming.
     this.subs.add(this.socketService.onIncomingCall().subscribe(async (data: any) => {
       if (!data.offer || data.from === this.myUserId || data.to !== this.myUserId) return;
@@ -1775,6 +1790,24 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       this.socketService.rejectGroupCall(this.incomingCall.callId);
       this.incomingCall = null;
     }
+  }
+
+  /** One-time offer to turn on call notifications (the browser only asks after a click). */
+  get showNotificationPrompt(): boolean {
+    return this.sidebarMode === 'chats' && this.callNotifications.permission === 'default' && !this.callNotifications.promptDismissed;
+  }
+
+  async enableCallNotifications(): Promise<void> {
+    const result = await this.callNotifications.requestPermission();
+    if (result === 'denied') {
+      this.alertService.info('Notifications are blocked for this site. You can allow them in your browser site settings.');
+    }
+    this.callNotifications.dismissPrompt();
+    this.cdr.markForCheck();
+  }
+
+  dismissNotificationPrompt(): void {
+    this.callNotifications.dismissPrompt();
   }
 
   get currentMeeting(): ActiveGroupMeeting | null {

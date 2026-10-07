@@ -81,8 +81,25 @@ const profileCache = new Map<string, { name: string; avatar?: string }>();
 })
 export class GroupCallComponent implements OnInit, OnDestroy {
   @Input() launch!: CallLaunch;
-  @Input() minimized = false;
+  @Input() set minimized(value: boolean) {
+    this.isMinimized = value;
+    if (value) {
+      // After change detection applies .is-minimized: the card's size is needed to keep it on screen
+      requestAnimationFrame(() => this.applyDockPosition());
+    } else {
+      this.applyDockPosition();
+    }
+  }
+  get minimized(): boolean {
+    return this.isMinimized;
+  }
   @Output() minimizedChange = new EventEmitter<boolean>();
+  private isMinimized = false;
+
+  // Minimized floating window: dragged position (viewport px), kept for the rest of this call
+  private dockPos: { x: number; y: number } | null = null;
+  private drag: { pointerId: number; startX: number; startY: number; left: number; top: number; moved: boolean } | null = null;
+  private suppressClick = false;
   @Output() closed = new EventEmitter<void>();
 
   @HostBinding('class.is-minimized') get hostMinimized(): boolean {
@@ -191,6 +208,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   // ---------------------------------------------------------------- lifecycle
 
   ngOnInit(): void {
+    this.host.nativeElement.addEventListener('click', this.swallowClickAfterDrag, true);
     const me = this.authService.getLoggedInUser();
     this.myUserId = me?._id || '';
     this.myAvatar = me?.avatar || '';
@@ -216,6 +234,8 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.host.nativeElement.removeEventListener('click', this.swallowClickAfterDrag, true);
+    this.listenDrag(false);
     this.destroyed = true;
     this.subs.unsubscribe();
     this.timers.forEach((t) => clearTimeout(t));
@@ -305,6 +325,10 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       void this.consumeExistingProducers(response.producers || []);
       await this.refreshCallState();
     } catch (error: any) {
+      if (this.finished) {
+        // The call already ended (e.g. declined) while joining; that outcome is shown instead
+        return;
+      }
       console.error('Failed to join call:', error);
       const insecure =
         typeof window !== 'undefined' &&
@@ -878,6 +902,109 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   onResize(): void {
     if (this.layout === 'gallery') {
       this.render();
+    }
+    this.applyDockPosition();
+  }
+
+  // ---------------------------------------------------------------- drag the minimized window
+
+  /** Phones dock the minimized call as a bar across the top (see SCSS); only the card floats. */
+  private get floatingDock(): boolean {
+    return this.isMinimized && !window.matchMedia('(max-width: 600px)').matches;
+  }
+
+  @HostListener('pointerdown', ['$event'])
+  onPointerDown(event: PointerEvent): void {
+    if (!this.floatingDock || event.button !== 0 || !event.isPrimary) {
+      return;
+    }
+    const rect = this.host.nativeElement.getBoundingClientRect();
+    this.drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top, moved: false };
+    // On the window: the pointer leaves the small card as soon as it moves
+    this.listenDrag(true);
+  }
+
+  private readonly onPointerMove = (event: PointerEvent): void => {
+    const drag = this.drag;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved) {
+      // A small wobble is still a tap (expand / button press), not a drag
+      if (Math.hypot(dx, dy) < 6) {
+        return;
+      }
+      drag.moved = true;
+      // Capture only once it is a drag: capturing on pointerdown would retarget the click
+      try {
+        this.host.nativeElement.setPointerCapture(event.pointerId);
+      } catch {
+        // pointer already released
+      }
+      this.host.nativeElement.classList.add('is-dragging');
+    }
+    event.preventDefault();
+    this.dockPos = this.clampDock(drag.left + dx, drag.top + dy);
+    this.applyDockPosition();
+  };
+
+  private readonly onPointerUp = (event: PointerEvent): void => {
+    const drag = this.drag;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+    this.drag = null;
+    this.listenDrag(false);
+    if (drag.moved) {
+      this.host.nativeElement.classList.remove('is-dragging');
+      this.suppressClick = true;
+      // The click that follows pointerup must not expand the call or press a button
+      setTimeout(() => (this.suppressClick = false), 0);
+    }
+  };
+
+  private listenDrag(on: boolean): void {
+    const method = on ? 'addEventListener' : 'removeEventListener';
+    window[method]('pointermove', this.onPointerMove as EventListener);
+    window[method]('pointerup', this.onPointerUp as EventListener);
+    window[method]('pointercancel', this.onPointerUp as EventListener);
+  }
+
+  /** Registered in the capture phase (ngOnInit) so it runs before any inner (click) handler. */
+  private readonly swallowClickAfterDrag = (event: MouseEvent): void => {
+    if (this.suppressClick) {
+      event.stopPropagation();
+      event.preventDefault();
+      this.suppressClick = false;
+    }
+  };
+
+  /** Keep the whole window on screen (8px margin), also after the viewport shrinks. */
+  private clampDock(x: number, y: number): { x: number; y: number } {
+    const el = this.host.nativeElement;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - el.offsetWidth - margin);
+    const maxY = Math.max(margin, window.innerHeight - el.offsetHeight - margin);
+    return { x: Math.min(Math.max(x, margin), maxX), y: Math.min(Math.max(y, margin), maxY) };
+  }
+
+  private applyDockPosition(): void {
+    const style = this.host?.nativeElement.style;
+    if (!style) {
+      return;
+    }
+    if (this.dockPos && this.floatingDock) {
+      // Clamp for display only: the chosen spot comes back if the window grows again
+      const pos = this.clampDock(this.dockPos.x, this.dockPos.y);
+      style.left = `${pos.x}px`;
+      style.top = `${pos.y}px`;
+      style.right = 'auto';
+      style.bottom = 'auto';
+    } else {
+      // Expanded (full screen) or phone bar: back to the stylesheet's placement
+      style.left = style.top = style.right = style.bottom = '';
     }
   }
 
