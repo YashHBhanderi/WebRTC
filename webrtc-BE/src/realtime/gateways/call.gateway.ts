@@ -6,6 +6,7 @@ import blockService from "../../services/block.service";
 import { directPeerId, isMember } from "../../services/authorization.service";
 import {
     announceCallEnded,
+    callSessionElsewhere,
     emitToCall,
     endIfEmpty,
     getScreenSharer,
@@ -15,60 +16,23 @@ import {
     releaseScreenShare,
     setScreenSharer,
     startRingTimer,
+    takeOverCallSession,
 } from "../../services/call-session.service";
 import { AuthedSocket, emitToUsers, io, userSockets } from "../io";
+import meetingControls from "../../services/meeting-controls.service";
+import meetingService from "../../services/meeting.service";
+import recordingService from "../../services/recording.service";
+import { publicMessage } from "../../utils/errors";
 
 const errorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
 /**
  * Call / meeting lifecycle (ring, join, leave, end), screen-share lock, in-call state
- * (mic/camera, hands, reactions, host controls) and the legacy 1:1 P2P relay events.
+ * (mic/camera, hands, reactions, host controls).
  * Event names are unchanged from the original server.ts.
  */
 export function registerCallGateway(socket: AuthedSocket): void {
     const me = () => String(socket.data.userId);
-
-    // ---------------------------------------------------------------- legacy P2P relay (/video-call page)
-    socket.on("callUser", ({ userToCall, signalData, from, callType } = {} as any) => {
-        const socketId = userSockets.get(userToCall);
-        if (socketId) {
-            io().to(socketId).emit("incomingCall", { from, offer: signalData, callType, to: userToCall });
-        }
-    });
-
-    socket.on("answerCall", (data: any) => {
-        const socketId = userSockets.get(data?.to);
-        if (socketId) {
-            io().to(socketId).emit("callAccepted", { answer: data.signal });
-        } else {
-            console.error("Caller not found for answer forwarding.");
-        }
-    });
-
-    socket.on("iceCandidate", ({ userToCall, candidate } = {} as any) => {
-        const socketId = userSockets.get(userToCall);
-        if (socketId) {
-            io().to(socketId).emit("iceCandidate", { candidate, from: me() });
-        }
-    });
-
-    socket.on("call-ended", ({ to } = {} as any) => {
-        const socketId = userSockets.get(to);
-        if (socketId) {
-            io().to(socketId).emit("callEnded", { from: me() });
-        }
-    });
-
-    for (const event of ["groupCallOffer", "groupCallAnswer", "groupCallIceCandidate"] as const) {
-        socket.on(event, ({ groupId, toUserId, offer, answer, candidate } = {} as any) => {
-            const toSocketId = userSockets.get(toUserId);
-            if (!toSocketId) {
-                return;
-            }
-            const body = event === "groupCallOffer" ? { offer } : event === "groupCallAnswer" ? { answer } : { candidate };
-            io().to(toSocketId).emit(event, { groupId, fromUserId: me(), ...body });
-        });
-    }
 
     // ---------------------------------------------------------------- lifecycle
     socket.on("call:start", async (data: any) => {
@@ -113,6 +77,11 @@ export function registerCallGateway(socket: AuthedSocket): void {
                 mode,
                 participantIds: group.members ?? [],
             });
+            // A scheduled meeting's call starts with that meeting's lobby setting
+            if (group.isGroup && (await meetingService.lobbyDefaultFor(String(groupId)))) {
+                (call as any).settings = { ...(call as any).settings?.toObject?.(), lobby: true };
+                await call.save();
+            }
 
             socket.join(String(groupId));
             socket.join(call._id.toString());
@@ -177,6 +146,26 @@ export function registerCallGateway(socket: AuthedSocket): void {
         }
     });
 
+    /** Before joining: is this user live in a call on another device? (stale sessions don't count) */
+    socket.on("call:session", (_: unknown, callback) => {
+        const other = callSessionElsewhere(me(), socket.data.deviceId);
+        callback?.(other && other.alive ? { elsewhere: true, callId: other.callId } : { elsewhere: false });
+    });
+
+    /** "End call on other device & join here": move the session to this device. */
+    socket.on("call:takeover", async ({ callId } = {} as any, callback) => {
+        try {
+            await takeOverCallSession(me(), socket.data.deviceId, callId ? String(callId) : undefined);
+            if (!mediasoupService.createPeer(me(), socket.id, socket.data.deviceId)) {
+                return callback?.({ error: "Could not move the call to this device" });
+            }
+            callback?.({ success: true });
+        } catch (error) {
+            console.error("Error taking over call session:", error);
+            callback?.({ error: errorMessage(error, "Could not move the call to this device") });
+        }
+    });
+
     socket.on("call:accept", async ({ callId } = {} as any, callback) => {
         try {
             const call = await callService.acceptCall(callId, socket.data.userId as any);
@@ -188,7 +177,11 @@ export function registerCallGateway(socket: AuthedSocket): void {
                 callRoom.clearRingTimer(call._id.toString());
             }
 
-            io().to(call._id.toString()).emit("call:participant-joined", { callId: call._id, userId: me() });
+            // Someone headed for the lobby is not announced until a host / co-host admits them
+            const group = await Conversation.findById(call.conversationId).select("isGroup groupAdmin groupAdmins");
+            if (!meetingControls.mustWait(call, group, me())) {
+                io().to(call._id.toString()).emit("call:participant-joined", { callId: call._id, userId: me() });
+            }
             callback?.({ success: true, callId: call._id });
         } catch (error) {
             console.error("Error accepting call:", error);
@@ -205,7 +198,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
 
             // 1:1 decline (or every invitee declined a group ring) ends the ring
             if (callService.allOthersRejected(call)) {
-                const ended = await callService.endIfUnanswered(call._id as any);
+                const ended = await callService.endIfUnanswered(call._id as any, "declined");
                 if (ended) {
                     await announceCallEnded(ended, { reason: "declined", endedBy: me() });
                 }
@@ -220,6 +213,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
         try {
             // Leave media first so remaining-peer count is accurate
             mediasoupService.leaveCall(socket.id);
+            meetingControls.leaveLobby(String(callId), me());
             releaseScreenShare(String(callId), me());
 
             const call = await callService.leaveCall(callId, socket.data.userId as any);
@@ -268,10 +262,14 @@ export function registerCallGateway(socket: AuthedSocket): void {
         }
     });
 
-    socket.on("screen:start", ({ callId } = {} as any, callback) => {
+    socket.on("screen:start", async ({ callId } = {} as any, callback) => {
         try {
             if (!callId) {
                 return callback?.({ error: "callId is required" });
+            }
+            const rule = await meetingControls.mayProduce(String(callId), me(), "video", "screen");
+            if (!rule.allowed) {
+                return callback?.({ error: "The organizer has turned off screen sharing for attendees" });
             }
             const key = callId.toString();
             const existing = getScreenSharer(key);
@@ -319,9 +317,18 @@ export function registerCallGateway(socket: AuthedSocket): void {
                 call.participants.filter((p) => p.status === "joined").map((p) => p.userId.toString())
             );
             mediasoupService.getPeersByCallId(key).forEach((p) => inCall.add(p.userId));
+            // Waiting in the lobby is not being in the meeting
+            meetingControls.lobbyOf(key).forEach((w) => inCall.delete(w.userId));
 
+            const moderator = meetingControls.isModerator(call, group, me());
             callback?.({
                 callId: key,
+                myRole: meetingControls.roleOf(call, group, me()),
+                settings: meetingControls.settingsOf(call),
+                cohostIds: meetingControls.cohostIds(call),
+                lobby: moderator ? meetingControls.lobbyOf(key) : [],
+                recording: recordingService.activeFor(key),
+                recordingAvailable: recordingService.enabled,
                 groupId: call.conversationId.toString(),
                 callType: call.callType,
                 mode: (call as any).mode || "ring",
@@ -350,6 +357,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
         }
         const state = { audio: !!audio, video: !!video };
         callRoom.setMedia(peer.callId!, peer.userId, state);
+        recordingService.mediaState(peer.callId!, peer.userId, state);
         emitToCall(peer.callId!, "call:media-state", { callId: peer.callId, userId: peer.userId, ...state }, peer.userId);
     });
 
@@ -382,8 +390,8 @@ export function registerCallGateway(socket: AuthedSocket): void {
             }
             const call = await callService.getCall(callId);
             const group = call && await Conversation.findById(call.conversationId).select("isGroup groupAdmin groupAdmins");
-            if (!call || !group?.isGroup || !isCallHost(call, group, mine.userId)) {
-                throw new Error("Only the host can mute participants");
+            if (!call || !group?.isGroup || !meetingControls.isModerator(call, group, mine.userId)) {
+                throw new Error("Only the host or a co-host can mute participants");
             }
             const target = mediasoupService.getPeerByUserId(String(targetId));
             if (!target || target.callId !== mine.callId) {
@@ -406,11 +414,14 @@ export function registerCallGateway(socket: AuthedSocket): void {
             }
             const call = await callService.getCall(callId);
             const group = call && await Conversation.findById(call.conversationId).select("isGroup groupAdmin groupAdmins");
-            if (!call || !group?.isGroup || !isCallHost(call, group, mine.userId)) {
-                throw new Error("Only the host can remove participants");
+            if (!call || !group?.isGroup || !meetingControls.isModerator(call, group, mine.userId)) {
+                throw new Error("Only the host or a co-host can remove participants");
             }
             const target = String(targetId || "");
-            if (!target || target === mine.userId || isCallHost(call, group, target)) {
+            // Co-hosts remove attendees only; hosts remove attendees and co-hosts
+            const targetRole = target ? meetingControls.roleOf(call, group, target) : "host";
+            const myRole = meetingControls.roleOf(call, group, mine.userId);
+            if (!target || target === mine.userId || targetRole === "host" || (targetRole === "cohost" && myRole !== "host")) {
                 throw new Error("This participant cannot be removed");
             }
 
@@ -431,4 +442,33 @@ export function registerCallGateway(socket: AuthedSocket): void {
             callback?.({ error: errorMessage(error, "Failed to remove participant") });
         }
     });
+
+    // ---------------------------------------------------------------- meeting controls (server-enforced)
+    const ack = (callback: any, work: () => Promise<unknown>, fallback: string) => {
+        work()
+            .then((result) => callback?.({ success: true, ...(result && typeof result === "object" ? result : {}) }))
+            .catch((error) => callback?.({ error: publicMessage(error, fallback) }));
+    };
+
+    socket.on("call:settings", (data: any, callback) => ack(callback, async () => ({
+        settings: await meetingControls.updateSettings(data?.callId, me(), {
+            lobby: data?.lobby,
+            allowUnmute: data?.allowUnmute,
+            allowShare: data?.allowShare,
+        }),
+    }), "We couldn't change the meeting options. Please try again."));
+
+    socket.on("call:mute-all", (data: any, callback) => ack(callback, () => meetingControls.muteAll(data?.callId, me()), "We couldn't mute everyone. Please try again."));
+
+    socket.on("call:admit", (data: any, callback) => ack(callback, async () => ({
+        admitted: await meetingControls.admit(data?.callId, me(), data?.all ? "all" : data?.userId),
+    }), "We couldn't admit this person. Please try again."));
+
+    socket.on("call:deny", (data: any, callback) => ack(callback, () => meetingControls.deny(data?.callId, me(), data?.userId), "Please try again."));
+
+    socket.on("call:set-cohost", (data: any, callback) => ack(callback, () => meetingControls.setCohost(data?.callId, me(), data?.userId, data?.cohost !== false), "We couldn't change the role. Please try again."));
+
+    // ---------------------------------------------------------------- recording (host / co-host; visible to everyone)
+    socket.on("call:record-start", (data: any, callback) => ack(callback, () => recordingService.start(data?.callId, me()), "We couldn't start recording. Please try again."));
+    socket.on("call:record-stop", (data: any, callback) => ack(callback, () => recordingService.stop(data?.callId, me()), "We couldn't stop recording. Please try again."));
 }

@@ -275,24 +275,30 @@ class MediasoupService {
     }
 
     /**
-     * Attach or reattach a peer for this user. Socket reconnects update socketId
-     * without closing existing transports/producers.
+     * Attach or reattach the user's peer. A reconnect of the same device (tab) rebinds it to the
+     * new socket without closing transports/producers. Another device only gets it while it is
+     * idle; while the user is in a call elsewhere this returns null (see call-session takeover).
      */
-    createPeer(userId: string, socketId: string): MediasoupPeer {
+    createPeer(userId: string, socketId: string, deviceId: string = socketId): MediasoupPeer | null {
         const existing = this.peersByUserId.get(userId);
         if (existing) {
+            if (existing.deviceId !== deviceId && existing.callId) {
+                return null;
+            }
             if (existing.socketId !== socketId) {
                 this.socketToUserId.delete(existing.socketId);
                 existing.socketId = socketId;
                 this.socketToUserId.set(socketId, userId);
                 console.log(`mediasoup peer rebound user=${userId} → socket=${socketId}`);
             }
+            existing.deviceId = deviceId;
             return existing;
         }
 
         const peer: MediasoupPeer = {
             userId,
             socketId,
+            deviceId,
             producers: new Map(),
             consumers: new Map(),
         };
@@ -340,6 +346,33 @@ class MediasoupService {
         this.peersByUserId.delete(userId);
         this.socketToUserId.delete(socketId);
         this.releaseCallObservers(peer.callId);
+        if (peer.callId) {
+            this.emitPeerCall(peer.callId, peer.userId, false);
+        }
+    }
+
+    /** Set by the presence gateway: a user's in-call state changed ("In a call" presence). */
+    onCallMembershipChange?: (userId: string) => void;
+
+    private peerCallListeners: ((callId: string, userId: string, joined: boolean) => void)[] = [];
+
+    /** Someone's media connection entered / left a call (used by meeting recording). */
+    onPeerCallChange(listener: (callId: string, userId: string, joined: boolean) => void): void {
+        this.peerCallListeners.push(listener);
+    }
+
+    private emitPeerCall(callId: string, userId: string, joined: boolean): void {
+        for (const listener of this.peerCallListeners) {
+            try {
+                listener(String(callId), String(userId), joined);
+            } catch (error) {
+                console.error('[mediasoup] peer call listener failed', error);
+            }
+        }
+    }
+
+    isUserInCall(userId: string): boolean {
+        return !!this.peersByUserId.get(String(userId))?.callId;
     }
 
     joinCall(
@@ -353,8 +386,19 @@ class MediasoupService {
             throw new Error('Peer not found');
         }
 
+        const changed = !peer.callId;
+        const previous = peer.callId;
         peer.callId = String(callId);
         peer.callType = callType;
+        if (changed) {
+            this.onCallMembershipChange?.(peer.userId);
+        }
+        if (previous !== peer.callId) {
+            if (previous) {
+                this.emitPeerCall(previous, peer.userId, false);
+            }
+            this.emitPeerCall(peer.callId, peer.userId, true);
+        }
 
         return peer;
     }
@@ -385,6 +429,10 @@ class MediasoupService {
         peer.callId = undefined;
         peer.callType = undefined;
         this.releaseCallObservers(callId);
+        if (callId) {
+            this.onCallMembershipChange?.(peer.userId);
+            this.emitPeerCall(callId, peer.userId, false);
+        }
     }
 
     /**

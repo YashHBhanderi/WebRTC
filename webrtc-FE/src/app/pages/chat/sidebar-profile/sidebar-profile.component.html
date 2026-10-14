@@ -79,6 +79,7 @@
       <span class="sp-field__label" id="sp-email-label">Email</span>
     </div>
     <p class="sp-field__value sp-field__value--readonly" aria-labelledby="sp-email-label">{{ user?.email }}</p>
+    <button type="button" class="sp-link sp-account" (click)="clerk.openAccount()">Manage sign-in &amp; security</button>
   </section>
 
   <!-- Saved immediately in this browser; not part of "Save changes" -->

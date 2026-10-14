@@ -10,13 +10,13 @@ body {
   min-height: 100vh;
 }
 
-.image-side {
-  flex: 1.5;
-  background-image: url("../../../assets/bg.jpg");
-  background-size: cover;
-  background-position: center;
-  position: relative;
-}
+// .image-side {
+//   flex: 1.5;
+//   background-image: url("../../../assets/bg.jpg");
+//   background-size: cover;
+//   background-position: center;
+//   position: relative;
+// }
 
 .image-side::after {
   content: "";
@@ -32,7 +32,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #ffffff;
+  background-color: var(--app-surface);
   padding: 3rem;
   overflow-y: auto;
 }
@@ -49,17 +49,17 @@ body {
 .form-control {
   padding: 12px 14px;
   border-radius: 0.5rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-border);
   font-size: 0.95rem;
 }
 
 .form-control:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 0.25rem rgba(79, 70, 229, 0.25);
+  border-color: var(--app-brand);
+  box-shadow: 0 0 0 0.25rem var(--app-brand-soft);
 }
 
 .btn-primary {
-  background: linear-gradient(45deg, #6366f1, #8b5cf6);
+  background: var(--app-brand);
   border: none;
   font-weight: 600;
   transition: all 0.2s ease-in-out;
@@ -67,7 +67,7 @@ body {
 
 .btn-primary:hover {
   opacity: 0.9;
-  background-color: #6366f1;
+  background-color: var(--app-brand-strong);
 }
 
 .btn-primary:disabled {
@@ -76,11 +76,11 @@ body {
 }
 
 .register-link {
-  color: #6366f1;
+  color: var(--app-brand);
 }
 
 .register-link:hover {
-  color: #4f46e5;
+  color: var(--app-brand-strong);
   text-decoration: underline !important;
 }
 
@@ -137,4 +137,24 @@ body {
     padding: 8px 10px;
     font-size: 0.85rem;
   }
+}
+
+// Clerk's SignIn / SignUp card
+.form-wrapper {
+  width: 100%;
+  max-width: 420px;
+}
+
+.clerk-mount {
+  display: flex;
+  justify-content: center;
+  min-height: 1px;
+}
+
+.auth-unavailable {
+  padding: 16px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--app-danger) 10%, var(--app-surface));
+  color: var(--app-text);
+  text-align: center;
 }

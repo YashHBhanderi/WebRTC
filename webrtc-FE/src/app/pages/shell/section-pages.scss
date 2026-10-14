@@ -1,0 +1,182 @@
+:host {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--app-bg);
+}
+
+.page {
+  padding: 20px 24px 32px;
+  min-height: 100%;
+
+  // Single-column pages (Activity, Calls, Saved, Settings, Profile): centred, no unused side area
+  &--narrow {
+    max-width: 800px;
+    margin: 0 auto;
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
+.page__header {
+  margin-bottom: 16px;
+}
+
+.page__title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--app-text);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 64px 16px;
+  color: var(--app-muted);
+}
+
+.empty__icon {
+  font-size: 2.5rem;
+  color: var(--app-brand-soft-strong);
+  margin-bottom: 8px;
+}
+
+.empty__title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--app-text);
+}
+
+.empty__text {
+  max-width: 420px;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.card-section {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card-section__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--app-text);
+}
+
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--app-input);
+}
+
+.segmented__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-2);
+  font-weight: 500;
+  font-size: 0.875rem;
+
+  &--on {
+    background: var(--app-surface);
+    color: var(--app-text);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.setting-row__label {
+  font-weight: 500;
+  color: var(--app-text);
+}
+
+.setting-row__hint {
+  font-size: 0.82rem;
+  color: var(--app-muted);
+}
+
+.badge-state {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--app-success);
+}
+
+.shortcuts {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+
+  > div {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  dt {
+    min-width: 140px;
+    font-weight: 500;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--app-text-2);
+    font-size: 0.875rem;
+  }
+
+  kbd {
+    background: var(--app-input);
+    color: var(--app-text);
+    border: 1px solid var(--app-border);
+    font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .page {
+    padding: 16px;
+  }
+}
+
+.pref-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--app-border);
+}
+
+.pref {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+
+  .form-check-input {
+    margin-top: 3px;
+    flex: none;
+  }
+}

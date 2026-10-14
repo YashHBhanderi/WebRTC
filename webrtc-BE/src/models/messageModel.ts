@@ -11,11 +11,19 @@ export interface IMessage extends Document {
     /** Legacy external media URL, or the join link of a "call" message. */
     fileUrl: string;
     thumbnailUrl: string;
-    type: "text" | "image" | "video" | "audio" | "pdf" | "call" | "system";
+    type: "text" | "image" | "video" | "audio" | "pdf" | "file" | "call" | "system" | "recording";
     isRead: boolean;
     isDeleted: boolean;
     replyTo?: mongoose.Schema.Types.ObjectId;
     reactions: { userId: mongoose.Schema.Types.ObjectId, emoji: string }[];
+    /** Users @mentioned in this message (validated as members when sent). */
+    mentions?: mongoose.Types.ObjectId[];
+    /** Set when the author edited the text. */
+    editedAt?: Date | null;
+    /** type "call" written when a connected call ended (author = caller, createdAt = end time) */
+    call?: { callId: mongoose.Types.ObjectId; callType: "audio" | "video"; mode: "ring" | "meetNow"; duration: number } | null;
+    /** type "recording": a finished meeting recording (details are read live, so status/expiry stay current) */
+    recording?: { recordingId: mongoose.Types.ObjectId } | null;
     createdAt: Date;
 }
 
@@ -46,7 +54,7 @@ const MessageSchema = new Schema<IMessage>({
     type: {
         type: String,
         // system = group events ("Alice added Bob"), rendered as a centred notice
-        enum: ["text", "image", "video", "audio", "pdf", "call", "system"],
+        enum: ["text", "image", "video", "audio", "pdf", "file", "call", "system", "recording"],
         default: "text",
         required: true
     },
@@ -67,6 +75,28 @@ const MessageSchema = new Schema<IMessage>({
         userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
         emoji: { type: String }
     }],
+    mentions: {
+        type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+        default: undefined,
+    },
+    recording: {
+        type: new Schema({ recordingId: { type: mongoose.Schema.Types.ObjectId, ref: "Recording", required: true } }, { _id: false }),
+        default: undefined,
+    },
+    editedAt: {
+        type: Date,
+        default: null,
+    },
+    call: {
+        type: new Schema({
+            callId: { type: mongoose.Schema.Types.ObjectId, ref: "calls" },
+            callType: { type: String, enum: ["audio", "video"] },
+            mode: { type: String, enum: ["ring", "meetNow"] },
+            /** Seconds */
+            duration: { type: Number, default: 0 },
+        }, { _id: false }),
+        default: undefined,
+    },
     createdAt: {
         type: Date,
         default: Date.now

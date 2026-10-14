@@ -10,19 +10,21 @@ import {
   Output,
   ViewChild,
 } from '@angular/core';
-import { MessageDraft } from 'src/app/core/interfaces/chat';
+import { ChatUser, EditTarget, MessageDraft } from 'src/app/core/interfaces/chat';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
+import { MAX_FILES_PER_SEND, UPLOAD_ACCEPT, validateUpload } from 'src/app/core/services/upload.service';
+
+export interface PendingFile {
+  file: File;
+  previewUrl: string;
+  kind: 'image' | 'video' | 'audio' | 'pdf' | 'file';
+}
 
 export interface ReplyPreview {
   id: string;
   author: string;
   text: string;
 }
-
-const ALLOWED_FILE = /^(image|video|audio)\/|^application\/pdf$/;
-/** Mirrors the server's per-type limits (webrtc-BE file.service MEDIA_RULES) for early feedback. */
-const MAX_FILE_MB: Record<string, number> = { image: 10, video: 100, audio: 25, application: 25 };
-const FILE_LABEL: Record<string, string> = { image: 'Photos', video: 'Videos', audio: 'Audio files', application: 'PDF files' };
 
 /**
  * Message input: emoji picker, attachment (with preview), reply preview, Enter to send.
@@ -41,36 +43,103 @@ export class MessageComposerComponent implements OnDestroy {
   /** Accept files pasted anywhere on the page (main chat) rather than only into the box. */
   @Input() pasteFromDocument = false;
   @Input() compact = false;
+  /** People who can be @mentioned (chat members except me). */
+  @Input() mentionCandidates: ChatUser[] = [];
+  /** Saves an edit; resolves true on success. Required for edit mode. */
+  @Input() submitEdit?: (id: string, text: string, mentionIds: string[]) => Promise<boolean>;
+  @Input() set editing(value: EditTarget | null) {
+    this.editTarget = value;
+    if (value) {
+      this.text = value.text;
+      this.mentioned = new Map(value.mentionIds
+        .map((id) => this.mentionCandidates.find((c) => String(c._id) === String(id)))
+        .filter((c): c is ChatUser => !!c)
+        .map((c) => [String(c._id), c.username]));
+      this.clearFile();
+      this.focus();
+      setTimeout(() => this.autoGrow());
+    }
+  }
   @Output() cancelReply = new EventEmitter<void>();
+  @Output() cancelEdit = new EventEmitter<void>();
   @Output() typing = new EventEmitter<void>();
+  /** ↑ in an empty composer */
+  @Output() editLast = new EventEmitter<void>();
 
   @ViewChild('input', { static: true }) input!: ElementRef<HTMLTextAreaElement>;
   @ViewChild('fileInput', { static: true }) fileInput!: ElementRef<HTMLInputElement>;
 
+  readonly accept = UPLOAD_ACCEPT;
   text = '';
-  file: File | null = null;
-  filePreviewUrl = '';
+  files: PendingFile[] = [];
   sending = false;
   pickerOpen = false;
   pickerAnchor: HTMLElement | null = null;
+  editTarget: EditTarget | null = null;
+
+  /** @mention picker */
+  mentionQuery: string | null = null;
+  mentionOptions: ChatUser[] = [];
+  mentionIndex = 0;
+  /** id → username of people mentioned in this draft */
+  private mentioned = new Map<string, string>();
 
   constructor(private cdr: ChangeDetectorRef, private alert: AlertService) {}
 
   ngOnDestroy(): void {
-    this.revokePreview();
+    this.files.forEach((f) => f.previewUrl && URL.revokeObjectURL(f.previewUrl));
   }
 
   get canSend(): boolean {
-    return !this.sending && (!!this.text.trim() || !!this.file);
+    return !this.sending && (!!this.text.trim() || (!!this.files.length && !this.editTarget));
   }
 
-  get fileKind(): 'image' | 'video' | 'audio' | 'pdf' | 'file' {
-    const type = this.file?.type || '';
+  private kindOf(file: File): PendingFile['kind'] {
+    const type = file.type || '';
     if (type.startsWith('image')) return 'image';
     if (type.startsWith('video')) return 'video';
     if (type.startsWith('audio')) return 'audio';
     if (type === 'application/pdf') return 'pdf';
     return 'file';
+  }
+
+  /** Add attachments (picker, paste, drag & drop). Invalid ones are reported and skipped. */
+  addFiles(list: FileList | File[]): void {
+    if (this.editTarget) {
+      return;
+    }
+    const incoming = Array.from(list);
+    const room = MAX_FILES_PER_SEND - this.files.length;
+    if (incoming.length > room) {
+      this.alert.warning(`You can send up to ${MAX_FILES_PER_SEND} files at a time.`);
+    }
+    const problems: string[] = [];
+    for (const file of incoming.slice(0, Math.max(0, room))) {
+      const problem = validateUpload(file);
+      if (problem) {
+        problems.push(problem);
+        continue;
+      }
+      const kind = this.kindOf(file);
+      this.files = [...this.files, { file, kind, previewUrl: kind === 'image' || kind === 'video' ? URL.createObjectURL(file) : '' }];
+    }
+    if (problems.length) {
+      this.alert.warning(problems.length === 1 ? problems[0] : `${problems.length} files couldn't be added. ${problems[0]}`);
+    }
+    this.cdr.markForCheck();
+    this.focus();
+  }
+
+  removeFile(item: PendingFile): void {
+    if (item.previewUrl) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+    this.files = this.files.filter((f) => f !== item);
+    this.cdr.markForCheck();
+  }
+
+  fileIcon(item: PendingFile): string {
+    return fileIconFor(item.file.name, item.kind);
   }
 
   focus(): void {
@@ -79,16 +148,102 @@ export class MessageComposerComponent implements OnDestroy {
 
   onInput(): void {
     this.autoGrow();
-    this.typing.emit();
+    this.updateMentionQuery();
+    if (!this.editTarget) {
+      this.typing.emit();
+    }
   }
 
   onKeydown(event: KeyboardEvent): void {
+    if (this.mentionQuery !== null && this.mentionOptions.length) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        this.mentionIndex = (this.mentionIndex + step + this.mentionOptions.length) % this.mentionOptions.length;
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        this.pickMention(this.mentionOptions[this.mentionIndex]);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.closeMentions();
+        return;
+      }
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       void this.send();
+    } else if (event.key === 'Escape' && this.editTarget) {
+      event.stopPropagation();
+      this.exitEdit();
     } else if (event.key === 'Escape' && this.replyTo) {
       this.cancelReply.emit();
+    } else if (event.key === 'ArrowUp' && !this.text && !this.editTarget) {
+      // Like Teams: ↑ in an empty box edits your last message (handled by the chat page)
+      this.editLast.emit();
     }
+  }
+
+  exitEdit(): void {
+    this.editTarget = null;
+    this.text = '';
+    this.mentioned.clear();
+    this.input.nativeElement.style.height = 'auto';
+    this.cancelEdit.emit();
+    this.cdr.markForCheck();
+  }
+
+  pickMention(user: ChatUser): void {
+    const el = this.input.nativeElement;
+    const caret = el.selectionStart ?? this.text.length;
+    const before = this.text.slice(0, caret);
+    const at = before.lastIndexOf('@');
+    if (at < 0) {
+      return;
+    }
+    const insert = `@${user.username} `;
+    this.text = this.text.slice(0, at) + insert + this.text.slice(caret);
+    this.mentioned.set(String(user._id), user.username);
+    this.closeMentions();
+    this.cdr.markForCheck();
+    setTimeout(() => {
+      el.focus();
+      el.selectionStart = el.selectionEnd = at + insert.length;
+      this.autoGrow();
+    });
+  }
+
+  closeMentions(): void {
+    this.mentionQuery = null;
+    this.mentionOptions = [];
+    this.mentionIndex = 0;
+  }
+
+  private updateMentionQuery(): void {
+    const el = this.input.nativeElement;
+    const caret = el.selectionStart ?? this.text.length;
+    const match = /(^|\s)@([^\s@]{0,30})$/.exec(this.text.slice(0, caret));
+    if (!match || !this.mentionCandidates.length) {
+      this.closeMentions();
+      return;
+    }
+    const q = match[2].toLowerCase();
+    this.mentionQuery = q;
+    this.mentionOptions = this.mentionCandidates
+      .filter((c) => (c.username || '').toLowerCase().includes(q))
+      .slice(0, 6);
+    this.mentionIndex = 0;
+  }
+
+  /** Mentions whose @name is still in the text. */
+  private currentMentionIds(): string[] {
+    return [...this.mentioned.entries()]
+      .filter(([, name]) => this.text.includes(`@${name}`))
+      .map(([id]) => id);
   }
 
   async send(): Promise<void> {
@@ -96,11 +251,22 @@ export class MessageComposerComponent implements OnDestroy {
       return;
     }
     this.sending = true;
+    this.closeMentions();
     this.cdr.markForCheck();
     try {
-      const ok = await this.submit({ text: this.text, file: this.file, replyToId: this.replyTo?.id || null });
+      if (this.editTarget) {
+        const target = this.editTarget;
+        const ok = this.submitEdit ? await this.submitEdit(target.id, this.text, this.currentMentionIds()) : false;
+        if (ok) {
+          this.exitEdit();
+        }
+        return;
+      }
+      const files = this.files.map((f) => f.file);
+      const ok = await this.submit({ text: this.text, file: files[0] || null, files, replyToId: this.replyTo?.id || null, mentionIds: this.currentMentionIds() });
       if (ok) {
         this.text = '';
+        this.mentioned.clear();
         this.clearFile();
         this.input.nativeElement.style.height = 'auto';
       }
@@ -131,10 +297,11 @@ export class MessageComposerComponent implements OnDestroy {
   }
 
   onFileChosen(event: Event): void {
-    const file = (event.target as HTMLInputElement).files?.[0];
-    if (file) {
-      this.setFile(file);
+    const input = event.target as HTMLInputElement;
+    if (input.files?.length) {
+      this.addFiles(input.files);
     }
+    input.value = '';
   }
 
   @HostListener('document:paste', ['$event'])
@@ -149,47 +316,28 @@ export class MessageComposerComponent implements OnDestroy {
     if (!items) {
       return;
     }
+    const pasted: File[] = [];
     for (let i = 0; i < items.length; i++) {
       if (items[i].kind === 'file') {
         const file = items[i].getAsFile();
         if (file) {
-          event.preventDefault();
-          this.setFile(file);
-          return;
+          pasted.push(file);
         }
       }
+    }
+    if (pasted.length) {
+      event.preventDefault();
+      this.addFiles(pasted);
     }
   }
 
   clearFile(): void {
-    this.revokePreview();
-    this.file = null;
-    this.fileInput.nativeElement.value = '';
+    this.files.forEach((f) => f.previewUrl && URL.revokeObjectURL(f.previewUrl));
+    this.files = [];
+    if (this.fileInput) {
+      this.fileInput.nativeElement.value = '';
+    }
     this.cdr.markForCheck();
-  }
-
-  private setFile(file: File): void {
-    if (!ALLOWED_FILE.test(file.type)) {
-      this.alert.warning('You can send photos, videos, audio and PDF files.');
-      return;
-    }
-    const family = file.type.split('/')[0];
-    const maxMb = MAX_FILE_MB[family] ?? 25;
-    if (file.size > maxMb * 1024 * 1024) {
-      this.alert.warning(`${FILE_LABEL[family] || 'Files'} up to ${maxMb} MB can be sent.`);
-      return;
-    }
-    this.revokePreview();
-    this.file = file;
-    this.filePreviewUrl = URL.createObjectURL(file);
-    this.cdr.markForCheck();
-  }
-
-  private revokePreview(): void {
-    if (this.filePreviewUrl) {
-      URL.revokeObjectURL(this.filePreviewUrl);
-      this.filePreviewUrl = '';
-    }
   }
 
   private autoGrow(): void {
@@ -197,4 +345,19 @@ export class MessageComposerComponent implements OnDestroy {
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }
+}
+
+/** Font Awesome icon for a file name / kind (shared by the composer, messages and upload cards). */
+export function fileIconFor(name: string, kind?: string): string {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (kind === 'image') return 'fa-file-image';
+  if (kind === 'video') return 'fa-file-video';
+  if (kind === 'audio') return 'fa-file-audio';
+  if (kind === 'pdf' || ext === 'pdf') return 'fa-file-pdf';
+  if (['doc', 'docx'].includes(ext)) return 'fa-file-word';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'fa-file-excel';
+  if (['ppt', 'pptx'].includes(ext)) return 'fa-file-powerpoint';
+  if (ext === 'zip') return 'fa-file-zipper';
+  if (['txt', 'log', 'md'].includes(ext)) return 'fa-file-lines';
+  return 'fa-file';
 }

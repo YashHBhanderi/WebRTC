@@ -109,7 +109,7 @@ class CallService {
      * Ring timeout / everyone declined: mark the call missed only if it is still ringing.
      * Atomic, so a pick-up landing at the same moment is never ended by mistake.
      */
-    async endIfUnanswered(callId: mongoose.Types.ObjectId | string) {
+    async endIfUnanswered(callId: mongoose.Types.ObjectId | string, reason: "no-answer" | "declined" = "no-answer") {
         if (!mongoose.isValidObjectId(callId)) {
             return null;
         }
@@ -119,6 +119,7 @@ class CallService {
             {
                 $set: {
                     callStatus: "missed",
+                    endReason: reason,
                     endedAt: now,
                     "participants.$[p].status": "left",
                     "participants.$[p].leftAt": now,
@@ -289,8 +290,10 @@ class CallService {
             return call;
         }
 
-        // A ring nobody picked up is recorded as missed, not ended
-        call.callStatus = call.callStatus === "ringing" ? "missed" : "ended";
+        // A ring nobody picked up is recorded as missed, not ended; the caller hung up → cancelled
+        const wasRinging = call.callStatus === "ringing";
+        call.callStatus = wasRinging ? "missed" : "ended";
+        (call as any).endReason = wasRinging ? "cancelled" : "completed";
         call.endedAt = new Date();
 
         call.participants.forEach((participant) => {

@@ -1,3 +1,4 @@
+import { PresenceKey, presenceOf } from 'src/app/core/utils/presence.util';
 import {
   ChangeDetectionStrategy,
   ChangeDetectorRef,
@@ -12,7 +13,6 @@ import {
   SimpleChanges,
 } from '@angular/core';
 import { Subscription, firstValueFrom } from 'rxjs';
-import Swal from 'sweetalert2';
 import { ChatUser, GroupSummary } from 'src/app/core/interfaces/chat';
 import { ChatActionsService } from 'src/app/core/services/chat-actions.service';
 import { SocketService } from 'src/app/core/services/socket.service';
@@ -50,6 +50,12 @@ export class ConversationInfoPanelComponent implements OnInit, OnChanges, OnDest
   @Output() close = new EventEmitter<void>();
   @Output() openMedia = new EventEmitter<MediaOpenEvent>();
   @Output() leaveGroup = new EventEmitter<void>();
+
+  presenceKey(member: any): PresenceKey {
+    return presenceOf(member);
+  }
+  /** Admins only (the server enforces it). */
+  @Output() deleteGroup = new EventEmitter<void>();
   @Output() groupChanged = new EventEmitter<GroupSummary>();
 
   loading = true;
@@ -113,7 +119,7 @@ export class ConversationInfoPanelComponent implements OnInit, OnChanges, OnDest
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    if (!document.querySelector('.swal2-container, app-emoji-picker, .dropdown-menu.show')) {
+    if (!document.querySelector('.modal.show, app-emoji-picker, .dropdown-menu.show')) {
       this.close.emit();
     }
   }
@@ -224,15 +230,8 @@ export class ConversationInfoPanelComponent implements OnInit, OnChanges, OnDest
   }
 
   async removeMember(member: ChatUser): Promise<void> {
-    const confirm = await Swal.fire({
-      title: `Remove ${member.username}?`,
-      text: 'They will no longer receive messages from this group.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Remove',
-      confirmButtonColor: '#dc2626',
-    });
-    if (confirm.isConfirmed) {
+    const confirm = await this.alert.confirm({ title: `Remove ${member.username}?`, text: 'They will no longer receive messages from this group.', confirmText: 'Remove', danger: true });
+    if (confirm) {
       await this.memberAction(member, () => this.actions.removeMember(this.conversationId, member._id));
     }
   }

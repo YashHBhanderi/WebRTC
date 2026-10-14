@@ -3,10 +3,12 @@ import { Device } from 'mediasoup-client';
 import { SocketService } from './socket.service';
 import { AuthService } from './auth.service';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { getCallMedia, getSingleTrack, MediaDevicePrefs } from '../utils/media-devices.util';
+import { getCallMedia, getSingleTrack, MediaDevicePrefs, noiseSuppressionPreferred, setNoiseSuppressionPreferred } from '../utils/media-devices.util';
+import { VideoEffect, VideoEffectsService } from './video-effects.service';
 
 /** Worst state across the send/recv transports, for the "Reconnecting…" banner. */
 export type MediaConnectionState = 'new' | 'connecting' | 'connected' | 'disconnected' | 'failed';
+export type NetworkQuality = 'good' | 'fair' | 'poor';
 
 interface RemoteConsumerEntry {
   consumer: any;
@@ -17,6 +19,8 @@ interface RemoteConsumerEntry {
 
 interface JoinCallResponse {
   success: boolean;
+  /** Waiting in the lobby: no media until a host / co-host admits */
+  lobby?: boolean;
   producers: {
     producerId: string;
     userId: string;
@@ -71,11 +75,18 @@ export class MediasoupService {
   private device!: Device;
   private sendTransport: any;
   private recvTransport: any;
+
+  /** good / fair / poor from round-trip time and packet loss (null = not measured yet). */
+  readonly networkQuality$ = new BehaviorSubject<NetworkQuality | null>(null);
+  private qualityTimer: ReturnType<typeof setInterval> | null = null;
+  private qualityPrev = new Map<string, { lost: number; received: number }>();
   private localStream!: MediaStream;
   private audioProducer: any;
   private videoProducer: any;
   private screenProducer: any;
   private screenStream: MediaStream | null = null;
+  /** Chrome tab/window capture often sends black frames unless something locally plays the track. */
+  private screenSinkVideo: HTMLVideoElement | null = null;
   private remoteStreams = new Map<string, MediaStream>();
   private remoteScreenStreams = new Map<string, MediaStream>();
   private remoteVideoConsumers = new Map<string, RemoteVideoConsumer>();
@@ -108,9 +119,13 @@ export class MediasoupService {
 
   private readonly onVisibilityChange = () => this.scheduleLayerUpdate(0);
 
+  /** Camera as captured; what is produced/shown may be this with a background effect applied. */
+  private rawCameraTrack: MediaStreamTrack | null = null;
+
   constructor(
     private socketService: SocketService,
     private authService: AuthService,
+    private effects: VideoEffectsService,
   ) { }
 
   private myUserId(): string {
@@ -180,6 +195,7 @@ export class MediasoupService {
     }
     const params = await this.createTransport('mediasoup:createSendTransport');
     this.sendTransport = this.device.createSendTransport(this.toTransportOptions(params));
+    this.startQualityMonitor();
 
     this.sendTransport.on('connect', async ({ dtlsParameters }: any, callback: any, errback: any) => {
       try {
@@ -356,8 +372,9 @@ export class MediasoupService {
       await this.boostSenderPriority(this.audioProducer);
     }
 
-    const videoTrack = this.localStream.getVideoTracks()[0];
-    if (videoTrack) {
+    const rawVideo = this.localStream.getVideoTracks()[0];
+    if (rawVideo) {
+      const videoTrack = await this.cameraTrackWithEffect(rawVideo);
       this.videoProducer = await this.produceCamera(videoTrack);
     }
 
@@ -388,7 +405,9 @@ export class MediasoupService {
     let lastError: unknown;
     for (const encodings of attempts) {
       try {
-        const producer = await this.sendTransport.produce({ track: videoTrack, encodings, codecOptions });
+        // stopTracks false: replaceTrack() must not stop the camera behind a background effect
+        // (this service stops camera tracks itself on switch / close)
+        const producer = await this.sendTransport.produce({ track: videoTrack, encodings, codecOptions, stopTracks: false });
         // Let Chrome trade frame rate and resolution together under CPU/bandwidth pressure
         await this.setDegradationPreference(producer, 'balanced');
         if (this.debugEnabled()) {
@@ -534,6 +553,18 @@ export class MediasoupService {
     }
   }
 
+  /**
+   * The user stopped presenting: release the screen track we received from them. The producer
+   * stays marked as consumed so the sync loop never re-consumes a dead one (the server's
+   * producerClosed clears that mark).
+   */
+  dropRemoteScreen(userId: string): void {
+    [...this.consumers.values()]
+      .filter((entry) => entry.userId === userId && entry.source === 'screen' && entry.consumer.kind === 'video')
+      .forEach((entry) => this.dropConsumer(entry));
+    this.remoteScreenStreams.delete(userId);
+  }
+
   /** Forget everything consumed from a user who left (their producers are already closed server-side). */
   dropUser(userId: string): void {
     [...this.consumers.values()]
@@ -631,12 +662,22 @@ export class MediasoupService {
       }
 
       try {
-        consumer.track.contentHint = consumer.kind === 'audio' ? 'speech' : 'motion';
+        if (consumer.kind === 'audio') {
+          consumer.track.contentHint = 'speech';
+        } else {
+          // Screen: prefer sharpness; camera: prefer motion
+          consumer.track.contentHint = source === 'screen' ? 'detail' : 'motion';
+        }
       } catch {
         // ignore
       }
 
       const isScreen = source === 'screen' && kind === 'video';
+      if (isScreen) {
+        // One screen per presenter: a new share replaces an earlier one. Never add it behind an
+        // old track — the <video> keeps showing the first (dead) track, i.e. black.
+        this.dropRemoteScreen(userId);
+      }
       let stream = isScreen
         ? this.remoteScreenStreams.get(userId)
         : this.remoteStreams.get(userId);
@@ -767,6 +808,10 @@ export class MediasoupService {
             reject(new Error(response.error));
             return;
           }
+          if (response?.lobby) {
+            resolve(response);
+            return;
+          }
           this.startProducerSyncLoop(callId);
           // Catch producers that raced during join
           void this.syncProducers(callId);
@@ -891,7 +936,8 @@ export class MediasoupService {
       media.stream.getAudioTracks().forEach((t) => t.stop());
     }
 
-    this.videoProducer = await this.produceCamera(videoTrack);
+    const sendTrack = await this.cameraTrackWithEffect(videoTrack);
+    this.videoProducer = await this.produceCamera(sendTrack);
     if (this.screenProducer) {
       await this.limitCameraForScreenShare(true);
     }
@@ -918,34 +964,157 @@ export class MediasoupService {
   }
 
   async startScreenShare(): Promise<MediaStream> {
-    this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-      video: {
-        frameRate: 15,
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      } as MediaTrackConstraints,
+    return this.publishScreen(await this.pickScreen());
+  }
+
+  /**
+   * Opens the browser's screen picker. Keep constraints minimal — hard ideals break Chrome
+   * tab/window capture (black frames for remotes).
+   */
+  pickScreen(): Promise<MediaStream> {
+    return navigator.mediaDevices.getDisplayMedia({
+      video: true,
       audio: false,
     });
+  }
+
+  /** displaySurface from the captured track: monitor | window | browser (tab). */
+  getScreenDisplaySurface(stream?: MediaStream | null): 'monitor' | 'window' | 'browser' | '' {
+    const track = (stream || this.screenStream)?.getVideoTracks()?.[0];
+    const surface = track?.getSettings?.()?.displaySurface;
+    return surface === 'monitor' || surface === 'window' || surface === 'browser' ? surface : '';
+  }
+
+  /**
+   * Chrome often freezes tab/window capture at black until a local <video> is playing the track.
+   * Entire-screen capture usually works without this; tab/window need the sink.
+   */
+  private async attachScreenSink(stream: MediaStream): Promise<HTMLVideoElement> {
+    this.detachScreenSink();
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.autoplay = true;
+    video.setAttribute('aria-hidden', 'true');
+    Object.assign(video.style, {
+      position: 'fixed',
+      width: '2px',
+      height: '2px',
+      opacity: '0',
+      pointerEvents: 'none',
+      left: '0',
+      bottom: '0',
+      zIndex: '-1',
+    });
+    video.srcObject = stream;
+    document.body.appendChild(video);
+    this.screenSinkVideo = video;
+    try {
+      await video.play();
+    } catch {
+      // autoplay policies — sink still helps once a frame arrives
+    }
+    return video;
+  }
+
+  private detachScreenSink(): void {
+    if (!this.screenSinkVideo) {
+      return;
+    }
+    try {
+      this.screenSinkVideo.pause();
+      this.screenSinkVideo.srcObject = null;
+      this.screenSinkVideo.remove();
+    } catch {
+      // ignore
+    }
+    this.screenSinkVideo = null;
+  }
+
+  /** Tab/window tracks often start muted; wait for unmute (or a short grace period). */
+  private waitForScreenTrack(track: MediaStreamTrack): Promise<void> {
+    if (track.readyState === 'ended') {
+      return Promise.reject(new Error('Screen track ended'));
+    }
+    if (!track.muted) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
+      const done = () => {
+        clearTimeout(timer);
+        track.removeEventListener('unmute', onUnmute);
+        track.removeEventListener('ended', onEnded);
+        resolve();
+      };
+      const onUnmute = () => done();
+      const onEnded = () => {
+        clearTimeout(timer);
+        track.removeEventListener('unmute', onUnmute);
+        reject(new Error('Screen track ended'));
+      };
+      const timer = setTimeout(done, 3000);
+      track.addEventListener('unmute', onUnmute);
+      track.addEventListener('ended', onEnded);
+    });
+  }
+
+  /** Wait until the local sink has decoded at least one real frame (not black). */
+  private waitForScreenFrame(video: HTMLVideoElement): Promise<void> {
+    if (video.videoWidth > 0 && video.videoHeight > 0) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        video.removeEventListener('loadeddata', onReady);
+        video.removeEventListener('playing', onReady);
+        resolve();
+      };
+      const onReady = () => {
+        if (video.videoWidth > 0) {
+          finish();
+        }
+      };
+      const timer = setTimeout(finish, 3000);
+      video.addEventListener('loadeddata', onReady);
+      video.addEventListener('playing', onReady);
+      const rVFC = (video as any).requestVideoFrameCallback?.bind(video);
+      if (typeof rVFC === 'function') {
+        rVFC(() => finish());
+      }
+    });
+  }
+
+  /** Produce a picked screen to the call (camera keeps running alongside). */
+  async publishScreen(stream: MediaStream): Promise<MediaStream> {
+    this.screenStream = stream;
 
     const screenTrack = this.screenStream.getVideoTracks()[0];
     if (!screenTrack) {
       throw new Error('No screen track');
     }
     try {
-      // Text/UI content: encoder keeps sharpness and drops frames instead
       screenTrack.contentHint = 'detail';
     } catch {
       // ignore
     }
 
-    // Screen is its own producer; the camera keeps running alongside it (state unchanged)
+    // Must run before produce — otherwise remotes get a black tab/window share.
+    // Do not open Picture-in-Picture / other gesture UI until after this returns.
+    const sink = await this.attachScreenSink(stream);
+    await this.waitForScreenTrack(screenTrack);
+    await this.waitForScreenFrame(sink);
+
+    // stopTracks false: closing the producer must not kill our local sink mid-cleanup
     this.screenProducer = await this.sendTransport.produce({
       track: screenTrack,
       appData: { source: 'screen' },
-      encodings: [{ maxBitrate: 1_500_000, maxFramerate: 15 }],
-      codecOptions: { videoGoogleStartBitrate: 1000 },
+      encodings: [{ maxBitrate: 3_000_000 }],
+      codecOptions: { videoGoogleStartBitrate: 1500 },
+      stopTracks: false,
     });
     await this.setDegradationPreference(this.screenProducer, 'maintain-resolution');
+    await this.boostSenderPriority(this.screenProducer);
     await this.limitCameraForScreenShare(true);
 
     screenTrack.onended = () => {
@@ -962,15 +1131,25 @@ export class MediasoupService {
       return this.localStream || null;
     }
 
+    const producer = this.screenProducer;
+    this.screenProducer = null;
     try {
-      this.screenProducer?.close();
+      producer?.close();
     } catch {
       // ignore
     }
-    this.screenProducer = null;
 
+    this.detachScreenSink();
     this.screenStream?.getTracks().forEach((track) => track.stop());
     this.screenStream = null;
+
+    if (producer?.id) {
+      // Close it on the server too: receivers then drop the old screen track. Otherwise the next
+      // share is added behind that dead track and they see black. Short timeout: a server without
+      // this event (older deploy) must not block stopping.
+      await this.withTimeout(this.request('mediasoup:closeProducer', { producerId: producer.id }), 3000, 'closeProducer')
+        .catch((error) => console.warn('[mediasoup] could not close screen producer on server', error));
+    }
 
     // Camera was never paused for the share (on/off stays as the user left it); restore quality
     await this.limitCameraForScreenShare(false);
@@ -982,6 +1161,11 @@ export class MediasoupService {
   async switchMicrophone(deviceId: string): Promise<void> {
     const oldTrack = this.localStream?.getAudioTracks()[0];
     const enabled = oldTrack ? oldTrack.enabled : true;
+    // Re-opening the same mic (e.g. new noise-suppression setting): Chrome shares one source per
+    // device and keeps the old processing while a track is still open, so release it first
+    if (oldTrack && deviceId && oldTrack.getSettings().deviceId === deviceId) {
+      oldTrack.stop();
+    }
     const track = await getSingleTrack('audio', deviceId);
     track.enabled = enabled;
     if (!this.localStream) {
@@ -1006,27 +1190,113 @@ export class MediasoupService {
     this.localStreamSubject.next(this.localStream);
   }
 
-  /** Swap the camera mid-call (also used for front/back flip on phones). */
+  /** Swap the camera mid-call (also used for front/back flip on phones); keeps the background effect. */
   async switchCamera(deviceId: string): Promise<void> {
     if (!this.videoProducer || this.videoProducer.closed) {
       return;
     }
-    const oldTrack = this.localStream?.getVideoTracks()[0];
-    const enabled = oldTrack ? oldTrack.enabled : true;
+    const shown = this.localStream?.getVideoTracks()[0];
+    const enabled = shown ? shown.enabled : true;
     // Phones often refuse a second open camera: release the current one first
-    oldTrack?.stop();
-    const track = await getSingleTrack('video', deviceId);
+    this.effects.stop();
+    this.rawCameraTrack?.stop();
+    shown?.stop();
+    const raw = await getSingleTrack('video', deviceId);
+    this.rawCameraTrack = null;
+    if (shown) {
+      this.localStream?.removeTrack(shown);
+    }
+    this.localStream?.addTrack(raw);
+    const track = await this.cameraTrackWithEffect(raw);
     track.enabled = enabled;
     await this.videoProducer.replaceTrack({ track });
-    if (oldTrack) {
-      this.localStream?.removeTrack(oldTrack);
-    }
-    this.localStream?.addTrack(track);
     this.localStreamSubject.next(this.localStream!);
   }
 
+  get videoEffect(): VideoEffect {
+    return this.effects.preferred;
+  }
+
+  get videoEffectsSupported(): boolean {
+    return this.effects.supported;
+  }
+
+  /** Background blur / replacement. Saved per device; applied live when the camera runs. */
+  async setVideoEffect(effect: VideoEffect): Promise<void> {
+    const previous = this.effects.preferred;
+    this.effects.preferred = effect;
+    const raw = this.rawCameraTrack;
+    if (!raw || raw.readyState !== 'live' || !this.videoProducer || this.videoProducer.closed) {
+      return;
+    }
+    const shown = this.localStream?.getVideoTracks()[0];
+    const enabled = shown ? shown.enabled : true;
+    let track: MediaStreamTrack;
+    try {
+      track = await this.effects.process(raw, effect);
+    } catch (error) {
+      this.effects.preferred = previous;
+      track = await this.effects.process(raw, previous).catch(() => raw);
+      this.swapShownVideo(shown, track, enabled);
+      await this.videoProducer.replaceTrack({ track });
+      throw error;
+    }
+    this.swapShownVideo(shown, track, enabled);
+    await this.videoProducer.replaceTrack({ track });
+  }
+
+  get noiseSuppression(): boolean {
+    return noiseSuppressionPreferred();
+  }
+
+  /** Browser noise suppression on/off: re-opens the current mic with the new setting (mute state kept). */
+  async setNoiseSuppression(on: boolean): Promise<void> {
+    setNoiseSuppressionPreferred(on);
+    if (this.localStream?.getAudioTracks()[0]) {
+      await this.switchMicrophone(this.currentDeviceId('audio'));
+    }
+  }
+
+  /**
+   * Remember `raw` as the camera source and return what to send/show: `raw` itself, or a track
+   * with the saved background effect. If the effect can't run, the plain camera is used.
+   */
+  private async cameraTrackWithEffect(raw: MediaStreamTrack): Promise<MediaStreamTrack> {
+    this.rawCameraTrack = raw;
+    const effect = this.effects.preferred;
+    if (effect === 'none' || !this.effects.supported) {
+      return raw;
+    }
+    try {
+      const track = await this.effects.process(raw, effect);
+      track.enabled = raw.enabled;
+      this.swapShownVideo(raw, track, raw.enabled);
+      return track;
+    } catch (error) {
+      console.warn('[mediasoup] background effect unavailable, sending plain camera', error);
+      return raw;
+    }
+  }
+
+  /** Self-view shows exactly what is sent (raw camera stays open behind an effect). */
+  private swapShownVideo(old: MediaStreamTrack | undefined, track: MediaStreamTrack, enabled: boolean): void {
+    if (!this.localStream || old === track) {
+      return;
+    }
+    track.enabled = enabled;
+    if (old) {
+      this.localStream.removeTrack(old);
+      // A previous effect output is owned by the effects service; never stop the raw camera here
+      if (old !== this.rawCameraTrack && old.readyState === 'live' && old.kind === 'video') {
+        old.stop();
+      }
+    }
+    this.localStream.addTrack(track);
+    this.localStreamSubject.next(this.localStream);
+  }
+
   currentDeviceId(kind: 'audio' | 'video'): string {
-    const track = kind === 'audio' ? this.localStream?.getAudioTracks()[0] : this.localStream?.getVideoTracks()[0];
+    const track = kind === 'audio' ? this.localStream?.getAudioTracks()[0] : this.rawCameraTrack || this.localStream?.getVideoTracks()[0];
     return track?.getSettings?.().deviceId || '';
   }
 
@@ -1082,8 +1352,10 @@ export class MediasoupService {
     this.consumers.clear();
     this.transportStates.clear();
     this.connectionStateSubject.next('new');
+    this.stopQualityMonitor();
 
     try {
+      this.detachScreenSink();
       this.screenStream?.getTracks().forEach((track) => track.stop());
       this.screenProducer?.close();
       this.audioProducer?.close();
@@ -1094,6 +1366,9 @@ export class MediasoupService {
       // ignore close errors during teardown
     }
 
+    this.effects.stop();
+    this.rawCameraTrack?.stop();
+    this.rawCameraTrack = null;
     this.localStream?.getTracks().forEach((track) => track.stop());
     this.remoteStreams.clear();
     this.remoteScreenStreams.clear();
@@ -1116,6 +1391,63 @@ export class MediasoupService {
       throw new Error('mediasoup Device is not initialized');
     }
     return this.device;
+  }
+
+  // ---------------------------------------------------------------- network quality
+
+  private startQualityMonitor(): void {
+    this.stopQualityMonitor();
+    this.qualityTimer = setInterval(() => void this.sampleQuality(), 4000);
+  }
+
+  private stopQualityMonitor(): void {
+    if (this.qualityTimer) {
+      clearInterval(this.qualityTimer);
+      this.qualityTimer = null;
+    }
+    this.qualityPrev.clear();
+    this.networkQuality$.next(null);
+  }
+
+  /** One sample over both transports: worst RTT, and packet loss over the last interval. */
+  private async sampleQuality(): Promise<void> {
+    const transports = [this.sendTransport, this.recvTransport].filter((t) => t && !t.closed);
+    if (!transports.length) {
+      return;
+    }
+    let rtt = 0;
+    let lost = 0;
+    let received = 0;
+    let remoteLossFraction = 0;
+    try {
+      for (const transport of transports) {
+        const report: RTCStatsReport = await transport.getStats();
+        report.forEach((stat: any) => {
+          if (stat.type === 'candidate-pair' && (stat.nominated || stat.selected) && stat.currentRoundTripTime != null) {
+            rtt = Math.max(rtt, stat.currentRoundTripTime);
+          } else if (stat.type === 'inbound-rtp') {
+            const prev = this.qualityPrev.get(stat.id) || { lost: stat.packetsLost || 0, received: stat.packetsReceived || 0 };
+            lost += Math.max(0, (stat.packetsLost || 0) - prev.lost);
+            received += Math.max(0, (stat.packetsReceived || 0) - prev.received);
+            this.qualityPrev.set(stat.id, { lost: stat.packetsLost || 0, received: stat.packetsReceived || 0 });
+          } else if (stat.type === 'remote-inbound-rtp' && stat.fractionLost != null) {
+            // What the server reports about our outgoing media
+            remoteLossFraction = Math.max(remoteLossFraction, stat.fractionLost);
+            if (stat.roundTripTime != null) {
+              rtt = Math.max(rtt, stat.roundTripTime);
+            }
+          }
+        });
+      }
+    } catch {
+      return; // transport closed between check and read
+    }
+    const inboundLoss = lost + received > 0 ? lost / (lost + received) : 0;
+    const loss = Math.max(inboundLoss, remoteLossFraction);
+    const quality: NetworkQuality = rtt > 0.5 || loss > 0.08 ? 'poor' : rtt > 0.25 || loss > 0.03 ? 'fair' : 'good';
+    if (quality !== this.networkQuality$.value) {
+      this.networkQuality$.next(quality);
+    }
   }
 
   private previousAudioStats: any = null;

@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { SocketService } from './socket.service';
-import { ChatState, GroupSummary, SearchCursor, SearchPage } from '../interfaces/chat';
+import { ChatState, GroupSummary, PinnedMessage, SearchCursor, SearchPage } from '../interfaces/chat';
 
 /**
  * Chat state, contact and group administration, and server-side message search.
@@ -53,6 +53,28 @@ export class ChatActionsService {
 
   leaveGroup(groupId: string): Promise<{ groupId: string }> {
     return this.socket.request('group:leave', { groupId });
+  }
+
+  // ---------------------------------------------------------------- message actions
+  editMessage(messageId: string, content: string, mentions: string[]): Promise<{ success: boolean }> {
+    return this.socket.request('message:edit', { messageId, content, mentions });
+  }
+
+  setPinned(messageId: string, pinned: boolean): Promise<{ pins: PinnedMessage[] }> {
+    return this.socket.request('message:pin', { messageId, pinned });
+  }
+
+  async setSaved(messageId: string, saved: boolean): Promise<void> {
+    await firstValueFrom(this.http.put(`${this.api}/messages/${messageId}/save`, { saved }));
+  }
+
+  async savedMessages(before?: string | null): Promise<{ items: any[]; nextCursor: string | null }> {
+    let params = new HttpParams();
+    if (before) {
+      params = params.set('before', before);
+    }
+    const res = await firstValueFrom(this.http.get<{ data: { items: any[]; nextCursor: string | null } }>(`${this.api}/saved-messages`, { params }));
+    return res.data;
   }
 
   // ---------------------------------------------------------------- search / jump

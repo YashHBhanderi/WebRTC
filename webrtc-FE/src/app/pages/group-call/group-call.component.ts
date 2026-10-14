@@ -1,3 +1,4 @@
+import { AlertService } from 'src/app/_shared/alert/alert.service';
 import { avatarColors, avatarInitials } from 'src/app/core/utils/avatar.util';
 import {
   ChangeDetectionStrategy,
@@ -11,20 +12,23 @@ import {
   OnDestroy,
   OnInit,
   Output,
+  NgZone,
 } from '@angular/core';
 import { Subscription } from 'rxjs';
-import Swal from 'sweetalert2';
+import { normalizeMediaError } from '../../core/errors/app-error';
+import { LobbyEntry, MeetingRole, MeetingSettings } from '../../core/services/socket.service';
 import { AuthService } from '../../core/services/auth.service';
 import { CallStateSnapshot, SocketService } from '../../core/services/socket.service';
 import { MediasoupService } from '../../core/services/mediasoup.service';
 import { UserService } from '../../core/services/user.service';
-import { ScreenShareOverlayService } from '../../core/services/screen-share-overlay.service';
+import { CallPipHandlers, CallPipService } from '../../core/services/call-pip.service';
 import {
   listMediaDevices,
   supportsAudioOutputSelection,
   supportsScreenShare,
 } from '../../core/utils/media-devices.util';
 import { CALL_REACTIONS, CallLaunch, PrejoinResult, StageItem } from './call.models';
+import { VIDEO_EFFECTS, VideoEffect } from '../../core/services/video-effects.service';
 
 interface RemoteParticipant {
   userId: string;
@@ -65,7 +69,7 @@ interface PersonRow {
   connecting: boolean;
 }
 
-type CallPhase = 'prejoin' | 'joining' | 'live' | 'ended';
+type CallPhase = 'prejoin' | 'joining' | 'lobby' | 'live' | 'ended';
 /** solo = alone · pip = 2 people (P2P) · speaker = main + side strip · gallery = grid */
 type StageLayout = 'solo' | 'pip' | 'speaker' | 'gallery';
 type ViewMode = 'gallery' | 'speaker';
@@ -81,13 +85,11 @@ const profileCache = new Map<string, { name: string; avatar?: string }>();
 })
 export class GroupCallComponent implements OnInit, OnDestroy {
   @Input() launch!: CallLaunch;
+  /** Minimized = the call continues in the browser's Picture-in-Picture window. */
   @Input() set minimized(value: boolean) {
     this.isMinimized = value;
-    if (value) {
-      // After change detection applies .is-minimized: the card's size is needed to keep it on screen
-      requestAnimationFrame(() => this.applyDockPosition());
-    } else {
-      this.applyDockPosition();
+    if (!value) {
+      this.pip?.exit();
     }
   }
   get minimized(): boolean {
@@ -96,10 +98,6 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   @Output() minimizedChange = new EventEmitter<boolean>();
   private isMinimized = false;
 
-  // Minimized floating window: dragged position (viewport px), kept for the rest of this call
-  private dockPos: { x: number; y: number } | null = null;
-  private drag: { pointerId: number; startX: number; startY: number; left: number; top: number; moved: boolean } | null = null;
-  private suppressClick = false;
   @Output() closed = new EventEmitter<void>();
 
   @HostBinding('class.is-minimized') get hostMinimized(): boolean {
@@ -125,8 +123,17 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   localStream: MediaStream | null = null;
   localScreenStream: MediaStream | null = null;
   isMuted = false;
+  /** Speaking while muted (Teams-style hint) */
+  talkingWhileMuted = false;
+  private muteWatch: { ctx: AudioContext; track: MediaStreamTrack; timer: ReturnType<typeof setInterval> } | null = null;
+  private lastMutedHint = 0;
+  /** Presenter toolbar position (px from top-left), remembered per browser */
+  presenterPos = this.readPresenterPos();
+  private presenterDrag: { dx: number; dy: number } | null = null;
   isVideoEnabled = true;
   isScreenSharing = false;
+  /** monitor = entire screen (call PiP would be captured); window/browser = safe to float the call */
+  shareDisplaySurface: 'monitor' | 'window' | 'browser' | '' = '';
   hasAudioDevice = false;
   hasVideoDevice = false;
   handRaised = false;
@@ -136,6 +143,16 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   private remoteScreen: { userId: string; stream: MediaStream } | null = null;
   activeScreenUserId: string | null = null;
   hostIds = new Set<string>();
+  cohostIds = new Set<string>();
+  myRole: MeetingRole = 'attendee';
+  meetingSettings: MeetingSettings = { lobby: false, allowUnmute: true, allowShare: true };
+  lobbyWaiting: LobbyEntry[] = [];
+  /** Recording in progress: when it started (for the REC timer) */
+  recordingSince: number | null = null;
+  recordingAvailable = false;
+  recordingBusy = false;
+  showOptions = false;
+  private admission: { resolve: () => void; reject: (e: Error) => void } | null = null;
   startedAt: number | null = null;
   private speaking = new Set<string>();
   activeSpeakerId: string | null = null;
@@ -146,6 +163,8 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   // Connectivity
   private mediaDown = false;
   private socketDown = false;
+  networkQuality: 'good' | 'fair' | 'poor' | null = null;
+  private readonly onDeviceChange = () => void this.handleDeviceChange();
 
   // Derived view state (recomputed on change, never in template getters)
   mainItem: StageItem | null = null;
@@ -169,7 +188,9 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   showPeople = false;
   showMore = false;
   showReactions = false;
-  showSettings = false;
+  /** Teams-style split buttons: device/effect menus next to Mic and Camera. */
+  showAudioMenu = false;
+  showVideoMenu = false;
   showInfo = false;
   showView = false;
   showChat = false;
@@ -184,6 +205,10 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   speakers: MediaDeviceInfo[] = [];
   selectedMic = '';
   selectedCam = '';
+  readonly videoEffects = VIDEO_EFFECTS;
+  /** Effect being switched to (model download / pipeline start). */
+  effectBusy: VideoEffect | null = null;
+  noiseBusy = false;
 
   private subs = new Subscription();
   private timers = new Set<ReturnType<typeof setTimeout>>();
@@ -200,15 +225,16 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     private socketService: SocketService,
     private mediasoupService: MediasoupService,
     private userService: UserService,
-    private screenOverlay: ScreenShareOverlayService,
+    public pip: CallPipService,
     private cdr: ChangeDetectorRef,
     private host: ElementRef<HTMLElement>,
+    private zone: NgZone,
+    private alertService: AlertService,
   ) { }
 
   // ---------------------------------------------------------------- lifecycle
 
   ngOnInit(): void {
-    this.host.nativeElement.addEventListener('click', this.swallowClickAfterDrag, true);
     const me = this.authService.getLoggedInUser();
     this.myUserId = me?._id || '';
     this.myAvatar = me?.avatar || '';
@@ -233,9 +259,133 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ---------------------------------------------------------------- muted hint / presenter bar
+
+  /** While muted, listen locally (a clone of the mic track; nothing is sent) to hint "You're muted". */
+  private syncMutedWatch(): void {
+    const want = this.isMuted && this.hasAudioDevice && this.phase === 'live' && !this.destroyed;
+    if (want && !this.muteWatch) {
+      this.startMutedWatch();
+    } else if (!want && this.muteWatch) {
+      this.stopMutedWatch();
+    }
+  }
+
+  private startMutedWatch(): void {
+    const source = this.mediasoupService.getLocalStream()?.getAudioTracks()[0];
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!source || !Ctx || source.readyState !== 'live') {
+      return;
+    }
+    try {
+      const track = source.clone();
+      track.enabled = true;
+      const ctx: AudioContext = new Ctx();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      ctx.createMediaStreamSource(new MediaStream([track])).connect(analyser);
+      const data = new Uint8Array(analyser.fftSize);
+      let loudFor = 0;
+      const timer = this.zone.runOutsideAngular(() => setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (const v of data) {
+          const x = (v - 128) / 128;
+          sum += x * x;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        loudFor = rms > 0.06 ? loudFor + 200 : 0;
+        const show = loudFor >= 800 && Date.now() - this.lastMutedHint > 20_000;
+        if (show) {
+          this.lastMutedHint = Date.now();
+          this.talkingWhileMuted = true;
+          this.zone.run(() => this.render());
+          this.timers.add(setTimeout(() => this.zone.run(() => {
+            this.talkingWhileMuted = false;
+            this.render();
+          }), 6000));
+        }
+      }, 200));
+      this.muteWatch = { ctx, track, timer };
+    } catch {
+      // Hint is optional
+    }
+  }
+
+  private stopMutedWatch(): void {
+    if (!this.muteWatch) {
+      return;
+    }
+    clearInterval(this.muteWatch.timer);
+    this.muteWatch.track.stop();
+    void this.muteWatch.ctx.close().catch(() => undefined);
+    this.muteWatch = null;
+    this.talkingWhileMuted = false;
+  }
+
+  private readPresenterPos(): { x: number; y: number } | null {
+    try {
+      const raw = localStorage.getItem('call.presenterBar');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  onPresenterDragStart(event: PointerEvent, bar: HTMLElement): void {
+    const rect = bar.getBoundingClientRect();
+    this.presenterDrag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+    (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  }
+
+  onPresenterDragMove(event: PointerEvent, bar: HTMLElement): void {
+    if (!this.presenterDrag) {
+      return;
+    }
+    const w = bar.offsetWidth;
+    const h = bar.offsetHeight;
+    this.presenterPos = {
+      x: Math.min(Math.max(8, event.clientX - this.presenterDrag.dx), window.innerWidth - w - 8),
+      y: Math.min(Math.max(8, event.clientY - this.presenterDrag.dy), window.innerHeight - h - 8),
+    };
+    this.render();
+  }
+
+  onPresenterDragEnd(): void {
+    if (!this.presenterDrag) {
+      return;
+    }
+    this.presenterDrag = null;
+    try {
+      localStorage.setItem('call.presenterBar', JSON.stringify(this.presenterPos));
+    } catch {
+      // ignore
+    }
+  }
+
+  /** Keyboard users move the bar with the arrow keys on the handle. */
+  nudgePresenter(event: KeyboardEvent, bar: HTMLElement): void {
+    const step = event.shiftKey ? 40 : 12;
+    const delta: Record<string, [number, number]> = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    const d = delta[event.key];
+    if (!d) {
+      return;
+    }
+    event.preventDefault();
+    const rect = bar.getBoundingClientRect();
+    this.presenterPos = {
+      x: Math.min(Math.max(8, rect.left + d[0]), window.innerWidth - rect.width - 8),
+      y: Math.min(Math.max(8, rect.top + d[1]), window.innerHeight - rect.height - 8),
+    };
+    this.onPresenterDragEnd();
+    this.presenterDrag = null;
+    this.render();
+  }
+
   ngOnDestroy(): void {
-    this.host.nativeElement.removeEventListener('click', this.swallowClickAfterDrag, true);
-    this.listenDrag(false);
+    this.stopMutedWatch();
+    navigator.mediaDevices?.removeEventListener?.('devicechange', this.onDeviceChange);
     this.destroyed = true;
     this.subs.unsubscribe();
     this.timers.forEach((t) => clearTimeout(t));
@@ -246,7 +396,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     if (this.stateRefreshTimer) {
       clearTimeout(this.stateRefreshTimer);
     }
-    void this.screenOverlay.hide();
+    this.pip.release();
     if (!this.finished && this.callId) {
       this.finished = true;
       this.socketService.leaveGroupCall(this.callId);
@@ -285,6 +435,9 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   private async enterCall(pre: PrejoinResult | null): Promise<void> {
     this.phase = 'joining';
     this.render();
+    if (!(await this.claimCallForThisDevice())) {
+      return;
+    }
     try {
       const acceptResult = await this.socketService.acceptGroupCall(this.callId);
       if (acceptResult?.error) {
@@ -292,7 +445,19 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       }
 
       await this.mediasoupService.initialize();
-      const response = await this.mediasoupService.joinCall(this.callId, this.callType);
+      let response = await this.mediasoupService.joinCall(this.callId, this.callType);
+      // Lobby: wait here until a host / co-host lets us in (or denies / we leave)
+      while (response.lobby) {
+        this.phase = 'lobby';
+        this.render();
+        await this.waitForAdmission();
+        if (this.finished) {
+          return;
+        }
+        this.phase = 'joining';
+        this.render();
+        response = await this.mediasoupService.joinCall(this.callId, this.callType);
+      }
 
       let localStream: MediaStream;
       try {
@@ -337,9 +502,36 @@ export class GroupCallComponent implements OnInit, OnDestroy {
         window.location.hostname !== '127.0.0.1';
       const message = insecure
         ? 'Camera/mic need HTTPS. Run npm run dev and open the https URL.'
-        : `Couldn't join: ${error?.message || error}`;
+        : "We couldn't connect the call. Please check your connection and try again.";
       await this.finish(message, false, 2200);
     }
+  }
+
+  /**
+   * One call per user: when this user is live in a call on another device, ask before moving it
+   * here. Cancel leaves the other device untouched. Returns false when this device must not join.
+   */
+  private async claimCallForThisDevice(): Promise<boolean> {
+    const session = await this.socketService.getCallSession();
+    if (!session.elsewhere) {
+      return true;
+    }
+    const choice = await this.alertService.confirm({ title: "You're already in a call on another device.", confirmText: 'End call on other device & join here', cancelText: 'Cancel' });
+    if (this.finished) {
+      return false;
+    }
+    if (!choice) {
+      // Joining the call the other device is in: just don't join. A different (e.g. just
+      // started) call: leave it so it doesn't keep ringing.
+      await this.finish('', !!session.callId && String(session.callId) !== String(this.callId), 0);
+      return false;
+    }
+    const res = await this.socketService.takeoverCall(this.callId);
+    if (res.error) {
+      await this.finish(`Couldn't join: ${res.error}`, false, 2200);
+      return false;
+    }
+    return true;
   }
 
   private async consumeExistingProducers(
@@ -382,6 +574,14 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
   private applyState(state: CallStateSnapshot): void {
     this.hostIds = new Set(state.hostIds || []);
+    this.cohostIds = new Set(state.cohostIds || []);
+    this.myRole = state.myRole || (this.isGroup ? 'attendee' : 'host');
+    if (state.settings) {
+      this.meetingSettings = state.settings;
+    }
+    this.lobbyWaiting = state.lobby || [];
+    this.recordingAvailable = !!state.recordingAvailable;
+    this.recordingSince = state.recording ? state.recording.startedAt : null;
     this.isGroup = state.isGroup;
     this.applyStartTime(state);
     if (state.callType) {
@@ -494,6 +694,16 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       }
     }));
 
+    this.subs.add(this.mediasoupService.networkQuality$.subscribe((quality) => {
+      if (quality !== this.networkQuality) {
+        this.networkQuality = quality;
+        this.render();
+      }
+    }));
+
+    // A headset / camera plugged in or removed mid-call
+    navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange);
+
     this.subs.add(this.mediasoupService.audioOutput$.subscribe((id) => {
       this.sinkId = id;
       this.render();
@@ -584,6 +794,9 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       if (this.isScreenSharing && data.userId === this.myUserId) {
         return;
       }
+      if (data.userId && data.userId !== this.myUserId) {
+        this.mediasoupService.dropRemoteScreen(data.userId);
+      }
       this.activeScreenUserId = null;
       this.remoteScreen = null;
       this.render();
@@ -629,9 +842,86 @@ export class GroupCallComponent implements OnInit, OnDestroy {
         return;
       }
       if (!this.isMuted && this.hasAudioDevice) {
-        this.toggleMute();
+        this.isMuted = true;
+        this.mediasoupService.setAudioEnabled(false);
+        this.broadcastMediaState();
+        this.render();
       }
-      this.showNotice('The host muted your microphone');
+      this.showNotice(data?.locked
+        ? 'The organizer muted attendees. You can unmute when they allow it.'
+        : data?.all ? 'The organizer muted everyone' : 'The host muted your microphone');
+    }));
+
+    // The same user took this call over on another device: leave quietly (no "left" for others)
+    this.subs.add(this.socketService.onCallForceLeave().subscribe((data) => {
+      if (sameCall(data)) {
+        void this.finish('Your call continued on another device', false, 2200);
+      }
+    }));
+
+    // ---- recording (always visible to everyone in the call)
+    this.subs.add(this.socketService.onCallRecording().subscribe((data) => {
+      if (!sameCall(data)) {
+        return;
+      }
+      if (data.active) {
+        // This device's clock: the REC timer starts now, whatever the server's clock says
+        this.recordingSince = Date.now();
+        this.showNotice(`${data.byName || 'The organizer'} started recording. Everyone in the meeting can see this.`);
+      } else {
+        this.recordingSince = null;
+        this.showNotice(data.reason === 'limit' ? 'Recording stopped (time limit reached)' : 'Recording stopped. It will be ready after processing.');
+      }
+      this.render();
+    }));
+
+    // ---- meeting controls
+    this.subs.add(this.socketService.onCallLobby().subscribe((data) => {
+      if (!sameCall(data)) {
+        return;
+      }
+      const before = new Set(this.lobbyWaiting.map((w) => w.userId));
+      this.lobbyWaiting = data.waiting || [];
+      const arrived = this.lobbyWaiting.find((w) => !before.has(w.userId));
+      if (arrived && this.isModerator) {
+        this.showNotice(`${arrived.username} is waiting in the lobby`);
+      }
+      this.render();
+    }));
+    this.subs.add(this.socketService.onCallSettings().subscribe((data) => {
+      if (!sameCall(data)) {
+        return;
+      }
+      const wasModerator = this.isModerator;
+      this.meetingSettings = data.settings;
+      this.cohostIds = new Set(data.cohostIds || []);
+      if (this.isGroup && !this.hostIds.has(this.myUserId)) {
+        this.myRole = this.cohostIds.has(this.myUserId) ? 'cohost' : 'attendee';
+      }
+      if (this.isModerator !== wasModerator) {
+        this.showNotice(this.isModerator ? 'You are now a co-host' : 'You are no longer a co-host');
+        void this.refreshCallState();
+      }
+      this.render();
+    }));
+    this.subs.add(this.socketService.onCallAdmitted().subscribe((data) => {
+      if (sameCall(data)) {
+        this.admission?.resolve();
+        this.admission = null;
+      }
+    }));
+    this.subs.add(this.socketService.onCallDenied().subscribe((data) => {
+      if (sameCall(data)) {
+        this.admission?.reject(new Error('denied'));
+        this.admission = null;
+        void this.finish("You weren't admitted to the meeting", true, 2500);
+      }
+    }));
+    this.subs.add(this.socketService.onShareStopped().subscribe((data) => {
+      if (sameCall(data) && this.isScreenSharing) {
+        void this.finishScreenShareUi();
+        this.showNotice('The organizer turned off screen sharing for attendees');
+      }
     }));
 
     this.subs.add(this.socketService.onCallRemoved().subscribe((data: any) => {
@@ -781,11 +1071,15 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
   /** Rebuild every derived view model, then run change detection for this subtree. */
   private render(): void {
+    this.syncMutedWatch();
     if (this.destroyed) {
       return;
     }
     this.recompute();
     this.cdr.detectChanges();
+    if (this.phase === 'live' && !this.finished) {
+      this.pip.prepare(this.pipHandlers());
+    }
   }
 
   private recompute(): void {
@@ -857,10 +1151,11 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     const people = [self, ...remoteItems];
     if (all.length === 1) {
       this.layout = 'solo';
+    } else if (screenItem || this.pinnedKey || this.viewMode === 'speaker') {
+      // Presenting always uses speaker layout (never the 1:1 pip chrome)
+      this.layout = 'speaker';
     } else if (all.length === 2) {
       this.layout = 'pip'; // two people: person-to-person view
-    } else if (screenItem || this.pinnedKey || this.viewMode === 'speaker') {
-      this.layout = 'speaker';
     } else {
       this.layout = 'gallery';
     }
@@ -902,109 +1197,6 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   onResize(): void {
     if (this.layout === 'gallery') {
       this.render();
-    }
-    this.applyDockPosition();
-  }
-
-  // ---------------------------------------------------------------- drag the minimized window
-
-  /** Phones dock the minimized call as a bar across the top (see SCSS); only the card floats. */
-  private get floatingDock(): boolean {
-    return this.isMinimized && !window.matchMedia('(max-width: 600px)').matches;
-  }
-
-  @HostListener('pointerdown', ['$event'])
-  onPointerDown(event: PointerEvent): void {
-    if (!this.floatingDock || event.button !== 0 || !event.isPrimary) {
-      return;
-    }
-    const rect = this.host.nativeElement.getBoundingClientRect();
-    this.drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, left: rect.left, top: rect.top, moved: false };
-    // On the window: the pointer leaves the small card as soon as it moves
-    this.listenDrag(true);
-  }
-
-  private readonly onPointerMove = (event: PointerEvent): void => {
-    const drag = this.drag;
-    if (!drag || event.pointerId !== drag.pointerId) {
-      return;
-    }
-    const dx = event.clientX - drag.startX;
-    const dy = event.clientY - drag.startY;
-    if (!drag.moved) {
-      // A small wobble is still a tap (expand / button press), not a drag
-      if (Math.hypot(dx, dy) < 6) {
-        return;
-      }
-      drag.moved = true;
-      // Capture only once it is a drag: capturing on pointerdown would retarget the click
-      try {
-        this.host.nativeElement.setPointerCapture(event.pointerId);
-      } catch {
-        // pointer already released
-      }
-      this.host.nativeElement.classList.add('is-dragging');
-    }
-    event.preventDefault();
-    this.dockPos = this.clampDock(drag.left + dx, drag.top + dy);
-    this.applyDockPosition();
-  };
-
-  private readonly onPointerUp = (event: PointerEvent): void => {
-    const drag = this.drag;
-    if (!drag || event.pointerId !== drag.pointerId) {
-      return;
-    }
-    this.drag = null;
-    this.listenDrag(false);
-    if (drag.moved) {
-      this.host.nativeElement.classList.remove('is-dragging');
-      this.suppressClick = true;
-      // The click that follows pointerup must not expand the call or press a button
-      setTimeout(() => (this.suppressClick = false), 0);
-    }
-  };
-
-  private listenDrag(on: boolean): void {
-    const method = on ? 'addEventListener' : 'removeEventListener';
-    window[method]('pointermove', this.onPointerMove as EventListener);
-    window[method]('pointerup', this.onPointerUp as EventListener);
-    window[method]('pointercancel', this.onPointerUp as EventListener);
-  }
-
-  /** Registered in the capture phase (ngOnInit) so it runs before any inner (click) handler. */
-  private readonly swallowClickAfterDrag = (event: MouseEvent): void => {
-    if (this.suppressClick) {
-      event.stopPropagation();
-      event.preventDefault();
-      this.suppressClick = false;
-    }
-  };
-
-  /** Keep the whole window on screen (8px margin), also after the viewport shrinks. */
-  private clampDock(x: number, y: number): { x: number; y: number } {
-    const el = this.host.nativeElement;
-    const margin = 8;
-    const maxX = Math.max(margin, window.innerWidth - el.offsetWidth - margin);
-    const maxY = Math.max(margin, window.innerHeight - el.offsetHeight - margin);
-    return { x: Math.min(Math.max(x, margin), maxX), y: Math.min(Math.max(y, margin), maxY) };
-  }
-
-  private applyDockPosition(): void {
-    const style = this.host?.nativeElement.style;
-    if (!style) {
-      return;
-    }
-    if (this.dockPos && this.floatingDock) {
-      // Clamp for display only: the chosen spot comes back if the window grows again
-      const pos = this.clampDock(this.dockPos.x, this.dockPos.y);
-      style.left = `${pos.x}px`;
-      style.top = `${pos.y}px`;
-      style.right = 'auto';
-      style.bottom = 'auto';
-    } else {
-      // Expanded (full screen) or phone bar: back to the stylesheet's placement
-      style.left = style.top = style.right = style.bottom = '';
     }
   }
 
@@ -1115,6 +1307,120 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     return this.isGroup && this.hostIds.has(this.myUserId);
   }
 
+  /** Host or co-host (may admit, mute, remove attendees, change meeting options). */
+  get isModerator(): boolean {
+    return this.isGroup && (this.hostIds.has(this.myUserId) || this.cohostIds.has(this.myUserId));
+  }
+
+  get unmuteLocked(): boolean {
+    return this.isGroup && !this.isModerator && !this.meetingSettings.allowUnmute;
+  }
+
+  get shareLocked(): boolean {
+    return this.isGroup && !this.isModerator && !this.meetingSettings.allowShare;
+  }
+
+  isCohost(userId: string): boolean {
+    return this.cohostIds.has(userId);
+  }
+
+  private waitForAdmission(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.admission = { resolve, reject };
+    });
+  }
+
+  async admit(userId: string | 'all'): Promise<void> {
+    try {
+      await this.socketService.admitFromLobby(this.callId, userId);
+    } catch (error: any) {
+      this.showNotice(error?.message || 'Please try again.');
+    }
+  }
+
+  async deny(userId: string): Promise<void> {
+    try {
+      await this.socketService.denyFromLobby(this.callId, userId);
+    } catch (error: any) {
+      this.showNotice(error?.message || 'Please try again.');
+    }
+  }
+
+  async setOption(key: keyof MeetingSettings, value: boolean): Promise<void> {
+    const before = { ...this.meetingSettings };
+    this.meetingSettings = { ...this.meetingSettings, [key]: value };
+    this.render();
+    try {
+      const res = await this.socketService.setMeetingSettings(this.callId, { [key]: value });
+      this.meetingSettings = res.settings;
+    } catch (error: any) {
+      this.meetingSettings = before;
+      this.showNotice(error?.message || "We couldn't change the meeting options.");
+    }
+    this.render();
+  }
+
+  async muteEveryone(): Promise<void> {
+    try {
+      await this.socketService.muteEveryone(this.callId);
+      this.showNotice('Everyone else was muted');
+    } catch (error: any) {
+      this.showNotice(error?.message || "We couldn't mute everyone.");
+    }
+  }
+
+  async toggleCohost(userId: string): Promise<void> {
+    const make = !this.cohostIds.has(userId);
+    try {
+      await this.socketService.setCohost(this.callId, userId, make);
+      this.showNotice(make ? `${this.nameOf(userId)} is now a co-host` : `${this.nameOf(userId)} is no longer a co-host`);
+    } catch (error: any) {
+      this.showNotice(error?.message || "We couldn't change the role.");
+    }
+  }
+
+  /** Hosts / co-hosts in meetings, either person in a 1:1 call (the server decides). */
+  get canRecord(): boolean {
+    return this.recordingAvailable && this.phase === 'live' && (!this.isGroup || this.isModerator);
+  }
+
+  async toggleRecording(): Promise<void> {
+    this.showMore = false;
+    if (this.recordingBusy) {
+      return;
+    }
+    if (!this.recordingSince) {
+      const ok = await this.alertService.confirm({
+        title: 'Start recording?',
+        text: 'Everyone in the meeting will see that it is being recorded. The recording and its transcript are available to the members of this chat.',
+        confirmText: 'Start recording',
+      });
+      if (!ok) {
+        return;
+      }
+    }
+    this.recordingBusy = true;
+    this.render();
+    try {
+      if (this.recordingSince) {
+        await this.socketService.stopRecording(this.callId);
+      } else {
+        await this.socketService.startRecording(this.callId);
+      }
+    } catch (error: any) {
+      this.showNotice(error?.message || "We couldn't change the recording. Please try again.");
+    } finally {
+      this.recordingBusy = false;
+      this.render();
+    }
+  }
+
+  leaveLobby(): void {
+    this.admission?.reject(new Error('left'));
+    this.admission = null;
+    void this.finish('', true, 0);
+  }
+
   get filteredPeople(): PersonRow[] {
     const q = this.peopleSearch.trim().toLowerCase();
     return q ? this.people.filter((p) => p.name.toLowerCase().includes(q)) : this.people;
@@ -1184,9 +1490,13 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       this.showNotice('No microphone available');
       return;
     }
+    if (this.isMuted && this.unmuteLocked) {
+      this.showNotice("The organizer has turned off unmuting for attendees. Raise your hand to ask to speak.");
+      return;
+    }
     this.isMuted = !this.isMuted;
     this.mediasoupService.setAudioEnabled(!this.isMuted);
-    this.screenOverlay.refresh();
+    this.pip.refresh();
     this.broadcastMediaState();
     this.render();
   }
@@ -1202,11 +1512,11 @@ export class GroupCallComponent implements OnInit, OnDestroy {
         this.localStream = stream;
         this.mediaKick++;
         this.broadcastMediaState();
-        this.screenOverlay.refresh();
+        this.pip.refresh();
         this.render();
         await this.socketService.upgradeGroupCall(this.callId, 'video');
       } catch (error: any) {
-        this.showNotice(error?.message || 'Could not enable camera');
+        this.showNotice(this.deviceError(error, 'camera'));
       }
       return;
     }
@@ -1218,7 +1528,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     this.isVideoEnabled = !this.isVideoEnabled;
     this.mediasoupService.setVideoEnabled(this.isVideoEnabled);
     this.broadcastMediaState();
-    this.screenOverlay.refresh();
+    this.pip.refresh();
     this.render();
   }
 
@@ -1228,37 +1538,103 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.shareLocked) {
+      this.showNotice('The organizer has turned off screen sharing for attendees.');
+      return;
+    }
     if (this.activeScreenUserId && this.activeScreenUserId !== this.myUserId) {
       this.showNotice('Only one person can present at a time.');
       return;
     }
 
+    let picked: MediaStream | null = null;
     try {
+      picked = await this.mediasoupService.pickScreen();
       const lock = await this.socketService.requestScreenShare(this.callId);
       if (lock.error) {
+        picked.getTracks().forEach((t) => t.stop());
         this.showNotice(lock.error);
         return;
       }
 
-      const screenStream = await this.mediasoupService.startScreenShare();
+      const screenStream = await this.mediasoupService.publishScreen(picked);
       this.isScreenSharing = true;
       this.activeScreenUserId = this.myUserId;
       this.localScreenStream = screenStream;
+      this.shareDisplaySurface = this.mediasoupService.getScreenDisplaySurface(screenStream);
       this.pinnedKey = null;
       this.broadcastMediaState();
       this.render();
-      await this.openShareOverlay();
+      // Do NOT open call PiP here: it races Chrome tab/window capture (black) and is
+      // captured into entire-screen shares so remotes see the floating call window.
     } catch (error: any) {
       console.error('Screen share failed:', error);
-      await this.socketService.stopScreenShareLock(this.callId);
+      picked?.getTracks().forEach((t) => t.stop());
+      if (picked) {
+        await this.socketService.stopScreenShareLock(this.callId);
+      }
       this.isScreenSharing = false;
       this.localScreenStream = null;
+      this.shareDisplaySurface = '';
       // Cancelling the browser picker is not an error worth shouting about
       if (error?.name !== 'NotAllowedError' && error?.name !== 'AbortError') {
-        this.showNotice(`Screen share failed: ${error?.message || error}`);
+        console.warn('[call] screen share failed', error);
+        this.showNotice(error?.name === 'NotAllowedError' ? 'Screen sharing was blocked. Check your browser permissions and try again.' : "We couldn't start screen sharing. Please try again.");
       }
       this.render();
     }
+  }
+
+  // ---------------------------------------------------------------- floating window (Picture-in-Picture)
+
+  /** Opens the floating call window. Call only from a click (browsers require a user action). */
+  openPip(): Promise<boolean> {
+    return this.pip.enter().then((opened) => {
+      this.render();
+      return opened;
+    });
+  }
+
+  private pipHandlers(): CallPipHandlers {
+    return {
+      state: () => {
+        const item = this.pipStageItem();
+        const name = item?.avatarName || item?.name || this.peer.name;
+        return {
+          title: this.meetingTitle,
+          status: this.isScreenSharing ? 'Presenting' : this.statusLabel || (this.phase === 'live' ? 'In call' : 'Connecting…'),
+          muted: this.isMuted || !this.hasAudioDevice,
+          videoOn: this.isVideoEnabled && this.hasVideoDevice,
+          stage: {
+            stream: item?.stream || null,
+            showVideo: !!item?.showVideo,
+            name: item?.name || name,
+            initials: avatarInitials(name),
+            colors: avatarColors(name),
+          },
+        };
+      },
+      toggleMute: () => this.toggleMute(),
+      toggleVideo: () => this.toggleVideo(),
+      leave: () => this.leaveCall(),
+      // Closing the floating window / "back to tab" brings the full call back
+      left: () => {
+        if (this.minimized && !this.finished) {
+          this.minimizedChange.emit(false);
+        }
+        this.render();
+      },
+    };
+  }
+
+  /** Who the window shows: while presenting, the other person (never your own screen). */
+  private pipStageItem(): StageItem | null {
+    if (!this.isScreenSharing) {
+      return this.mainItem?.kind === 'screen' && this.mainItem.userId === this.myUserId ? this.sideItems.find((i) => i.kind === 'remote') || this.mainItem : this.mainItem;
+    }
+    const all = [this.mainItem, ...this.sideItems].filter((i): i is StageItem => !!i);
+    const others = all.filter((i) => i.kind === 'remote');
+    return others.find((i) => i.showVideo) || others[0] || all.find((i) => i.kind === 'self') || null;
   }
 
   toggleHand(): void {
@@ -1285,15 +1661,8 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
   async removeParticipant(userId: string): Promise<void> {
     const name = this.nameOf(userId);
-    const confirm = await Swal.fire({
-      title: `Remove ${name}?`,
-      text: 'They will be disconnected and cannot rejoin this call.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Remove',
-      confirmButtonColor: '#dc2626',
-    });
-    if (!confirm.isConfirmed) {
+    const confirm = await this.alertService.confirm({ title: `Remove ${name}?`, text: 'They will be disconnected and cannot rejoin this call.', confirmText: 'Remove', danger: true });
+    if (!confirm) {
       return;
     }
     const res = await this.socketService.removeCallParticipant(this.callId, userId);
@@ -1304,14 +1673,8 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
   async endForEveryone(): Promise<void> {
     this.showMore = false;
-    const confirm = await Swal.fire({
-      title: 'End meeting for everyone?',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'End meeting',
-      confirmButtonColor: '#dc2626',
-    });
-    if (!confirm.isConfirmed) {
+    const confirm = await this.alertService.confirm({ title: 'End meeting for everyone?', confirmText: 'End meeting', danger: true });
+    if (!confirm) {
       return;
     }
     const res = await this.socketService.endGroupCall(this.callId);
@@ -1328,16 +1691,40 @@ export class GroupCallComponent implements OnInit, OnDestroy {
 
   setMinimized(value: boolean): void {
     this.closeMenus();
-    this.minimizedChange.emit(value);
+    if (!value) {
+      this.minimizedChange.emit(false);
+      return;
+    }
+    if (this.phase === 'ended') {
+      return;
+    }
+    // Same click: the call moves into the browser's floating window (stays above other apps).
+    // Browsers without Picture-in-Picture keep the call on screen instead of hiding it.
+    void this.pip.enter().then((opened) => {
+      if (opened) {
+        this.minimizedChange.emit(true);
+      } else {
+        this.showNotice("This browser can't show the call in a floating window");
+      }
+      this.render();
+    });
   }
 
   /** Popovers are exclusive; the People and Chat side panels are exclusive with each other. */
-  toggleMenu(menu: 'more' | 'reactions' | 'people' | 'info' | 'view' | 'chat'): void {
-    const wasOpen = { more: this.showMore, reactions: this.showReactions, info: this.showInfo, view: this.showView };
+  toggleMenu(menu: 'more' | 'reactions' | 'people' | 'info' | 'view' | 'chat' | 'audio' | 'video'): void {
+    const wasOpen = {
+      more: this.showMore, reactions: this.showReactions, info: this.showInfo, view: this.showView,
+      audio: this.showAudioMenu, video: this.showVideoMenu,
+    };
     this.showMore = menu === 'more' && !wasOpen.more;
     this.showReactions = menu === 'reactions' && !wasOpen.reactions;
     this.showInfo = menu === 'info' && !wasOpen.info;
     this.showView = menu === 'view' && !wasOpen.view;
+    this.showAudioMenu = menu === 'audio' && !wasOpen.audio;
+    this.showVideoMenu = menu === 'video' && !wasOpen.video;
+    if (this.showAudioMenu || this.showVideoMenu) {
+      void this.loadDevices();
+    }
     if (menu === 'people') {
       this.showPeople = !this.showPeople;
       this.showChat = this.showChat && !this.showPeople;
@@ -1357,20 +1744,147 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     this.showReactions = false;
     this.showInfo = false;
     this.showView = false;
-    this.showSettings = false;
+    this.showAudioMenu = false;
+    this.showVideoMenu = false;
     this.render();
   }
 
-  async openSettings(): Promise<void> {
-    this.showMore = false;
+  /** Browser device errors → the standard, actionable wording (never the raw DOMException text). */
+  private deviceError(error: unknown, kind: 'camera' | 'microphone'): string {
+    console.warn(`[call] ${kind} error`, error);
+    if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+      return normalizeMediaError(error, `${kind === 'camera' ? 'Camera' : 'Microphone'} unavailable. Check your ${kind} permissions or select another ${kind}.`, kind).message;
+    }
+    return `${kind === 'camera' ? 'Camera' : 'Microphone'} unavailable. Check your ${kind} permissions or select another ${kind}.`;
+  }
+
+  get networkLabel(): string {
+    switch (this.networkQuality) {
+      case 'good': return 'Good';
+      case 'fair': return 'Fair';
+      case 'poor': return 'Poor';
+      default: return 'Measuring…';
+    }
+  }
+
+  /**
+   * Devices changed. If the microphone / camera / speaker in use disappeared, move to what the
+   * system offers now, without reconnecting the call (the producer track is replaced).
+   */
+  private async handleDeviceChange(): Promise<void> {
+    if (this.destroyed || this.phase !== 'live') {
+      return;
+    }
+    const lists = await listMediaDevices();
+    this.microphones = lists.microphones;
+    this.cameras = lists.cameras;
+    this.speakers = lists.speakers;
+
+    const currentMic = this.mediasoupService.currentDeviceId('audio');
+    if (currentMic && lists.microphones.length && !lists.microphones.some((d) => d.deviceId === currentMic)) {
+      const next = lists.microphones.find((d) => d.deviceId === 'default') || lists.microphones[0];
+      try {
+        await this.mediasoupService.switchMicrophone(next.deviceId);
+        this.selectedMic = next.deviceId;
+        this.showNotice(`Microphone disconnected. Using ${next.label || 'another microphone'}.`);
+      } catch {
+        this.showNotice('Microphone unavailable. Check your microphone permissions or select another microphone.');
+      }
+    }
+
+    const currentCam = this.mediasoupService.currentDeviceId('video');
+    if (currentCam && this.isVideoEnabled && !lists.cameras.some((d) => d.deviceId === currentCam)) {
+      if (lists.cameras.length) {
+        try {
+          await this.mediasoupService.switchCamera(lists.cameras[0].deviceId);
+          this.selectedCam = lists.cameras[0].deviceId;
+          this.showNotice(`Camera disconnected. Using ${lists.cameras[0].label || 'another camera'}.`);
+        } catch {
+          this.showNotice('Camera unavailable. Check your camera permissions or select another camera.');
+        }
+      } else {
+        this.showNotice('Camera disconnected.');
+      }
+    }
+
+    if (this.sinkId && this.sinkId !== 'default' && !lists.speakers.some((d) => d.deviceId === this.sinkId)) {
+      this.mediasoupService.setAudioOutput('default');
+      this.showNotice('Speaker disconnected. Using the system default.');
+    }
+    this.render();
+  }
+
+  /** Device lists for the Mic / Camera menus (labels need a granted permission, so read them late). */
+  private async loadDevices(): Promise<void> {
     const lists = await listMediaDevices();
     this.microphones = lists.microphones;
     this.cameras = lists.cameras;
     this.speakers = lists.speakers;
     this.selectedMic = this.mediasoupService.currentDeviceId('audio');
     this.selectedCam = this.mediasoupService.currentDeviceId('video');
-    this.showSettings = true;
     this.render();
+  }
+
+  get noiseSuppression(): boolean {
+    return this.mediasoupService.noiseSuppression;
+  }
+
+  async toggleNoiseSuppression(): Promise<void> {
+    this.noiseBusy = true;
+    this.render();
+    try {
+      await this.mediasoupService.setNoiseSuppression(!this.noiseSuppression);
+      this.localStream = this.mediasoupService.getLocalStream();
+      this.showNotice(this.noiseSuppression ? 'Noise suppression on' : 'Noise suppression off');
+    } catch (error: any) {
+      this.showNotice(error?.message || 'Could not change noise suppression');
+    }
+    this.noiseBusy = false;
+    this.render();
+  }
+
+  get videoEffect(): VideoEffect {
+    return this.mediasoupService.videoEffect;
+  }
+
+  get effectsSupported(): boolean {
+    return this.mediasoupService.videoEffectsSupported;
+  }
+
+  get backgroundBlurOn(): boolean {
+    return this.videoEffect === 'blur' || this.videoEffect === 'blur-strong';
+  }
+
+  async selectEffect(effect: VideoEffect): Promise<void> {
+    if (this.effectBusy || effect === this.videoEffect) {
+      return;
+    }
+    this.effectBusy = effect;
+    this.render();
+    try {
+      await this.mediasoupService.setVideoEffect(effect);
+      this.localStream = this.mediasoupService.getLocalStream();
+      this.mediaKick++;
+    } catch (error: any) {
+      this.showNotice(error?.message || 'Could not apply the background effect');
+    }
+    this.effectBusy = null;
+    this.render();
+  }
+
+  @HostListener('document:visibilitychange')
+  onVisibilityChange(): void {
+    // Only float the call when sharing a tab/window (not the whole screen — PiP would be captured).
+    if (
+      document.visibilityState === 'hidden' &&
+      this.isScreenSharing &&
+      this.shareDisplaySurface !== 'monitor' &&
+      this.phase === 'live' &&
+      !this.minimized &&
+      !this.finished
+    ) {
+      this.setMinimized(true);
+    }
   }
 
   async onMicChange(deviceId: string): Promise<void> {
@@ -1381,7 +1895,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       this.localStream = this.mediasoupService.getLocalStream();
       this.broadcastMediaState();
     } catch (error: any) {
-      this.showNotice(error?.message || 'Could not switch microphone');
+      this.showNotice(this.deviceError(error, 'microphone'));
     }
     this.render();
   }
@@ -1393,7 +1907,7 @@ export class GroupCallComponent implements OnInit, OnDestroy {
       this.localStream = this.mediasoupService.getLocalStream();
       this.mediaKick++;
     } catch (error: any) {
-      this.showNotice(error?.message || 'Could not switch camera');
+      this.showNotice(this.deviceError(error, 'camera'));
     }
     this.render();
   }
@@ -1505,25 +2019,11 @@ export class GroupCallComponent implements OnInit, OnDestroy {
   private async finishScreenShareUi(): Promise<void> {
     this.isScreenSharing = false;
     this.localScreenStream = null;
+    this.shareDisplaySurface = '';
     this.activeScreenUserId = null;
     await this.socketService.stopScreenShareLock(this.callId);
-    await this.screenOverlay.hide();
     this.broadcastMediaState();
     this.render();
-  }
-
-  private async openShareOverlay(): Promise<void> {
-    await this.screenOverlay.show({
-      onToggleMute: () => this.toggleMute(),
-      onToggleVideo: () => this.toggleVideo(),
-      onStopShare: () => {
-        void this.stopLocalScreenShare();
-      },
-      onLeave: () => this.leaveCall(),
-      isMuted: () => this.isMuted,
-      hasAudio: () => this.hasAudioDevice,
-      isVideoOn: () => this.isVideoEnabled && this.hasVideoDevice,
-    });
   }
 
   /**
@@ -1543,8 +2043,8 @@ export class GroupCallComponent implements OnInit, OnDestroy {
     if (this.isScreenSharing) {
       await this.mediasoupService.stopScreenShare();
       await this.socketService.stopScreenShareLock(this.callId);
-      await this.screenOverlay.hide();
     }
+    this.pip.release();
     if (notifyServer && this.callId) {
       this.socketService.leaveGroupCall(this.callId);
     }

@@ -15,6 +15,7 @@ import { UserService } from 'src/app/core/services/user.service';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
 import { BUILT_IN_RINGTONES, CUSTOM_RINGTONE, RingtoneService } from 'src/app/core/services/ringtone.service';
 import { CallNotificationService } from 'src/app/core/services/call-notification.service';
+import { ClerkService } from 'src/app/core/services/clerk.service';
 
 /** Same rules as the server (webrtc-BE userServices). */
 export const USERNAME_MIN = 3;
@@ -70,6 +71,7 @@ export class SidebarProfileComponent implements OnInit, OnDestroy {
     private cdr: ChangeDetectorRef,
     private tones: RingtoneService,
     public callNotifications: CallNotificationService,
+    public clerk: ClerkService,
   ) {
     this.ringtone = this.tones.selected;
   }

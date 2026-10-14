@@ -1,13 +1,10 @@
 <div class="modal-header">
-  <h4 class="modal-title">{{title}}</h4>
-  <button type="button" class="close" aria-label="Close" (click)="activeModal.dismiss()" *ngIf="showCloseBtn">
-    <i aria-hidden="true" class="ki ki-close"></i>
-  </button>
+  <h2 class="modal-title h5" id="confirm-dialog-title">{{title}}</h2>
+  <button type="button" class="btn-close" aria-label="Close" (click)="activeModal.dismiss()" *ngIf="showCloseBtn"></button>
 </div>
-<div class="modal-body" [innerHTML]="content">
-</div>
+<div class="modal-body" *ngIf="content">{{content}}</div>
 <div class="modal-footer">
-  <button type="button" class="btn btn-secondary" (click)="activeModal.dismiss()"
+  <button type="button" class="btn btn-light" (click)="activeModal.dismiss()"
     *ngIf="cancelBtn">{{cancelBtn}}</button>
-  <button type="button" class="btn btn-{{okType}}" (click)="activeModal.close()">{{okBtn}}</button>
+  <button type="button" class="btn btn-{{okType}}" (click)="activeModal.close()" ngbAutofocus>{{okBtn}}</button>
 </div>

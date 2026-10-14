@@ -5,6 +5,10 @@ import Message from "../models/messageModel";
 import Call from "../models/callModel";
 import ConversationUserState from "../models/conversationUserStateModel";
 import Block from "../models/blockModel";
+import Notification from "../models/notificationModel";
+import SavedMessage from "../models/savedMessageModel";
+import Meeting from "../models/meetingModel";
+import Recording from "../models/recordingModel";
 
 /**
  * Additive, idempotent data migrations. Each runs once and is recorded in the
@@ -90,6 +94,102 @@ const migrations: Migration[] = [
                 [{ $set: { groupAvatar: "$groupAvatarFile.storageKey" } }]
             );
             return `${users.modifiedCount} user(s), ${groups.modifiedCount} group(s) updated`;
+        },
+    },
+    {
+        id: "2026-10-08-user-clerk-id",
+        description: "Unique index on users.clerkId (Clerk sign-in link)",
+        up: async () => {
+            await User.createIndexes();
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-13-read-cursors",
+        description: "Backfill per-user read/delivery cursors from the legacy messages.isRead flag",
+        up: async () => {
+            // Newest message each author had read by others, per chat
+            const readByAuthor = await Message.aggregate([
+                { $match: { isRead: true, conversationId: { $exists: true } } },
+                { $group: { _id: { c: "$conversationId", a: "$userId" }, at: { $max: "$createdAt" } } },
+            ]);
+            const byConversation = new Map<string, { author: string; at: Date }[]>();
+            for (const row of readByAuthor) {
+                const key = String(row._id.c);
+                const list = byConversation.get(key) || [];
+                list.push({ author: String(row._id.a), at: row.at });
+                byConversation.set(key, list);
+            }
+            let written = 0;
+            const ids = [...byConversation.keys()];
+            for (let i = 0; i < ids.length; i += 500) {
+                const conversations = await Conversation.find({ _id: { $in: ids.slice(i, i + 500) } }).select("members").lean();
+                const ops: any[] = [];
+                for (const c of conversations) {
+                    const rows = byConversation.get(String(c._id)) || [];
+                    for (const member of (c.members || []).map(String)) {
+                        // A member has read up to the newest read message written by someone else
+                        const at = rows.filter((r) => r.author !== member).reduce<Date | null>((max, r) => (!max || r.at > max ? r.at : max), null);
+                        if (at) {
+                            ops.push({
+                                updateOne: {
+                                    filter: { userId: new mongoose.Types.ObjectId(member), conversationId: c._id },
+                                    update: { $max: { lastReadAt: at, lastDeliveredAt: at } },
+                                    upsert: true,
+                                },
+                            });
+                        }
+                    }
+                }
+                if (ops.length) {
+                    const res = await ConversationUserState.bulkWrite(ops);
+                    written += res.upsertedCount + res.modifiedCount;
+                }
+            }
+            return `${written} read cursor(s) written`;
+        },
+    },
+    {
+        id: "2026-10-13-activity-saved-indexes",
+        description: "Indexes for notifications (incl. 90-day expiry), saved messages and message mentions",
+        up: async () => {
+            await Promise.all([Notification.createIndexes(), SavedMessage.createIndexes(), Message.createIndexes()]);
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-13-meetings-indexes",
+        description: "Indexes for scheduled meetings (code, calendar, chat)",
+        up: async () => {
+            await Meeting.createIndexes();
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-13-recordings-indexes",
+        description: "Indexes for meeting recordings",
+        up: async () => {
+            await Recording.createIndexes();
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-14-recording-status-names",
+        description: "Recording / transcript status 'ready' → 'completed'; interrupted 'starting' → 'failed'",
+        up: async () => {
+            const col = Recording.collection;
+            const ready = await col.updateMany({ status: "ready" }, { $set: { status: "completed" } });
+            const starting = await col.updateMany({ status: "starting" }, { $set: { status: "failed", error: "The recording was interrupted." } });
+            const transcripts = await col.updateMany({ transcriptStatus: "ready" }, { $set: { transcriptStatus: "completed" } });
+            return `${ready.modifiedCount} completed, ${starting.modifiedCount} failed, ${transcripts.modifiedCount} transcripts renamed`;
+        },
+    },
+    {
+        id: "2026-10-13-call-history-index",
+        description: "Index calls by participant (call history)",
+        up: async () => {
+            await Call.createIndexes();
+            return "indexes ensured";
         },
     },
 ];

@@ -12,7 +12,6 @@ import { AlertService } from 'src/app/_shared/alert/alert.service';
 })
 export class UserService {
   private apiUrl = environment.apiUrl;
-  private tokenKey = 'auth_token';
 
   constructor(
     private http: HttpClient,
@@ -21,28 +20,16 @@ export class UserService {
 
   ) { }
 
-  getToken(): string | null {
-    return localStorage.getItem(this.tokenKey);
-  }
-
+  // The Clerk session token is added by AuthInterceptor
   getHeaders(): HttpHeaders {
-    const token = this.getToken();
-    if (!token) {
-      this.router.navigate(['/auth/login']);
-      this.alertService.error('You need to be logged in to access this page.');
-    }
     return new HttpHeaders({
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
       'skipInterceptorToast': 'true'
     });
   }
 
   groupCreatHeaders(): HttpHeaders {
-    const token = this.getToken();
-    return new HttpHeaders({
-      'Authorization': `Bearer ${token}`
-    });
+    return new HttpHeaders();
   }
 
   getUsers(): Observable<IUser[]> {
@@ -95,10 +82,6 @@ export class UserService {
 
   deleteConversation(conversationId: string): Observable<IApiResponse<null>> {
     return this.http.delete<IApiResponse<null>>(`${this.apiUrl}/conversations/${conversationId}`, { headers: this.getHeaders() });
-  }
-
-  getJitsiToken(roomName: string): Observable<{ status: boolean, allowed: boolean, jwt: string, roomName: string }> {
-    return this.http.get<any>(`${this.apiUrl}/jitsi-room/${roomName}`, { headers: this.getHeaders() });
   }
 
   updateProfile(formData: FormData): Observable<IApiResponse<IUser>> {

@@ -1,12 +1,10 @@
 import User from "../models/userModel";
 import { IUser } from "../models/userModel";
-import bcrypt from 'bcrypt'
-import { JwtUtills } from "../utils/jwtUtiils"
 import { IStoredFile } from "../models/storedFile.schema";
 import { releaseFile } from "./file.service";
 import { AppError, NotFoundError } from "../utils/errors";
 
-const USER_STATUSES = ['Available', 'Away', 'Busy'] as const;
+import { USER_STATUSES } from "./presence.service";
 export const USERNAME_MIN = 3;
 export const USERNAME_MAX = 30;
 export const BIO_MAX = 160;
@@ -53,34 +51,6 @@ export function parseProfileUpdate(body: Record<string, unknown> | undefined): P
 }
 
 class UserServices {
-    public async emailExists(email: unknown): Promise<boolean> {
-        return typeof email === 'string' && !!(await User.exists({ email: email.toLowerCase().trim() }));
-    }
-
-    public async createUser(newUser: Pick<IUser, '_id' | 'username' | 'email' | 'password' | 'avatar' | 'avatarFile'>): Promise<IUser> {
-        const existingUser = await User.findOne({ email: newUser.email });
-        if (existingUser) {
-            throw new AppError(`User already exists`, 409);
-        }
-        const hashPassword = await bcrypt.hash(newUser.password, 10);
-        newUser.password = hashPassword;
-        const user = new User({ ...newUser, isVerified: true });
-        const savedUser = await user.save();
-
-        return savedUser;
-    }
-
-    public async loginUser(email: string, password: string): Promise<{ token: string, user: IUser }> {
-        let user;
-        user = await User.findOne({ email: email })
-
-        if (!user) throw new Error(`User with Email ${email} not found`);
-        const pass = await bcrypt.compare(password, user.password);
-        if (!pass) throw new Error(`Invalid Credentials`);
-        const token = JwtUtills.generateToken(user.id);
-        return { token, user };
-    }
-
     public async allUser(): Promise<IUser[]> {
         const user = User.aggregate(
             [

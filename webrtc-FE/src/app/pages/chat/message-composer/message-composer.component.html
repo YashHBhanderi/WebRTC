@@ -1,4 +1,23 @@
-<div class="reply-bar" *ngIf="replyTo">
+<div class="reply-bar reply-bar--edit" *ngIf="editTarget">
+  <div class="reply-bar__body">
+    <strong><i class="fa-solid fa-pen" aria-hidden="true"></i> Editing message</strong>
+    <span>Enter to save · Esc to cancel</span>
+  </div>
+  <button type="button" class="icon-btn icon-btn--sm" (click)="exitEdit()" aria-label="Cancel editing">
+    <i class="fa-solid fa-xmark"></i>
+  </button>
+</div>
+
+<div class="mention-list" *ngIf="mentionQuery !== null && mentionOptions.length" role="listbox" aria-label="Mention someone">
+  <button type="button" *ngFor="let user of mentionOptions; let i = index" class="mention-list__item" role="option"
+          [class.mention-list__item--active]="i === mentionIndex" [attr.aria-selected]="i === mentionIndex"
+          (mousedown)="$event.preventDefault()" (click)="pickMention(user)" (mouseenter)="mentionIndex = i">
+    <app-avatar [src]="user.avatar" [name]="user.username" [size]="24"></app-avatar>
+    <span>{{ user.username }}</span>
+  </button>
+</div>
+
+<div class="reply-bar" *ngIf="replyTo && !editTarget">
   <div class="reply-bar__body">
     <strong>{{ replyTo.author }}</strong>
     <span>{{ replyTo.text }}</span>
@@ -8,31 +27,31 @@
   </button>
 </div>
 
-<div class="attach-bar" *ngIf="file">
-  <div class="attach-bar__thumb" [ngSwitch]="fileKind">
-    <img *ngSwitchCase="'image'" [src]="filePreviewUrl" alt="Selected image" />
-    <video *ngSwitchCase="'video'" [src]="filePreviewUrl" muted></video>
-    <i *ngSwitchCase="'audio'" class="fa-solid fa-file-audio"></i>
-    <i *ngSwitchCase="'pdf'" class="fa-solid fa-file-pdf text-danger"></i>
-    <i *ngSwitchDefault class="fa-regular fa-file"></i>
+<div class="attach-list" *ngIf="files.length" role="list" aria-label="Attachments">
+  <div class="attach-chip" role="listitem" *ngFor="let item of files">
+    <div class="attach-chip__thumb" [ngSwitch]="item.kind">
+      <img *ngSwitchCase="'image'" [src]="item.previewUrl" alt="" />
+      <video *ngSwitchCase="'video'" [src]="item.previewUrl" muted></video>
+      <i *ngSwitchDefault class="fa-solid {{ fileIcon(item) }}" aria-hidden="true"></i>
+    </div>
+    <div class="attach-chip__info">
+      <strong [title]="item.file.name">{{ item.file.name }}</strong>
+      <span>{{ item.file.size | fileSize }}</span>
+    </div>
+    <button type="button" class="icon-btn icon-btn--sm" (click)="removeFile(item)" [attr.aria-label]="'Remove ' + item.file.name">
+      <i class="fa-solid fa-xmark"></i>
+    </button>
   </div>
-  <div class="attach-bar__info">
-    <strong>{{ file.name }}</strong>
-    <span>{{ sending ? 'Uploading…' : (file.size / 1024 / 1024 | number: '1.0-1') + ' MB' }}</span>
-  </div>
-  <button type="button" class="icon-btn icon-btn--sm" (click)="clearFile()" [disabled]="sending" aria-label="Remove attachment">
-    <i class="fa-solid fa-xmark"></i>
-  </button>
 </div>
 
 <form class="composer" [class.composer--compact]="compact" (submit)="$event.preventDefault(); send()">
   <button type="button" class="icon-btn" #emojiBtn (click)="openPicker(emojiBtn)" [class.is-active]="pickerOpen" aria-label="Emoji" [attr.aria-expanded]="pickerOpen">
     <i class="fa-regular fa-face-smile"></i>
   </button>
-  <button type="button" class="icon-btn" (click)="fileInput.click()" [disabled]="sending" aria-label="Attach a file" title="Photo, video, audio or PDF">
+  <button type="button" class="icon-btn" (click)="fileInput.click()" [disabled]="sending || !!editTarget" aria-label="Attach files" title="Attach files">
     <i class="fa-solid fa-paperclip"></i>
   </button>
-  <input type="file" #fileInput (change)="onFileChosen($event)" class="d-none" accept="image/*,application/pdf,video/*,audio/*" />
+  <input type="file" #fileInput (change)="onFileChosen($event)" class="d-none" multiple [accept]="accept" />
 
   <textarea
     #input
@@ -40,15 +59,17 @@
     class="composer__input"
     [placeholder]="placeholder"
     aria-label="Message"
+    maxlength="4000"
+    [attr.aria-expanded]="mentionQuery !== null && mentionOptions.length > 0"
     [(ngModel)]="text"
     [ngModelOptions]="{ standalone: true }"
     (input)="onInput()"
     (keydown)="onKeydown($event)"
   ></textarea>
 
-  <button type="submit" class="send-btn" [disabled]="!canSend" aria-label="Send message">
+  <button type="submit" class="send-btn" [disabled]="!canSend" [attr.aria-label]="editTarget ? 'Save edit' : 'Send message'">
     <span *ngIf="sending" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-    <i *ngIf="!sending" class="fa-solid fa-paper-plane"></i>
+    <i *ngIf="!sending" class="fa-solid" [class.fa-paper-plane]="!editTarget" [class.fa-check]="!!editTarget"></i>
   </button>
 </form>
 

@@ -7,13 +7,14 @@ import chatState from "../services/chat-state.service";
 import blockService from "../services/block.service";
 import { directPeerId, getConversationForMember } from "../services/authorization.service";
 import { memberRemoved, membersAdded } from "../realtime/group.events";
-import { AppError } from "../utils/errors";
+import { AppError, sendError } from "../utils/errors";
+import receiptsService from "../services/receipts.service";
+import { emitToUsers } from "../realtime/io";
+import messageActions from "../services/message-actions.service";
 import { discardTempFile } from "../utils/multer";
 
-/** Same error body as before; status 4xx for expected failures, 500 otherwise. */
 function fail(res: Response, error: unknown): void {
-    const status = error instanceof AppError ? error.status : 500;
-    res.status(status).json({ status: false, data: null, message: error instanceof Error ? error.message : "Something went wrong" });
+    sendError(res, error);
 }
 
 const archivedFlag = (req: Request) => req.query.archived === "true" || req.query.archived === "1";
@@ -82,6 +83,8 @@ export default class ConversationController {
                     peerId,
                     // Only the user's own block is revealed, never whether the other side blocked them
                     blockedByMe: peerId ? await blockService.hasBlocked(userId, peerId) : false,
+                    receipts: await receiptsService.forConversation(String(conversation._id), conversation.members.map(String)),
+                    pins: await messageActions.pins(String(conversation._id)),
                 },
             });
         } catch (error) {
@@ -151,8 +154,9 @@ export default class ConversationController {
         try {
             if (!conversationId) throw new AppError("Conversation ID is required");
             if (!userId) throw new AppError("User ID is required");
-            await ConversationService.deleteConversation(conversationId, userId);
-            res.status(200).json({ status: true, data: null, message: 'Conversation deleted successfully' });
+            const { memberIds } = await ConversationService.deleteConversation(conversationId, userId);
+            emitToUsers(memberIds, "group:removed", { groupId: conversationId, reason: "deleted", by: userId });
+            res.status(200).json({ status: true, data: null, message: 'Group deleted' });
         } catch (error) {
             fail(res, error);
         }

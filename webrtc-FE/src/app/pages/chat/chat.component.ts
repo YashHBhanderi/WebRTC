@@ -1,5 +1,7 @@
+import { PRESENCE_LABEL, PresenceKey, applyPresence, presenceOf } from 'src/app/core/utils/presence.util';
 import {
   AfterViewInit,
+  DoCheck,
   ChangeDetectorRef,
   Component,
   ElementRef,
@@ -14,29 +16,26 @@ import {
 import { FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, firstValueFrom } from 'rxjs';
-import Swal from 'sweetalert2';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { environment } from 'src/environments/environment';
 import { UserService } from 'src/app/core/services/user.service';
 import { SocketService } from 'src/app/core/services/socket.service';
 import { AuthService } from 'src/app/core/services/auth.service';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
-import { CallHandoffService } from 'src/app/core/services/call-handoff.service';
 import { ChatActionsService } from 'src/app/core/services/chat-actions.service';
 import { MessageSenderService } from 'src/app/core/services/message-sender.service';
+import { UploadJob, UploadService } from 'src/app/core/services/upload.service';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { MessageComposerComponent, fileIconFor } from './message-composer/message-composer.component';
 import { CHAT_CONFIG, ChatConfig } from 'src/app/core/config/chat.config';
-import { ChatMessage, ChatState, ChatUser, GroupSummary, MessageDraft, messagePreview } from 'src/app/core/interfaces/chat';
-import { CallLaunch, CallMember } from '../group-call/call.models';
-import { IncomingCall } from './incoming-call/incoming-call.component';
+import { ChatMessage, ChatState, ChatUser, EditTarget, GroupSummary, MemberReceipt, MessageDraft, PinnedMessage, messagePreview } from 'src/app/core/interfaces/chat';
+import { ActiveGroupMeeting, CallManagerService } from 'src/app/core/services/call-manager.service';
+import { NotificationCenterService } from 'src/app/core/services/notification-center.service';
+import { ShellUiService } from 'src/app/core/services/shell-ui.service';
 import { ReplyPreview } from './message-composer/message-composer.component';
 import { MediaOpenEvent } from './message-item/message-item.component';
 import { CallNotificationService } from 'src/app/core/services/call-notification.service';
 
-export interface ActiveGroupMeeting {
-  callId: string;
-  callType: 'audio' | 'video';
-  mode: 'ring' | 'meetNow';
-}
 
 type SidebarFilter = 'all' | 'unread' | 'groups' | 'contacts';
 type SidebarMode = 'chats' | 'archived' | 'profile';
@@ -51,6 +50,7 @@ interface SidebarItem {
   title: string;
   avatar?: string;
   online?: boolean;
+  presence?: PresenceKey | null;
   preview: string;
   previewIsMine: boolean;
   previewRead: boolean;
@@ -63,9 +63,9 @@ interface SidebarItem {
 @Component({
   selector: 'app-chat',
   templateUrl: './chat.component.html',
-  styleUrls: ['./chat.component.scss']
+  styleUrls: ['../shared/list-pane.scss', './chat.component.scss']
 })
-export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
+export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy {
   // ---- lists
   chatData: any[] = [];
   groupChatData: any[] = [];
@@ -103,6 +103,15 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ---- composer
   replyingTo: ChatMessage | null = null;
+  editing: EditTarget | null = null;
+  // ---- receipts / pins / unread divider for the open chat
+  private receipts = new Map<string, MemberReceipt>();
+  pins: PinnedMessage[] = [];
+  pinnedIds = new Set<string>();
+  pinsExpanded = false;
+  /** First message shown under the "New messages" divider */
+  firstUnreadId: string | null = null;
+  private openingUnread = 0;
 
   // ---- right panels / search jump
   rightPanel: RightPanel = 'none';
@@ -116,10 +125,10 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   previewDownloadUrl: string | null = null;
 
   // ---- calls
-  activeGroupCalls: { [groupId: string]: ActiveGroupMeeting } = {};
-  activeCall: CallLaunch | null = null;
-  callMinimized = false;
-  incomingCall: IncomingCall | null = null;
+  /** Live calls / meetings per conversation (owned by CallManagerService). */
+  get activeGroupCalls(): { [groupId: string]: ActiveGroupMeeting } {
+    return this.calls.meetings;
+  }
 
   // ---- layout
   isMobileView = false;
@@ -144,13 +153,18 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   myUsername: string = this.authService.getLoggedInUser()?.username;
 
   @ViewChild('scrollContainer', { static: false }) scrollContainer?: ElementRef<HTMLElement>;
+  @ViewChild(MessageComposerComponent) composer?: MessageComposerComponent;
+  /** Attachments of the open chat that are still uploading (or failed). */
+  uploadJobs: UploadJob[] = [];
+  dragActive = false;
+  private dragDepth = 0;
+  /** In-app PDF viewer source (pre-signed URL, trusted: it comes from our API). */
+  previewPdf: SafeResourceUrl | null = null;
   @ViewChild('topElement', { static: false }) topElement?: ElementRef<HTMLElement>;
   @ViewChild('groupModal', { static: true }) groupModalTpl!: TemplateRef<any>;
   @ViewChild('forwardModal', { static: true }) forwardModalTpl!: TemplateRef<any>;
 
   private subs = new Subscription();
-  private callStartedSub?: Subscription;
-  private callStartTimer: ReturnType<typeof setTimeout> | null = null;
   private chatWindowObserver: IntersectionObserver | null = null;
   private seenMessageIds = new Set<string>();
   private markReadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -158,10 +172,12 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   private highlightTimer: ReturnType<typeof setTimeout> | null = null;
   private groupModalRef: NgbModalRef | null = null;
   private forwardModalRef: NgbModalRef | null = null;
-  private pendingUrlCall: { callId: string; groupId: string; callType: 'audio' | 'video'; join: boolean } | null = null;
-  private listsLoaded = { chats: false, groups: false };
   private detachScroll: (() => void) | null = null;
   private conversationSeq = 0;
+  /** Lists loaded at least once (deep links wait for all of them). */
+  private readonly loadedLists = new Set<string>();
+  /** `/chat?c=…&m=…` or `/chat?user=…` waiting for the lists (global search, notifications). */
+  private pendingDeepLink: { conversationId?: string; userId?: string; messageId?: string; term?: string } | null = null;
 
   private readonly onResize = () => this.checkScreenSize();
   private readonly onVisibility = () => {
@@ -172,6 +188,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
 
   /** Bound for the composer component (keeps `this`). */
   readonly sendDraft = (draft: MessageDraft): Promise<boolean> => this.send(draft);
+  readonly saveEdit = (id: string, text: string, mentionIds: string[]): Promise<boolean> => this.submitEdit(id, text, mentionIds);
 
   constructor(
     public formBuilder: FormBuilder,
@@ -183,11 +200,15 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     private router: Router,
     private route: ActivatedRoute,
     private modalService: NgbModal,
-    private callHandoff: CallHandoffService,
     private chatActions: ChatActionsService,
     private sender: MessageSenderService,
+    public uploads: UploadService,
+    private sanitizer: DomSanitizer,
     private zone: NgZone,
     public callNotifications: CallNotificationService,
+    private calls: CallManagerService,
+    private notificationCenter: NotificationCenterService,
+    private shellUi: ShellUiService,
     @Inject(CHAT_CONFIG) config: ChatConfig,
   ) {
     this.pageSize = config.historyPageSize;
@@ -238,26 +259,44 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
         : `Message not sent.${data?.message ? ' ' + data.message : ''}`);
     }));
 
-    this.setupCallNotifications();
+    this.subs.add(this.socketService.onReceiptsUpdated().subscribe((data) => this.onReceipts(data)));
+    this.subs.add(this.socketService.onMessageUpdated().subscribe((data) => this.onMessageUpdated(data)));
+    this.subs.add(this.socketService.onMessageDeleted().subscribe((data) => this.onMessageDeleted(data)));
+    this.subs.add(this.socketService.onPinsChanged().subscribe((data) => {
+      if (String(data?.conversationId) === this.conversationId) {
+        this.setPins(data.pins || []);
+      }
+    }));
 
-    // `/chat?call=…` → open (or after a refresh, rejoin) that call
+    // Deep links: open a conversation (and optionally jump to a message)
     this.subs.add(this.route.queryParamMap.subscribe((params) => {
-      const callId = params.get('call');
-      const groupId = params.get('g');
-      if (!callId || !groupId || this.activeCall?.callId === callId) {
+      const conversationId = params.get('c') || undefined;
+      const userId = params.get('user') || undefined;
+      if (!conversationId && !userId) {
         return;
       }
-      this.pendingUrlCall = {
-        callId,
-        groupId,
-        callType: params.get('t') === 'audio' ? 'audio' : 'video',
-        join: params.get('join') === '1',
-      };
-      this.tryOpenPendingCall();
+      this.pendingDeepLink = { conversationId, userId, messageId: params.get('m') || undefined, term: params.get('q') || undefined };
+      void this.tryOpenDeepLink();
     }));
+
+    this.subs.add(this.uploads.jobs$.subscribe(() => {
+      const before = this.uploadJobs.length;
+      this.uploadJobs = this.conversationId ? this.uploads.jobsFor(this.conversationId) : [];
+      if (this.uploadJobs.length > before && this.isNearBottom) {
+        this.scrollToBottom();
+      }
+    }));
+
+    // Live-call badges in the list follow the shared call state
+    this.subs.add(this.calls.meetings$.subscribe(() => this.rebuildSidebar()));
 
     document.addEventListener('visibilitychange', this.onVisibility);
     window.addEventListener('resize', this.onResize);
+  }
+
+  /** Phones: an open conversation takes the whole screen (no bottom tab bar), like Teams. */
+  ngDoCheck(): void {
+    this.shellUi.setImmersive(this.isMobileView && this.showChatPane && this.hasOpenConversation);
   }
 
   ngAfterViewInit(): void {
@@ -265,11 +304,9 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.shellUi.setImmersive(false);
+    this.notificationCenter.activeConversationId = null;
     this.subs.unsubscribe();
-    this.callStartedSub?.unsubscribe();
-    if (this.callStartTimer) {
-      clearTimeout(this.callStartTimer);
-    }
     [this.markReadTimer, this.listReloadTimer, this.highlightTimer].forEach((t) => t && clearTimeout(t));
     this.typingUsers.forEach((t) => clearTimeout(t));
     this.chatWindowObserver?.disconnect();
@@ -287,10 +324,18 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
+    // Modals and menus handle their own Escape first
+    if (document.querySelector('.modal.show, .dropdown-menu.show, app-emoji-picker')) {
+      return;
+    }
     if (this.previewUrl) {
       this.closePreview();
     } else if (this.replyingTo) {
       this.cancelReply();
+    } else if (this.rightPanel !== 'none') {
+      this.closeRightPanel();
+    } else if (this.pinsExpanded) {
+      this.pinsExpanded = false;
     }
   }
 
@@ -323,7 +368,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
         this.users = response.data || [];
         this.rebuildSidebar();
       },
-      error: (error) => this.alertService.error(`Failed to load users: ${error || 'Unknown error'}`),
+      error: () => undefined, // The error interceptor already showed a friendly message
     });
   }
 
@@ -333,15 +378,13 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       next: (response) => {
         this.listLoading = false;
         this.chatData = response.data || [];
-        this.listsLoaded.chats = true;
         this.rebuildSidebar();
-        this.tryOpenPendingCall();
+        this.listLoaded('chats');
       },
       error: (error) => {
         this.listLoading = false;
-        this.listsLoaded.chats = true;
-        this.alertService.error(`Failed to load conversations: ${error || 'Unknown error'}`);
-        this.tryOpenPendingCall();
+        // The error interceptor already showed a friendly message
+        this.listLoaded('chats');
       }
     });
   }
@@ -350,15 +393,13 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     this.userService.getUserGropuConversations().subscribe({
       next: (response) => {
         this.groupChatData = response.data || [];
-        this.listsLoaded.groups = true;
         this.syncOpenGroupFromList();
         this.rebuildSidebar();
-        this.tryOpenPendingCall();
+        this.listLoaded('groups');
       },
       error: (error) => {
-        this.listsLoaded.groups = true;
-        this.alertService.error(`Failed to load group conversations: ${error || 'Unknown error'}`);
-        this.tryOpenPendingCall();
+        // The error interceptor already showed a friendly message
+        this.listLoaded('groups');
       }
     });
   }
@@ -368,15 +409,17 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       next: (res) => {
         this.archivedChats = res.data || [];
         this.rebuildSidebar();
+        this.listLoaded('archivedChats');
       },
-      error: () => undefined,
+      error: () => this.listLoaded('archivedChats'),
     });
     this.userService.getUserGropuConversations(true).subscribe({
       next: (res) => {
         this.archivedGroups = res.data || [];
         this.rebuildSidebar();
+        this.listLoaded('archivedGroups');
       },
-      error: () => undefined,
+      error: () => this.listLoaded('archivedGroups'),
     });
   }
 
@@ -417,6 +460,9 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   rebuildSidebar(): void {
+    this.notificationCenter.setUnreadChats(
+      [...this.chatData, ...this.groupChatData].filter((c) => c.unreadCount > 0 && String(c._id) !== this.conversationId).map((c) => String(c._id)),
+    );
     const q = this.sidebarSearch.trim().toLowerCase();
     const matches = (text: string) => !q || (text || '').toLowerCase().includes(q);
     const items: SidebarItem[] = [];
@@ -433,6 +479,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
           title: u.username,
           avatar: u.avatar,
           online: !!u.isOnline,
+          presence: presenceOf(u),
           preview: u.bio || (u.isOnline ? 'Online' : ''),
           previewIsMine: false,
           previewRead: false,
@@ -460,6 +507,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
           title: c.receiver.username,
           avatar: c.receiver.avatar,
           online: !!c.receiver.isOnline,
+          presence: presenceOf(c.receiver),
           preview: this.previewText(c.lastMessage),
           previewIsMine: this.isMineId(c.lastMessage?.userId),
           previewRead: !!c.lastMessage?.isRead,
@@ -513,6 +561,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   openSidebarItem(item: SidebarItem): void {
+    this.openingUnread = item.unread || 0;
     if (item.kind === 'group') {
       this.openGroupConversation(item.source);
       return;
@@ -567,10 +616,10 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
           this.peerAvatar = avatar;
           this.afterConversationOpened();
         } else {
-          this.alertService.error('Failed to create or retrieve conversation.');
+          this.alertService.error("We couldn't open this chat. Please try again.");
         }
       },
-      error: (error) => this.alertService.error(`Failed to create or retrieve conversation: ${error || 'Unknown error'}`),
+      error: () => undefined, // The error interceptor already showed a friendly message
     });
   }
 
@@ -588,12 +637,17 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private afterConversationOpened(): void {
+    this.uploadJobs = this.uploads.jobsFor(this.conversationId);
+    this.notificationCenter.activeConversationId = this.conversationId;
     this.loadMessages(this.conversationId);
     this.socketService.markMessagesAsRead(this.conversationId);
     const id = this.conversationId;
     this.chatActions.state(id).then((state) => {
       if (this.conversationId === id) {
         this.chatState = state;
+        this.receipts = new Map((state.receipts || []).map((r) => [String(r.userId), r]));
+        this.setPins(state.pins || []);
+        this.refreshStatuses();
       }
     }).catch(() => undefined);
   }
@@ -601,6 +655,12 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   private resetConversationState(): void {
     this.conversationSeq++;
     this.cancelReply();
+    this.editing = null;
+    this.receipts.clear();
+    this.pins = [];
+    this.pinnedIds = new Set();
+    this.pinsExpanded = false;
+    this.firstUnreadId = null;
     this.chatState = null;
     this.searchHitId = null;
     this.searchTerm = '';
@@ -643,12 +703,20 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
           this.messageArray = this.withSenderNames(response.data || []);
           this.messageArray.forEach((m) => this.seenMessageIds.add(m._id));
           this.hasMoreMessages = (response.data || []).length === this.pageSize;
+          this.refreshStatuses();
+          this.placeUnreadDivider();
         }
         this.messagesLoading = false;
         this.cdr.detectChanges();
         this.attachScrollWatcher();
         this.setupInfiniteScroll();
-        this.scrollToBottom(true);
+        // Open at the first unread message (Teams-style), otherwise at the latest
+        const divider = this.firstUnreadId ? document.getElementById('unread-divider') : null;
+        if (divider) {
+          divider.scrollIntoView({ block: 'start' });
+        } else {
+          this.scrollToBottom(true);
+        }
         setTimeout(() => {
           this.isFetchingOldMessages = false; // Re-enable infinite scroll after rendering
         }, 400);
@@ -775,7 +843,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
           data.user = { _id: data.userId, username: response.data.username, avatar: response.data.avatar };
           append(data);
         },
-        error: (error) => this.alertService.error(`Error fetching user: ${error || 'Unknown error'}`),
+        error: () => undefined, // The error interceptor already showed a friendly message
       });
       return;
     }
@@ -895,10 +963,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     const apply = (u: any) => {
       if (u && String(u._id) === userId) {
-        u.isOnline = !!data.isOnline;
-        if (data.lastSeen) {
-          u.lastSeen = data.lastSeen;
-        }
+        applyPresence(u, data);
       }
     };
     [...this.chatData, ...this.archivedChats].forEach((c) => apply(c.receiver));
@@ -911,6 +976,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
         this.lastSeen = data.lastSeen;
       }
     }
+    this.groupMembers = [...this.groupMembers];
     this.rebuildSidebar();
   }
 
@@ -958,6 +1024,8 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     if (data?.reason === 'removed') {
       this.alertService.info(`You were removed from ${name || 'a group'}`);
+    } else if (data?.reason === 'deleted' && String(data?.by) !== this.myUserId) {
+      this.alertService.info(`${name || 'A group'} was deleted by an admin`);
     }
     this.rebuildSidebar();
   }
@@ -988,10 +1056,26 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     if (this.typingUsers.size) {
       return 'typing…';
     }
+    const peer = this.peerUser;
     if (this.isOnline) {
-      return 'online';
+      const label = PRESENCE_LABEL[presenceOf({ ...peer, isOnline: true })];
+      return peer?.statusMessage ? `${label} · ${peer.statusMessage}` : label;
     }
     return this.lastSeen ? `last seen ${this.formatLastSeen(this.lastSeen)}` : '';
+  }
+
+  /** The other person in an open 1:1 chat, as known from the lists (for presence details). */
+  get peerUser(): any {
+    if (this.isGroupChat || !this.receiverId) {
+      return null;
+    }
+    return [...this.chatData, ...this.archivedChats].find((c) => String(c.receiver?._id) === this.receiverId)?.receiver
+      || this.users.find((u) => String(u._id) === this.receiverId)
+      || null;
+  }
+
+  get peerPresence(): PresenceKey {
+    return presenceOf({ ...(this.peerUser || {}), isOnline: this.isOnline });
   }
 
   get isTyping(): boolean {
@@ -1020,20 +1104,13 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       this.alertService.success(archive ? 'Chat archived' : 'Chat unarchived');
       this.reloadAllLists();
     } catch (error: any) {
-      this.alertService.error(error?.message || 'Could not update the chat');
+      this.alertService.fromError(error, "We couldn't update the chat. Please try again.");
     }
   }
 
   async clearChat(): Promise<void> {
-    const confirm = await Swal.fire({
-      title: 'Clear this chat?',
-      text: 'Messages will be removed for you only. Other participants will still see them.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Clear chat',
-      confirmButtonColor: '#dc2626',
-    });
-    if (!confirm.isConfirmed) {
+    const confirm = await this.alertService.confirm({ title: 'Clear this chat?', text: 'Messages will be removed for you only. Other participants will still see them.', confirmText: 'Clear chat', danger: true });
+    if (!confirm) {
       return;
     }
     try {
@@ -1051,7 +1128,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       [this.chatData, this.groupChatData, this.archivedChats, this.archivedGroups].forEach(clearEntry);
       this.rebuildSidebar();
     } catch (error: any) {
-      this.alertService.error(error?.message || 'Could not clear the chat');
+      this.alertService.fromError(error, "We couldn't clear the chat. Please try again.");
     }
   }
 
@@ -1061,15 +1138,8 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     const block = !this.blockedByMe;
     if (block) {
-      const confirm = await Swal.fire({
-        title: `Block ${this.peerName}?`,
-        text: "Blocked contacts can't message or call you. They won't be notified.",
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Block',
-        confirmButtonColor: '#dc2626',
-      });
-      if (!confirm.isConfirmed) {
+      const confirm = await this.alertService.confirm({ title: `Block ${this.peerName}?`, text: "Blocked contacts can't message or call you. They won't be notified.", confirmText: 'Block', danger: true });
+      if (!confirm) {
         return;
       }
     }
@@ -1078,7 +1148,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       this.chatState = { ...(this.chatState as ChatState), blockedByMe: block };
       this.alertService.success(block ? `${this.peerName} blocked` : `${this.peerName} unblocked`);
     } catch (error: any) {
-      this.alertService.error(error?.message || 'Could not update the block');
+      this.alertService.fromError(error, "We couldn't update the block. Please try again.");
     }
   }
 
@@ -1086,15 +1156,8 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!this.isGroupChat) {
       return;
     }
-    const confirm = await Swal.fire({
-      title: `Exit "${this.groupname}"?`,
-      text: 'You will stop receiving messages from this group.',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonText: 'Exit group',
-      confirmButtonColor: '#dc2626',
-    });
-    if (!confirm.isConfirmed) {
+    const confirm = await this.alertService.confirm({ title: `Exit "${this.groupname}"?`, text: 'You will stop receiving messages from this group.', confirmText: 'Exit group', danger: true });
+    if (!confirm) {
       return;
     }
     const groupId = this.conversationId;
@@ -1103,7 +1166,30 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       this.onGroupRemoved({ groupId, reason: 'left' });
       this.alertService.success('You left the group');
     } catch (error: any) {
-      this.alertService.error(error?.message || 'Could not leave the group');
+      this.alertService.fromError(error, "We couldn't leave the group. Please try again.");
+    }
+  }
+
+  async deleteGroup(): Promise<void> {
+    if (!this.isGroupChat) {
+      return;
+    }
+    const confirmed = await this.alertService.confirm({
+      title: `Delete "${this.groupname}"?`,
+      text: 'The group and all of its messages and files will be deleted for every member. This cannot be undone.',
+      confirmText: 'Delete group',
+      danger: true,
+    });
+    if (!confirmed) {
+      return;
+    }
+    const groupId = this.conversationId;
+    try {
+      await firstValueFrom(this.userService.deleteConversation(groupId));
+      this.onGroupRemoved({ groupId, reason: 'deleted-by-me' });
+      this.alertService.success('Group deleted');
+    } catch {
+      // The interceptor already showed the reason
     }
   }
 
@@ -1235,7 +1321,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       this.alertService.info('This call has ended.');
       return;
     }
-    this.openCall(this.buildLaunch(meeting[0], callId, meeting[1].callType, { prejoin: this.isGroupConversation(meeting[0]) }));
+    void this.calls.joinMeeting(meeting[0], callId);
   }
 
   addReaction(messageId: string, emoji: string): void {
@@ -1358,7 +1444,12 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       return false;
     }
     try {
-      await this.sender.send(this.conversationId, draft);
+      const files = draft.files?.length ? draft.files : draft.file ? [draft.file] : [];
+      if (files.length) {
+        this.uploads.enqueue(this.conversationId, files, { caption: draft.text, replyToId: draft.replyToId, mentionIds: draft.mentionIds });
+      } else {
+        await this.sender.send(this.conversationId, draft);
+      }
       this.replyingTo = null;
       this.socketService.stopTyping(this.myUserId);
       this.scrollToBottom();
@@ -1373,19 +1464,88 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
 
   openPreview(event: MediaOpenEvent): void {
     const { url, type } = event;
-    if (type === 'pdf' || type === 'application/pdf' || type === 'audio') {
+    if (type === 'audio') {
       window.open(url, '_blank', 'noopener');
       return;
     }
+    const isPdf = type === 'pdf' || type === 'application/pdf';
     this.previewUrl = url;
-    this.previewType = type;
+    this.previewType = isPdf ? 'pdf' : type;
+    this.previewPdf = isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(url) : null;
     this.previewDownloadUrl = event.downloadUrl || null;
   }
 
+  // ================================================================ uploads / drag & drop
+
+  cancelUpload(job: UploadJob): void {
+    this.uploads.cancel(job.id);
+  }
+
+  retryUpload(job: UploadJob): void {
+    this.uploads.retry(job.id);
+  }
+
+  uploadIcon(job: UploadJob): string {
+    return fileIconFor(job.file.name, job.file.type.split('/')[0]);
+  }
+
+  trackByJob(_: number, job: UploadJob): string {
+    return job.id;
+  }
+
+  private hasFiles(event: DragEvent): boolean {
+    return !!event.dataTransfer && Array.from(event.dataTransfer.types || []).includes('Files');
+  }
+
+  onDragEnter(event: DragEvent): void {
+    if (!this.hasFiles(event) || this.blockedByMe) {
+      return;
+    }
+    event.preventDefault();
+    this.dragDepth++;
+    this.dragActive = true;
+  }
+
+  onDragOver(event: DragEvent): void {
+    if (this.hasFiles(event) && !this.blockedByMe) {
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = 'copy';
+    }
+  }
+
+  onDragLeave(event: DragEvent): void {
+    if (!this.hasFiles(event)) {
+      return;
+    }
+    this.dragDepth = Math.max(0, this.dragDepth - 1);
+    if (!this.dragDepth) {
+      this.dragActive = false;
+    }
+  }
+
+  onDrop(event: DragEvent): void {
+    if (!this.hasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.dragDepth = 0;
+    this.dragActive = false;
+    const files = event.dataTransfer?.files;
+    if (files?.length && !this.blockedByMe) {
+      this.composer?.addFiles(files);
+    }
+  }
+
   closePreview(): void {
+    this.previewPdf = null;
     this.previewUrl = null;
     this.previewType = null;
     this.previewDownloadUrl = null;
+  }
+
+  private copyFailed(error: unknown): void {
+    console.warn('[chat] copy failed', error);
+    this.alertService.error("We couldn't copy that. Your browser may not allow clipboard access here.");
   }
 
   onCopyMessage(msg: ChatMessage): void {
@@ -1406,7 +1566,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
                 if (pngBlob) {
                   navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })])
                     .then(() => this.alertService.info('Image copied to clipboard!'))
-                    .catch((error) => this.alertService.error(`Failed to copy image to clipboard: ${error || 'Unknown error'}`));
+                    .catch((error) => this.copyFailed(error));
                 }
               }, 'image/png');
             };
@@ -1414,35 +1574,27 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
           } else {
             navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
               .then(() => this.alertService.info('Image copied to clipboard!'))
-              .catch((error) => this.alertService.error(`Failed to copy image to clipboard: ${error || 'Unknown error'}`));
+              .catch((error) => this.copyFailed(error));
           }
         })
-        .catch((error) => this.alertService.error(`Error fetching the image: ${error || 'Unknown error'}`));
+        .catch((error) => this.copyFailed(error));
     } else {
       const messageContent = msg.type === 'text' ? msg.content || '' : msg.fileUrl || msg.content || '';
       navigator.clipboard.writeText(messageContent)
         .then(() => this.alertService.info('Message copied!'))
-        .catch((error) => this.alertService.error(`Failed to copy message: ${error || 'Unknown error'}`));
+        .catch((error) => this.copyFailed(error));
     }
   }
 
   deleteMessage(message: ChatMessage): void {
-    Swal.fire({
-      title: 'Delete this message?',
-      text: "You won't be able to see this message again!",
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#dc2626',
-      confirmButtonText: 'Delete',
-      cancelButtonText: 'Cancel'
-    }).then((result) => {
-      if (result.isConfirmed) {
+    this.alertService.confirm({ title: 'Delete this message?', text: "You won't be able to see this message again!", confirmText: 'Delete', cancelText: 'Cancel', danger: true }).then((confirmed) => {
+      if (confirmed) {
         this.userService.deleteMessage(message._id).subscribe({
           next: (res) => {
             this.messageArray = this.messageArray.filter(msg => msg._id !== message._id);
             this.alertService.success(`${res.message || 'Message deleted successfully!'}`);
           },
-          error: (error) => this.alertService.error(`${error || 'Unknown error'}`),
+          error: () => undefined, // The error interceptor already showed a friendly message
         });
       }
     });
@@ -1492,10 +1644,10 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ================================================================ profile / group modals
 
-  onLogoutClick(): void {
+  async onLogoutClick(): Promise<void> {
     this.socketService.disconnectSocket();
-    this.authService.logout();
-    this.alertService.success('Logout Successfully.');
+    await this.authService.logout();
+    this.alertService.success('Signed out.');
   }
 
   /** Own profile saved in the sidebar Profile view. */
@@ -1639,7 +1791,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       },
       error: (error) => {
         this.creatingGroup = false;
-        this.alertService.error(`${error || 'Could not create the group'}`);
+        // The error interceptor already showed a friendly message
       }
     });
   }
@@ -1650,146 +1802,287 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ================================================================ calls
 
-  private setupCallNotifications(): void {
-    // Accept / Decline pressed on the system notification (service-worker notifications)
-    this.subs.add(this.callNotifications.actions$.subscribe(({ callId, action }) => {
-      if (!this.incomingCall || this.incomingCall.callId !== callId) {
-        return;
-      }
-      if (action === 'accept') {
-        this.acceptIncomingCall();
-      } else if (action === 'decline') {
-        this.declineIncomingCall();
-      }
-      this.cdr.markForCheck();
-    }));
-
-    // Legacy 1:1 P2P offer (older clients). Current clients ring through call:incoming.
-    this.subs.add(this.socketService.onIncomingCall().subscribe(async (data: any) => {
-      if (!data.offer || data.from === this.myUserId || data.to !== this.myUserId) return;
-
-      if (this.activeCall) {
-        this.alertService.info('You are already in another call.');
-        return;
-      }
-
-      this.userService.getUserById(data.from).subscribe({
-        next: async (res) => {
-          const callerName = res.data.username || 'Unknown User';
-          const isVideo = data.callType === 'video';
-          const result = await Swal.fire({
-            title: isVideo ? 'Incoming video call' : 'Incoming audio call',
-            text: `${callerName} is calling you`,
-            icon: 'info',
-            showCancelButton: true,
-            confirmButtonText: 'Accept',
-            cancelButtonText: 'Decline',
-            confirmButtonColor: '#16a34a',
-            cancelButtonColor: '#dc2626',
-            allowOutsideClick: false,
-          });
-          if (result.isConfirmed) {
-            this.callHandoff.stash({ from: data.from, offer: data.offer, callType: data.callType || 'video' });
-            this.router.navigate(['/video-call', data.from], { queryParams: { callType: data.callType } });
-          } else {
-            this.alertService.info('Call declined.');
-          }
-        },
-        error: (error) => this.alertService.error(`Failed to fetch caller info: ${error || 'Unknown error'}`),
-      });
-    }));
-
-    // Audio / video ring for group + 1:1 (both use mediasoup)
-    this.subs.add(this.socketService.onIncomingGroupCall().subscribe((data: any) => {
-      if (!data?.callId) {
-        return;
-      }
-      this.setActiveMeeting(data.groupId, { callId: data.callId, callType: data.callType || 'audio', mode: data.mode || 'ring' });
-      if (data.mode === 'meetNow' || this.activeCall || this.incomingCall) {
-        return;
-      }
-      this.incomingCall = this.buildIncomingCall(data);
-    }));
-
-    this.subs.add(this.socketService.onMeetingActive().subscribe((data: any) => {
-      if (!data?.groupId || !data?.callId) {
-        return;
-      }
-      this.setActiveMeeting(data.groupId, { callId: data.callId, callType: data.callType || 'video', mode: 'meetNow' });
-    }));
-
-    this.subs.add(this.socketService.onGroupCallEnded().subscribe((data: any) => {
-      const groupId = data?.groupId?.toString?.() || data?.groupId;
-      const callId = data?.callId?.toString?.() || data?.callId;
-      this.clearActiveMeeting(groupId, callId);
-      if (this.incomingCall && String(this.incomingCall.callId) === String(callId)) {
-        this.incomingCall = null;
-      }
-    }));
-
-    this.subs.add(this.socketService.onCallError().subscribe((data: any) => {
-      // Only surface errors for a call we are trying to start (in-call errors are shown by the call UI)
-      if (this.callStartTimer) {
-        clearTimeout(this.callStartTimer);
-        this.callStartTimer = null;
-        this.callStartedSub?.unsubscribe();
-        this.alertService.error(data?.message || "Couldn't start the call");
-      }
-    }));
+  private listLoaded(key: 'chats' | 'groups' | 'archivedChats' | 'archivedGroups'): void {
+    this.loadedLists.add(key);
+    this.shareConversations();
+    void this.tryOpenDeepLink();
   }
 
-  private buildIncomingCall(data: any): IncomingCall {
-    const groupId = String(data.groupId);
-    const callerId = String(data.initiatedBy || '');
-    const group = [...this.groupChatData, ...this.archivedGroups].find((g) => String(g._id) === groupId);
-    const direct = [...this.chatData, ...this.archivedChats].find((c) => String(c._id) === groupId);
-    const caller =
-      group?.members?.find((m: any) => String(m._id) === callerId) ||
-      (direct?.receiver && String(direct.receiver._id) === callerId ? direct.receiver : null) ||
-      this.users.find((u) => String(u._id) === callerId);
-
-    const incoming: IncomingCall = {
-      callId: String(data.callId),
-      groupId,
-      callType: data.callType === 'video' ? 'video' : 'audio',
-      isGroup: !!group,
-      callerId,
-      callerName: caller?.username || 'Someone',
-      avatar: group ? group.groupAvatar : caller?.avatar,
-      groupName: group?.groupName,
-    };
-
-    if (!caller && callerId) {
-      this.userService.getUserById(callerId).subscribe({
-        next: (res) => {
-          if (this.incomingCall?.callId === incoming.callId) {
-            this.incomingCall = {
-              ...this.incomingCall,
-              callerName: res.data.username || 'Someone',
-              avatar: this.incomingCall.isGroup ? this.incomingCall.avatar : res.data.avatar,
-            };
-          }
-        },
-        error: () => undefined,
-      });
-    }
-    return incoming;
-  }
-
-  acceptIncomingCall(): void {
-    const call = this.incomingCall;
-    if (!call) {
+  private async tryOpenDeepLink(): Promise<void> {
+    const link = this.pendingDeepLink;
+    if (!link || this.loadedLists.size < 4) {
       return;
     }
-    this.incomingCall = null;
-    this.openCall(this.buildLaunch(call.groupId, call.callId, call.callType, { prejoin: false }));
+    this.pendingDeepLink = null;
+    // Consume the link so a refresh / back doesn't re-open it (call params are kept)
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { c: null, user: null, m: null, q: null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+
+    const group = [...this.groupChatData, ...this.archivedGroups].find((g) => String(g._id) === link.conversationId);
+    const direct = [...this.chatData, ...this.archivedChats].find((c) =>
+      (link.conversationId && String(c._id) === link.conversationId) ||
+      (link.userId && String(c.receiver?._id) === link.userId));
+
+    if (group) {
+      if (this.conversationId !== String(group._id)) {
+        this.openGroupConversation(group);
+      }
+    } else if (direct) {
+      if (this.conversationId !== String(direct._id)) {
+        const r = direct.receiver;
+        this.startOrResumeChat(r.username, r.avatar, r.isOnline, direct._id, r._id, r.lastSeen);
+      }
+    } else if (link.userId) {
+      const user = this.users.find((u) => String(u._id) === link.userId)
+        || (await firstValueFrom(this.userService.getUserById(link.userId)).then((r) => r.data).catch(() => null));
+      if (!user) {
+        this.alertService.info("We couldn't find that person.");
+        return;
+      }
+      this.startOrResumeChat(user.username, user.avatar, !!user.isOnline, '', String(user._id), user.lastSeen as any);
+      return;
+    } else {
+      this.alertService.info("This chat isn't available any more.");
+      return;
+    }
+
+    if (link.messageId) {
+      // Let the first page land, then load back to the message and highlight it
+      const start = Date.now();
+      while ((this.messagesLoading || !this.conversationId) && Date.now() - start < 8000) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      await this.jumpToMessage(link.messageId, link.term || '');
+    }
   }
 
-  declineIncomingCall(): void {
-    if (this.incomingCall) {
-      this.socketService.rejectGroupCall(this.incomingCall.callId);
-      this.incomingCall = null;
+  /** Called once the first history page of a chat is shown: place the "New messages" divider. */
+  private placeUnreadDivider(): void {
+    const count = this.openingUnread;
+    this.openingUnread = 0;
+    if (!count) {
+      this.firstUnreadId = null;
+      return;
     }
+    const fromOthers = this.messageArray.filter((m) => !this.isMine(m) && m.type !== 'system');
+    this.firstUnreadId = fromOthers.length ? fromOthers[Math.max(0, fromOthers.length - Math.min(count, 99))]._id : null;
+  }
+
+  // ================================================================ receipts / edit / pin / save
+
+  private members(): string[] {
+    if (this.isGroupChat) {
+      return (this.groupMembers || []).map((m: any) => String(m._id));
+    }
+    return [this.myUserId, this.receiverId].filter(Boolean).map(String);
+  }
+
+  private statusOf(msg: ChatMessage): 'sent' | 'delivered' | 'seen' {
+    const author = String(msg.user?._id || msg.userId || '');
+    const others = this.members().filter((id) => id !== author);
+    if (!others.length) {
+      return msg.status || 'sent';
+    }
+    const t = new Date(msg.createdAt).getTime();
+    const at = (v: string | null | undefined) => (v ? new Date(v).getTime() : 0);
+    if (others.every((id) => at(this.receipts.get(id)?.readAt) >= t)) {
+      return 'seen';
+    }
+    if (others.every((id) => Math.max(at(this.receipts.get(id)?.deliveredAt), at(this.receipts.get(id)?.readAt)) >= t)) {
+      return 'delivered';
+    }
+    // Never downgrade what the server already reported
+    return msg.status === 'seen' || msg.status === 'delivered' ? msg.status : 'sent';
+  }
+
+  /** Re-derive ticks of my messages from the members' cursors (new objects only where it changed). */
+  private refreshStatuses(): void {
+    if (!this.receipts.size) {
+      return;
+    }
+    let changed = false;
+    const next = this.messageArray.map((m) => {
+      if (!this.isMine(m)) {
+        return m;
+      }
+      const status = this.statusOf(m);
+      if (status === m.status) {
+        return m;
+      }
+      changed = true;
+      return { ...m, status, isRead: status === 'seen' };
+    });
+    if (changed) {
+      this.messageArray = next;
+    }
+  }
+
+  private onReceipts(data: { conversationId: string; userId: string; readAt?: string; deliveredAt?: string }): void {
+    const conversationId = String(data?.conversationId || '');
+    const userId = String(data?.userId || '');
+    if (!conversationId || !userId) {
+      return;
+    }
+    // Sidebar ticks: 1:1 last message read by the other person
+    if (userId !== this.myUserId && data.readAt) {
+      const entry = [...this.chatData, ...this.archivedChats].find((c) => String(c._id) === conversationId);
+      if (entry?.lastMessage && String(entry.lastMessage.userId) === this.myUserId
+        && new Date(data.readAt).getTime() >= new Date(entry.lastMessage.createdAt).getTime()) {
+        entry.lastMessage = { ...entry.lastMessage, isRead: true, status: 'seen' };
+        this.rebuildSidebar();
+      }
+    }
+    if (conversationId !== this.conversationId) {
+      return;
+    }
+    const current = this.receipts.get(userId) || { userId, readAt: null, deliveredAt: null };
+    const later = (a: string | null, b?: string) => (b && (!a || new Date(b) > new Date(a)) ? b : a);
+    this.receipts.set(userId, { userId, readAt: later(current.readAt, data.readAt), deliveredAt: later(current.deliveredAt, data.deliveredAt) });
+    this.refreshStatuses();
+  }
+
+  private onMessageUpdated(data: { conversationId: string; messageId: string; content: string; editedAt: string; mentions: string[] }): void {
+    if (String(data?.conversationId) === this.conversationId) {
+      this.messageArray = this.messageArray.map((m) => (m._id === data.messageId
+        ? { ...m, content: data.content, editedAt: data.editedAt, mentions: data.mentions || [] }
+        : m));
+    }
+    const lists = [this.chatData, this.groupChatData, this.archivedChats, this.archivedGroups];
+    let touched = false;
+    for (const list of lists) {
+      const entry = list.find((c) => String(c._id) === String(data?.conversationId));
+      if (entry?.lastMessage && String(entry.lastMessage._id) === String(data.messageId)) {
+        entry.lastMessage = { ...entry.lastMessage, content: data.content };
+        touched = true;
+      }
+    }
+    if (touched) {
+      this.rebuildSidebar();
+    }
+  }
+
+  private onMessageDeleted(data: { conversationId: string; messageId: string }): void {
+    if (String(data?.conversationId) === this.conversationId) {
+      this.messageArray = this.messageArray.filter((m) => m._id !== data.messageId);
+      if (this.editing?.id === data.messageId) {
+        this.editing = null;
+      }
+    }
+    // The list preview may now be stale: refresh once
+    const lists = [this.chatData, this.groupChatData, this.archivedChats, this.archivedGroups];
+    if (lists.some((list) => list.some((c) => String(c._id) === String(data?.conversationId) && String(c.lastMessage?._id) === String(data.messageId)))) {
+      this.scheduleListReload();
+    }
+  }
+
+  private setPins(pins: PinnedMessage[]): void {
+    this.pins = pins;
+    this.pinnedIds = new Set(pins.map((p) => String(p.messageId)));
+    if (pins.length <= 1) {
+      this.pinsExpanded = false;
+    }
+  }
+
+  pinPreview(pin: PinnedMessage): string {
+    return pin.type === 'text' || !pin.type ? pin.content : pin.fileName || messagePreview({ content: pin.content, type: pin.type });
+  }
+
+  onEditMessage(msg: ChatMessage): void {
+    this.cancelReply();
+    this.editing = { id: msg._id, text: msg.content || '', mentionIds: msg.mentions || [] };
+  }
+
+  /** ↑ in an empty composer edits my last text message. */
+  editLastMessage(): void {
+    const last = [...this.messageArray].reverse().find((m) => this.isMine(m) && m.type === 'text');
+    if (last) {
+      this.onEditMessage(last);
+    }
+  }
+
+  cancelEdit(): void {
+    this.editing = null;
+  }
+
+  private async submitEdit(id: string, text: string, mentionIds: string[]): Promise<boolean> {
+    const original = this.messageArray.find((m) => m._id === id);
+    if (original && (original.content || '').trim() === text.trim()) {
+      this.editing = null;
+      return true;
+    }
+    try {
+      await this.chatActions.editMessage(id, text, mentionIds);
+      this.editing = null;
+      return true;
+    } catch (error: any) {
+      this.alertService.error(error?.message || "We couldn't edit the message. Please try again.");
+      return false;
+    }
+  }
+
+  async onTogglePin(msg: ChatMessage): Promise<void> {
+    const pinned = !this.pinnedIds.has(msg._id);
+    try {
+      const res = await this.chatActions.setPinned(msg._id, pinned);
+      this.setPins(res.pins || []);
+      this.alertService.success(pinned ? 'Message pinned' : 'Message unpinned');
+    } catch (error: any) {
+      this.alertService.error(error?.message || "We couldn't update the pin. Please try again.");
+    }
+  }
+
+  async unpin(pin: PinnedMessage): Promise<void> {
+    try {
+      const res = await this.chatActions.setPinned(pin.messageId, false);
+      this.setPins(res.pins || []);
+    } catch (error: any) {
+      this.alertService.error(error?.message || "We couldn't update the pin. Please try again.");
+    }
+  }
+
+  async onToggleSave(msg: ChatMessage): Promise<void> {
+    const saved = !msg.saved;
+    this.messageArray = this.messageArray.map((m) => (m._id === msg._id ? { ...m, saved } : m));
+    try {
+      await this.chatActions.setSaved(msg._id, saved);
+      this.alertService.success(saved ? 'Saved' : 'Removed from saved', saved ? { action: { label: 'View saved', handler: () => this.router.navigate(['/saved']) } } : undefined);
+    } catch {
+      this.messageArray = this.messageArray.map((m) => (m._id === msg._id ? { ...m, saved: !saved } : m));
+    }
+  }
+
+  onCopyLink(msg: ChatMessage): void {
+    const url = `${window.location.origin}/chat?c=${encodeURIComponent(this.conversationId)}&m=${encodeURIComponent(msg._id)}`;
+    navigator.clipboard.writeText(url)
+      .then(() => this.alertService.info('Link copied'))
+      .catch(() => this.alertService.error("We couldn't copy the link."));
+  }
+
+  /** Display names of the people a message mentions. */
+  mentionNames(msg: ChatMessage): string[] {
+    if (!msg.mentions?.length) {
+      return [];
+    }
+    return msg.mentions
+      .map((id) => this.mentionCandidates.find((u) => String(u._id) === String(id))?.username
+        || (String(id) === this.myUserId ? this.myUsername : ''))
+      .filter(Boolean);
+  }
+
+  /** Who can be @mentioned in the open chat. */
+  get mentionCandidates(): ChatUser[] {
+    if (this.isGroupChat) {
+      return (this.groupMembers || []).filter((m: any) => String(m._id) !== this.myUserId) as ChatUser[];
+    }
+    return this.receiverId ? [{ _id: this.receiverId, username: this.peerName, avatar: this.peerAvatar } as ChatUser] : [];
+  }
+
+  private shareConversations(): void {
+    this.calls.setConversations([...this.chatData, ...this.archivedChats], [...this.groupChatData, ...this.archivedGroups]);
   }
 
   /** One-time offer to turn on call notifications (the browser only asks after a click). */
@@ -1811,53 +2104,17 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   get currentMeeting(): ActiveGroupMeeting | null {
-    if (!this.conversationId) {
-      return null;
-    }
-    return this.activeGroupCalls[this.conversationId] || null;
+    return this.calls.meetingFor(this.conversationId);
   }
 
   /** In this conversation's call right now (shown as "Return to call"). */
   get inCallHere(): boolean {
-    return !!this.activeCall && this.activeCall.groupId === this.conversationId;
-  }
-
-  private setActiveMeeting(groupId: string, meeting: ActiveGroupMeeting): void {
-    this.activeGroupCalls = { ...this.activeGroupCalls, [groupId]: meeting };
-    this.rebuildSidebar();
-  }
-
-  private clearActiveMeeting(groupId?: string, callId?: string): void {
-    const next = { ...this.activeGroupCalls };
-    if (groupId && next[groupId]) {
-      delete next[groupId];
-    } else if (callId) {
-      for (const key of Object.keys(next)) {
-        if (next[key].callId?.toString() === callId.toString()) {
-          delete next[key];
-        }
-      }
-    }
-    this.activeGroupCalls = next;
-    this.rebuildSidebar();
+    return this.calls.inCall(this.conversationId);
   }
 
   checkForActiveGroupCall(): void {
     if (this.isGroupChat && this.conversationId) {
-      void this.refreshActiveMeeting(this.conversationId);
-    }
-  }
-
-  private async refreshActiveMeeting(groupId: string): Promise<void> {
-    try {
-      const res = await this.socketService.getActiveGroupCall(groupId);
-      if (res?.call) {
-        this.setActiveMeeting(groupId, { callId: res.call.callId, callType: res.call.callType, mode: res.call.mode || 'ring' });
-      } else {
-        this.clearActiveMeeting(groupId);
-      }
-    } catch {
-      this.clearActiveMeeting(groupId);
+      void this.calls.refreshMeeting(this.conversationId);
     }
   }
 
@@ -1867,7 +2124,7 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     // Use mediasoup SFU (same as group) — P2P fails across networks without TURN
-    this.startGroupCall(this.conversationId, 'video', 'ring');
+    this.calls.startCall(this.conversationId, 'video', 'ring');
   }
 
   startAudioCall(): void {
@@ -1875,175 +2132,22 @@ export class ChatComponent implements OnInit, AfterViewInit, OnDestroy {
       this.alertService.warning('Open the chat before starting a call');
       return;
     }
-    this.startGroupCall(this.conversationId, 'audio', 'ring');
+    this.calls.startCall(this.conversationId, 'audio', 'ring');
   }
 
   /** Groups start meetings only ("Meet now"); joining an active one goes through the lobby. */
   startMeetNow(conversationId: string): void {
-    if (this.currentMeeting) {
-      this.joinCurrentMeeting();
-      return;
-    }
-    this.startGroupCall(conversationId, 'video', 'meetNow');
+    this.calls.startCall(conversationId, 'video', 'meetNow');
   }
 
   joinCurrentMeeting(): void {
-    const meeting = this.currentMeeting;
-    if (!meeting || !this.conversationId) {
-      return;
+    if (this.conversationId) {
+      void this.calls.joinMeeting(this.conversationId);
     }
-    this.openCall(this.buildLaunch(this.conversationId, meeting.callId, meeting.callType, { prejoin: this.isGroupChat }));
   }
 
   returnToCall(): void {
-    this.callMinimized = false;
-  }
-
-  private startGroupCall(conversationId: string, callType: 'audio' | 'video', mode: 'ring' | 'meetNow'): void {
-    if (this.activeCall) {
-      if (this.activeCall.groupId === conversationId) {
-        this.callMinimized = false;
-      } else {
-        this.alertService.info('Leave your current call before starting another one.');
-      }
-      return;
-    }
-
-    this.callStartedSub?.unsubscribe();
-    if (this.callStartTimer) {
-      clearTimeout(this.callStartTimer);
-    }
-    this.socketService.startGroupCall(conversationId, callType, mode);
-
-    this.callStartTimer = setTimeout(() => {
-      this.callStartTimer = null;
-      this.callStartedSub?.unsubscribe();
-      this.alertService.error("Couldn't start the call. Check your connection and try again.");
-    }, 10000);
-
-    this.callStartedSub = this.socketService.onCallStarted().subscribe((data: any) => {
-      if (String(data?.groupId) !== String(conversationId)) {
-        return;
-      }
-      this.callStartedSub?.unsubscribe();
-      if (this.callStartTimer) {
-        clearTimeout(this.callStartTimer);
-        this.callStartTimer = null;
-      }
-      const effectiveType: 'audio' | 'video' = data.callType || callType;
-      const effectiveMode = data.mode || mode;
-      this.setActiveMeeting(conversationId, { callId: data.callId, callType: effectiveType, mode: effectiveMode });
-      // A resumed call already has its chat message
-      if (!data.resumed) {
-        this.sendCallNotificationMessage(conversationId, effectiveType, data.callId, effectiveMode);
-      }
-      const isGroup = this.isGroupConversation(conversationId);
-      this.openCall(this.buildLaunch(conversationId, String(data.callId), effectiveType, {
-        prejoin: isGroup && effectiveMode === 'meetNow',
-        isInitiator: !data.resumed,
-      }));
-    });
-  }
-
-  sendCallNotificationMessage(conversationId: string, callType: 'audio' | 'video', callId?: string, mode: 'ring' | 'meetNow' = 'ring'): void {
-    const joinUrl = callId
-      ? `${environment.BASE_URL}/group-call/${conversationId}?callId=${callId}&callType=${callType}`
-      : `${environment.BASE_URL}/group-call/${conversationId}`;
-
-    this.socketService.sendGroupMessage({
-      user: this.sender.currentUserPayload(),
-      conversationId,
-      content: mode === 'meetNow' ? 'Meeting started — tap Join to enter.' : callType === 'video' ? 'Video call started.' : 'Audio call started.',
-      fileUrl: joinUrl,
-      type: 'call',
-      createdAt: new Date().toISOString(),
-    } as any);
-  }
-
-  private isGroupConversation(conversationId: string): boolean {
-    return [...this.groupChatData, ...this.archivedGroups].some((g) => String(g._id) === String(conversationId));
-  }
-
-  /** Everything the call surface needs, resolved from the loaded conversation lists. */
-  private buildLaunch(groupId: string, callId: string, callType: 'audio' | 'video', opts: { prejoin?: boolean; isInitiator?: boolean } = {}): CallLaunch {
-    const group = [...this.groupChatData, ...this.archivedGroups].find((g) => String(g._id) === String(groupId));
-    if (group) {
-      return {
-        groupId,
-        callId,
-        callType,
-        isGroup: true,
-        title: group.groupName,
-        avatar: group.groupAvatar,
-        members: (group.members || []).map((m: any): CallMember => ({ _id: m._id, username: m.username, avatar: m.avatar })),
-        isInitiator: !!opts.isInitiator,
-        prejoin: !!opts.prejoin,
-      };
-    }
-    const direct = [...this.chatData, ...this.archivedChats].find((c) => String(c._id) === String(groupId));
-    const peer = direct?.receiver || (this.receiverId && groupId === this.conversationId
-      ? { _id: this.receiverId, username: this.peerName, avatar: this.peerAvatar, isOnline: this.isOnline }
-      : null);
-    return {
-      groupId,
-      callId,
-      callType,
-      isGroup: false,
-      title: peer?.username || 'Call',
-      avatar: peer?.avatar,
-      members: peer ? [{ _id: peer._id, username: peer.username, avatar: peer.avatar }] : [],
-      isInitiator: !!opts.isInitiator,
-      prejoin: false,
-      peerOnline: !!peer?.isOnline,
-    };
-  }
-
-  openCall(launch: CallLaunch): void {
-    if (this.activeCall) {
-      if (this.activeCall.callId === launch.callId) {
-        this.callMinimized = false;
-      } else {
-        this.alertService.info('You are already in another call.');
-      }
-      return;
-    }
-    if (this.incomingCall?.callId === launch.callId) {
-      this.incomingCall = null;
-    }
-    this.activeCall = launch;
-    this.callMinimized = false;
-    // Mirror the call in the URL so a refresh rejoins it
-    this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { call: launch.callId, g: launch.groupId, t: launch.callType },
-      replaceUrl: true,
-    });
-  }
-
-  onCallClosed(): void {
-    const groupId = this.activeCall?.groupId;
-    this.activeCall = null;
-    this.callMinimized = false;
-    this.router.navigate(['/chat'], { replaceUrl: true });
-    if (groupId && this.isGroupConversation(groupId)) {
-      void this.refreshActiveMeeting(groupId);
-    }
-  }
-
-  private tryOpenPendingCall(): void {
-    const pending = this.pendingUrlCall;
-    if (!pending || !this.listsLoaded.chats || !this.listsLoaded.groups) {
-      return;
-    }
-    this.pendingUrlCall = null;
-    if (this.activeCall) {
-      return;
-    }
-    const isGroup = this.isGroupConversation(pending.groupId);
-    this.openCall(this.buildLaunch(pending.groupId, pending.callId, pending.callType, {
-      // From a join link → lobby; from a refresh → straight back in
-      prejoin: isGroup && pending.join,
-    }));
+    this.calls.restore();
   }
 
   // ================================================================ formatting

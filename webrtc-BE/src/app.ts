@@ -7,6 +7,8 @@ import verifyToken from "./middleware/authMiddleware";
 import uploadFile from "./controllers/upload.controller";
 import { logger } from "./utils/logger";
 import { storageConfig } from "./config/storage";
+import { clerkMiddleware } from "@clerk/express";
+import { authConfig, isAuthConfigured } from "./config/auth";
 
 /** Express app: middleware + REST routes. Socket.IO lives in ./realtime. */
 export function createApp(corsOrigin: string[] | "*") {
@@ -16,14 +18,22 @@ export function createApp(corsOrigin: string[] | "*") {
     app.use(express.json({ limit: "1000mb" }));
     app.use(express.urlencoded({ extended: true, limit: "1000mb" }));
     app.use(cors({ origin: corsOrigin }));
+    // Reads the Clerk session token (Authorization: Bearer …); routes opt in via verifyToken
+    if (isAuthConfigured()) {
+        app.use(clerkMiddleware({
+            authorizedParties: authConfig.authorizedParties.length ? authConfig.authorizedParties : undefined,
+            jwtKey: authConfig.jwtKey,
+            clockSkewInMs: authConfig.clockSkewMs,
+        }));
+    }
 
     const api = express.Router();
     api.use(router);
     // Stored files (S3): upload needs a session; clients read straight from S3 (see file.service)
     api.post("/upload", verifyToken, uploadSingle("file"), uploadFile);
-    // Public client settings (no secrets): where to load public objects (profile/group pictures) from
+    // Public client settings (no secrets): bucket address for public pictures, Clerk publishable key
     api.get("/config", (_req, res) => {
-        res.json({ status: true, data: { s3BaseUrl: storageConfig.publicBaseUrl }, message: "" });
+        res.json({ status: true, data: { s3BaseUrl: storageConfig.publicBaseUrl, clerkPublishableKey: authConfig.publishableKey }, message: "" });
     });
 
     // Every endpoint answers with and without the /api prefix, so it works whether the reverse

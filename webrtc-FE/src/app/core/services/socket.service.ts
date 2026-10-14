@@ -6,6 +6,7 @@ import { environment } from 'src/environments/environment';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
 import { Observable } from 'rxjs';
 import { UploadResult, UploadTarget } from '../interfaces/chat';
+import { callDeviceId } from '../utils/device-id';
 
 /** Snapshot returned by `call:getState` for the meeting UI. */
 export interface CallStateSnapshot {
@@ -23,6 +24,30 @@ export interface CallStateSnapshot {
   screenSharerUserId: string | null;
   media: Record<string, { audio: boolean; video: boolean }>;
   hands: string[];
+  myRole?: MeetingRole;
+  settings?: MeetingSettings;
+  cohostIds?: string[];
+  /** Moderators only: people waiting in the lobby */
+  lobby?: LobbyEntry[];
+  /** Recording in progress (startedAt = server ms) */
+  recording?: { recordingId: string; startedAt: number } | null;
+  /** The server can record (FFmpeg configured) */
+  recordingAvailable?: boolean;
+}
+
+export type MeetingRole = 'host' | 'cohost' | 'attendee';
+
+export interface MeetingSettings {
+  lobby: boolean;
+  allowUnmute: boolean;
+  allowShare: boolean;
+}
+
+export interface LobbyEntry {
+  userId: string;
+  username: string;
+  avatar?: string;
+  since: number;
 }
 
 @Injectable({
@@ -46,20 +71,28 @@ export class SocketService {
     this.socket.on(event, callback);
   }
 
+  /**
+   * Clerk session tokens live about a minute, so the handshake asks for a fresh one on every
+   * connect and automatic reconnect (socket.io calls `auth` each time).
+   */
   connectWithToken() {
-    const token = this.authService.getToken();
-    if (!token) {
-      this.alertService.error('No token found for WebSocket connection');
+    if (!this.authService.loggedIn()) {
       return;
     }
-
     this.socket.disconnect();
-    this.socket.io.opts.query = { token };
+    this.socket.ioSocket.auth = (cb: (data: { token: string; deviceId: string }) => void) => {
+      // Always a fresh token: the cached one may be close to expiry (or judged by a skewed clock)
+      void this.authService.getToken({ skipCache: true }).then((token) => cb({ token: token || '', deviceId: callDeviceId() }));
+    };
     this.socket.connect();
   }
   autoReconnect() {
-    const token = this.authService.getToken();
-    if (token) {
+    this.connectWithToken();
+  }
+
+  /** After sign-in: connect once the app account is known (no-op when already connected). */
+  ensureConnected() {
+    if (!this.socket.ioSocket.connected) {
       this.connectWithToken();
     }
   }
@@ -155,37 +188,6 @@ export class SocketService {
     this.socket.disconnect();
   }
 
-  callUser(userToCall: string, signalData: any, from: string, callType: 'audio' | 'video') {
-    this.socket.emit("callUser", { userToCall, signalData, from, callType });
-  }
-
-  answerCall(to: string, signal: any) {
-    this.socket.emit("answerCall", { to, signal });
-  }
-
-  onIncomingCall() {
-    return this.socket.fromEvent("incomingCall");
-  }
-
-  onCallAccepted() {
-    return this.socket.fromEvent("callAccepted");
-  }
-
-  sendIceCandidate(userToCall: string, candidate: any) {
-    this.socket.emit("iceCandidate", { userToCall, candidate });
-  }
-
-  onIceCandidate() {
-    return this.socket.fromEvent("iceCandidate");
-  }
-  endCall(receiverId: string) {
-    this.socket.emit('call-ended', { to: receiverId });
-  }
-
-  onCallEnded() {
-    return this.socket.fromEvent("callEnded");
-  }
-
   joinGroup(conversationId: string): void {
     this.socket.emit('joinConversation', conversationId);
   }
@@ -247,6 +249,21 @@ export class SocketService {
     return this.socket.fromEvent('call:media-updated');
   }
 
+  /** Is this user live in a call on another device? */
+  getCallSession(): Promise<{ elsewhere: boolean; callId?: string }> {
+    return this.request('call:session', {}, 8000).catch(() => ({ elsewhere: false }));
+  }
+
+  /** Move the user's call session to this device (the other device is told to leave). */
+  takeoverCall(callId: string): Promise<{ success?: boolean; error?: string }> {
+    return this.request('call:takeover', { callId }, 10000).catch((error: Error) => ({ error: error.message }));
+  }
+
+  /** This device must leave the call: the same user took it over on another device. */
+  onCallForceLeave(): Observable<{ callId: string; reason: string }> {
+    return this.socket.fromEvent('call:force-leave');
+  }
+
   acceptGroupCall(callId: string): Promise<{ success?: boolean; error?: string }> {
     return new Promise((resolve) => {
       this.socket.emit('call:accept', { callId }, (response: any) => {
@@ -302,6 +319,70 @@ export class SocketService {
     return new Promise((resolve) => {
       this.socket.emit('call:mute-participant', { callId, userId }, (response: any) => resolve(response || {}));
     });
+  }
+
+  // ---------------------------------------------------------------- meeting controls (server-enforced)
+  setMeetingSettings(callId: string, changes: Partial<MeetingSettings>): Promise<{ settings: MeetingSettings }> {
+    return this.request('call:settings', { callId, ...changes });
+  }
+
+  muteEveryone(callId: string): Promise<unknown> {
+    return this.request('call:mute-all', { callId });
+  }
+
+  admitFromLobby(callId: string, userId: string | 'all'): Promise<unknown> {
+    return this.request('call:admit', userId === 'all' ? { callId, all: true } : { callId, userId });
+  }
+
+  denyFromLobby(callId: string, userId: string): Promise<unknown> {
+    return this.request('call:deny', { callId, userId });
+  }
+
+  setCohost(callId: string, userId: string, cohost: boolean): Promise<unknown> {
+    return this.request('call:set-cohost', { callId, userId, cohost });
+  }
+
+  startRecording(callId: string): Promise<{ recordingId: string; startedAt: string }> {
+    return this.request('call:record-start', { callId }, 20000);
+  }
+
+  stopRecording(callId: string): Promise<unknown> {
+    return this.request('call:record-stop', { callId }, 20000);
+  }
+
+  onCallRecording(): Observable<{ callId: string; active: boolean; startedAt?: string; byName?: string; reason?: string }> {
+    return this.socket.fromEvent('call:recording');
+  }
+
+  onRecordingUpdated(): Observable<{
+    recordingId: string;
+    conversationId: string;
+    status?: 'recording' | 'processing' | 'completed' | 'failed';
+    transcriptStatus?: 'none' | 'pending' | 'processing' | 'completed' | 'failed';
+    startedBy?: string;
+    title?: string;
+  }> {
+    return this.socket.fromEvent('recording:updated');
+  }
+
+  onCallLobby(): Observable<{ callId: string; waiting: LobbyEntry[] }> {
+    return this.socket.fromEvent('call:lobby');
+  }
+
+  onCallSettings(): Observable<{ callId: string; settings: MeetingSettings; cohostIds: string[] }> {
+    return this.socket.fromEvent('call:settings');
+  }
+
+  onCallAdmitted(): Observable<{ callId: string }> {
+    return this.socket.fromEvent('call:admitted');
+  }
+
+  onCallDenied(): Observable<{ callId: string }> {
+    return this.socket.fromEvent('call:denied');
+  }
+
+  onShareStopped(): Observable<{ callId: string; reason: string }> {
+    return this.socket.fromEvent('call:share-stopped');
   }
 
   removeCallParticipant(callId: string, userId: string): Promise<{ success?: boolean; error?: string }> {
@@ -422,6 +503,50 @@ export class SocketService {
 
   onMessageRejected() {
     return this.socket.fromEvent('message:rejected');
+  }
+
+  onMessageUpdated(): Observable<{ conversationId: string; messageId: string; content: string; editedAt: string; mentions: string[] }> {
+    return this.socket.fromEvent('message:updated');
+  }
+
+  onMessageDeleted(): Observable<{ conversationId: string; messageId: string }> {
+    return this.socket.fromEvent('message:deleted');
+  }
+
+  onPinsChanged(): Observable<{ conversationId: string; pins: any[] }> {
+    return this.socket.fromEvent('message:pins');
+  }
+
+  /** Someone's read / delivery cursor moved in a chat I'm in. */
+  onReceiptsUpdated(): Observable<{ conversationId: string; userId: string; readAt?: string; deliveredAt?: string }> {
+    return this.socket.fromEvent('receipts:updated');
+  }
+
+  /** I have been idle (no input) for a while / I'm back. */
+  emitPresenceIdle(idle: boolean): void {
+    this.socket.emit('presence:idle', { idle });
+  }
+
+  /** Messages of these chats reached this device. */
+  markDelivered(conversationIds: string[]): void {
+    if (conversationIds.length) {
+      this.socket.emit('message:delivered', { conversationIds });
+    }
+  }
+
+  /** A meeting I organise / am invited to changed (created, edited, cancelled). */
+  onMeetingUpdated(): Observable<{ meetingId: string }> {
+    return this.socket.fromEvent('meeting:updated');
+  }
+
+  /** New Activity entry for me (mention / reply / reaction / missed call / meeting invite). */
+  onNotificationNew(): Observable<any> {
+    return this.socket.fromEvent('notification:new');
+  }
+
+  /** My unread Activity count changed (read on another device / by opening the chat). */
+  onNotificationRead(): Observable<{ unread: number }> {
+    return this.socket.fromEvent('notification:read');
   }
 
   onCallError() {

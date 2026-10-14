@@ -26,7 +26,7 @@ import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 
 const MB = 1024 * 1024;
 
-export type MediaKind = "image" | "video" | "audio" | "pdf";
+export type MediaKind = "image" | "video" | "audio" | "pdf" | "file";
 
 interface KindRule {
     folder: string;
@@ -49,6 +49,39 @@ export const MEDIA_RULES: Record<MediaKind, KindRule> = {
         },
     },
     pdf: { folder: "documents", maxBytes: 25 * MB, types: { "application/pdf": "pdf" } },
+    // Documents and archives: shown as a file card with a download (never rendered inline)
+    file: {
+        folder: "files",
+        maxBytes: 50 * MB,
+        types: {
+            "application/zip": "zip",
+            "application/x-zip-compressed": "zip",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+            "application/msword": "doc",
+            "application/vnd.ms-excel": "xls",
+            "application/vnd.ms-powerpoint": "ppt",
+            "text/plain": "txt",
+            "text/csv": "csv",
+            "text/markdown": "md",
+        },
+    },
+};
+
+/** Type implied by the file name (browsers report these inconsistently, e.g. CSV as Excel). */
+const EXTENSION_MIME: Record<string, string> = {
+    zip: "application/zip",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    doc: "application/msword",
+    xls: "application/vnd.ms-excel",
+    ppt: "application/vnd.ms-powerpoint",
+    txt: "text/plain",
+    log: "text/plain",
+    csv: "text/csv",
+    md: "text/markdown",
 };
 
 const AVATAR_RULE: KindRule = { folder: "avatar", maxBytes: 5 * MB, types: IMAGE_TYPES };
@@ -56,7 +89,7 @@ const AVATAR_RULE: KindRule = { folder: "avatar", maxBytes: 5 * MB, types: IMAGE
 /** Outer cap for multer; the per-kind limits above are stricter. */
 export const MAX_UPLOAD_BYTES = Math.max(...Object.values(MEDIA_RULES).map((r) => r.maxBytes), AVATAR_RULE.maxBytes);
 
-const FOLDER_KIND: Record<string, MediaKind> = { images: "image", videos: "video", audio: "audio", documents: "pdf" };
+const FOLDER_KIND: Record<string, MediaKind> = { images: "image", videos: "video", audio: "audio", documents: "pdf", files: "file" };
 
 export type UploadTarget =
     | { purpose: "avatar"; userId: string }
@@ -75,7 +108,7 @@ const OID = "[a-f0-9]{24}";
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const EXT = "[a-z0-9]{2,5}";
 const AVATAR_KEY = new RegExp(`^${P}/(users|groups)/(${OID})/avatar/${UUID}\\.${EXT}$`);
-const MESSAGE_KEY = new RegExp(`^${P}/conversations/(${OID})/(images|videos|audio|documents)/\\d{4}/\\d{2}/${UUID}\\.${EXT}$`);
+const MESSAGE_KEY = new RegExp(`^${P}/conversations/(${OID})/(images|videos|audio|documents|files)/\\d{4}/\\d{2}/${UUID}\\.${EXT}$`);
 
 /** Only keys this service creates are ever served, attached or deleted. */
 export function isManagedKey(key: string): boolean {
@@ -130,24 +163,27 @@ export async function storeUpload(file: Express.Multer.File | undefined, target:
         if (!file) {
             throw new AppError("No file uploaded");
         }
-        const mimeType = (file.mimetype || "").toLowerCase();
-        const kind = kindForMime(mimeType);
         const isAvatar = target.purpose !== "message";
+        if (!file.size) {
+            throw new AppError("The file is empty");
+        }
+        // The browser's type is a claim: the content must match it (or the type the extension implies)
+        const sniffed = compatibleMimeTypes(await readHead(file.path, 512));
+        const declared = (file.mimetype || "").toLowerCase();
+        const byExtension = EXTENSION_MIME[path.extname(file.originalname || "").slice(1).toLowerCase()];
+        const mimeType = [declared, byExtension].find((t) => !!t && sniffed.has(t) && (isAvatar ? t in AVATAR_RULE.types : !!kindForMime(t))) || "";
+        const kind = mimeType ? kindForMime(mimeType) : null;
         const rule = isAvatar ? AVATAR_RULE : kind ? MEDIA_RULES[kind] : null;
         const ext = rule?.types[mimeType];
         if (!rule || !ext || !kind) {
             throw new AppError(isAvatar
                 ? "Please choose a JPG, PNG, GIF or WebP image"
-                : "Unsupported file type. Please upload an image, video, audio or PDF file.", 415);
-        }
-        if (!file.size) {
-            throw new AppError("The file is empty");
+                : (declared && kindForMime(declared)) || byExtension
+                    ? "The file's content does not match its type"
+                    : "This file type isn't supported.", 415);
         }
         if (file.size > rule.maxBytes) {
-            throw new AppError(`File is too large (max ${Math.round(rule.maxBytes / MB)} MB for this type)`, 413);
-        }
-        if (!compatibleMimeTypes(await readHead(file.path)).has(mimeType)) {
-            throw new AppError("The file's content does not match its type", 415);
+            throw new AppError(`This file is too large. The limit is ${Math.round(rule.maxBytes / MB)} MB for this type.`, 413);
         }
 
         const originalName = cleanOriginalName(file.originalname);
@@ -240,8 +276,14 @@ export async function messageMedia(m: { file?: IStoredFile | null; fileUrl?: str
     if (m.file?.storageKey) {
         const key = m.file.storageKey;
         const name = m.file.originalName || key.split("/").pop() || "file";
-        const [url, downloadUrl] = await Promise.all([signedMediaUrl(key), signedMediaUrl(key, Date.now(), name)]);
-        return { fileUrl: url, thumbnailUrl: url, downloadUrl, fileName: m.file.originalName, fileSize: m.file.size, mimeType: m.file.mimeType };
+        // Documents / archives are only ever downloaded, never opened inline from storage
+        const downloadOnly = MESSAGE_KEY.exec(key)?.[2] === "files";
+        const [url, downloadUrl] = await Promise.all([
+            downloadOnly ? Promise.resolve("") : signedMediaUrl(key),
+            signedMediaUrl(key, Date.now(), name),
+        ]);
+        const inline = url || downloadUrl;
+        return { fileUrl: inline, thumbnailUrl: downloadOnly ? "" : inline, downloadUrl, fileName: m.file.originalName, fileSize: m.file.size, mimeType: m.file.mimeType };
     }
     return { fileUrl: m.fileUrl || "", thumbnailUrl: m.thumbnailUrl || m.fileUrl || "" };
 }

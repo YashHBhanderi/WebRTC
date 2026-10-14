@@ -1,10 +1,10 @@
 // WhatsApp-style messenger shell: sidebar | conversation | right panel (search / info).
 // Tokens live in styles.scss (:root --app-*). Bubbles and the composer style themselves.
 
+// Fills the application shell's content area
 :host {
   display: block;
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
   overflow: hidden;
   background: var(--app-bg);
 }
@@ -13,20 +13,11 @@
   display: grid;
   grid-template-columns: minmax(300px, 400px) 1fr;
   height: 100%;
-  max-width: 1760px;
-  margin: 0 auto;
   background: var(--app-surface);
   overflow: hidden;
 
   &.has-panel {
     grid-template-columns: minmax(300px, 400px) 1fr minmax(320px, 380px);
-  }
-
-  @media (min-width: 1800px) {
-    height: calc(100% - 32px);
-    margin-top: 16px;
-    border-radius: 14px;
-    box-shadow: var(--app-shadow);
   }
 }
 
@@ -174,44 +165,6 @@
   }
 }
 
-.chips {
-  display: flex;
-  gap: 6px;
-  padding: 0 12px 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-
-  &::-webkit-scrollbar {
-    display: none;
-  }
-}
-
-.chip {
-  flex: none;
-  height: 32px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--app-input);
-  color: var(--app-text-2);
-  font-size: 0.82rem;
-  font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
-
-  &:hover {
-    background: var(--app-hover-strong);
-  }
-
-  &--active {
-    background: var(--app-brand-soft);
-    color: var(--app-brand-strong);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--app-brand);
-  }
-}
-
 .sidebar__list {
   flex: 1;
   min-height: 0;
@@ -312,110 +265,6 @@
   color: var(--app-success);
   font-size: 0.8rem;
   font-weight: 600;
-}
-
-.conv-list {
-  list-style: none;
-  margin: 0;
-  padding: 0 6px 12px;
-}
-
-.conv {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 0;
-  border-radius: 12px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  transition: background 0.12s ease;
-
-  &:hover {
-    background: var(--app-hover);
-  }
-
-  &--active,
-  &--active:hover {
-    background: var(--app-active);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--app-brand);
-    outline-offset: -2px;
-  }
-}
-
-.conv__body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.conv__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.conv__title {
-  flex: 1;
-  min-width: 0;
-  color: var(--app-text);
-  font-size: 0.95rem;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.conv__kind {
-  margin-right: 4px;
-  font-size: 0.7rem;
-  color: var(--app-muted);
-}
-
-.conv__time {
-  flex: none;
-  color: var(--app-muted);
-  font-size: 0.72rem;
-}
-
-.conv__preview {
-  flex: 1;
-  min-width: 0;
-  color: var(--app-text-2);
-  font-size: 0.83rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.conv__badges {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.conv--unread {
-  .conv__title {
-    font-weight: 600;
-  }
-
-  .conv__time {
-    color: var(--app-brand);
-    font-weight: 600;
-  }
-
-  .conv__preview {
-    color: var(--app-text);
-  }
 }
 
 .call-live {
@@ -542,6 +391,10 @@
 .messages {
   flex: 1;
   min-height: 0;
+  // Own stacking layer: sticky date badges inside can never paint over the pinned list / header
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -898,39 +751,6 @@
 
 // ------------------------------------------------------------------ menus
 
-::ng-deep .app-menu {
-  min-width: 220px;
-  padding: 6px;
-  border: 0;
-  border-radius: 12px;
-  box-shadow: var(--app-shadow);
-
-  .dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
-    border-radius: 8px;
-    font-size: 0.9rem;
-
-    i {
-      width: 16px;
-      text-align: center;
-      color: var(--app-muted);
-    }
-
-    &.text-danger i {
-      color: inherit;
-    }
-  }
-
-  .menu-count {
-    margin-left: auto;
-    color: var(--app-muted);
-    font-size: 0.78rem;
-  }
-}
-
 // ------------------------------------------------------------------ responsive
 
 // Medium screens: the right panel slides over the conversation instead of taking a column
@@ -1025,27 +845,6 @@
 
   .conv {
     padding: 12px 10px;
-  }
-}
-
-// Room for the minimized call bar on phones (see group-call.component.scss)
-@media (max-width: 600px) {
-  .app-shell.has-call-bar .return-call {
-    display: none; // the call bar already returns to the call
-  }
-
-  .app-shell.has-call-bar {
-    padding-top: calc(52px + env(safe-area-inset-top));
-
-    .sidebar,
-    .conversation {
-      top: calc(52px + env(safe-area-inset-top));
-    }
-
-    .sidebar__header,
-    .conv-header {
-      padding-top: 8px;
-    }
   }
 }
 
@@ -1219,4 +1018,237 @@
   .call-live {
     animation: none;
   }
+}
+
+// ------------------------------------------------------------------ pinned bar / unread divider
+
+.pins {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 6px 14px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  z-index: 6;
+}
+
+.pins__current,
+.pins__item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: var(--app-text);
+  padding: 2px 0;
+}
+
+.pins__icon {
+  color: var(--app-brand);
+  font-size: 0.85rem;
+}
+
+.pins__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pins__who {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--app-brand-strong);
+}
+
+.pins__preview {
+  font-size: 0.82rem;
+  color: var(--app-text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pins__toggle {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--app-brand);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.pins__list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow);
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 8px;
+
+    &:hover {
+      background: var(--app-hover);
+    }
+  }
+
+  .pins__item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+}
+
+.unread-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: var(--app-danger);
+  font-size: 0.75rem;
+  font-weight: 600;
+
+  &::before,
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.4;
+  }
+}
+
+// ------------------------------------------------------------------ uploads / drop zone / pdf
+
+.conversation {
+  position: relative;
+}
+
+.drop-zone {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 2px dashed var(--app-brand);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  color: var(--app-brand);
+  font-weight: 600;
+  pointer-events: none;
+
+  i {
+    font-size: 2rem;
+  }
+}
+
+.upload-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 360px;
+  margin: 6px 0 6px auto;
+  padding: 8px 8px 8px 10px;
+  border-radius: 12px;
+  background: var(--app-bubble-out);
+  border: 1px solid var(--app-border);
+
+  &--failed {
+    border-color: var(--app-danger);
+  }
+}
+
+.upload-card__thumb {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-surface);
+  color: var(--app-brand);
+  font-size: 1.2rem;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.upload-card__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.upload-card__name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.upload-card__meta {
+  font-size: 0.72rem;
+  color: var(--app-muted);
+}
+
+.upload-card--failed .upload-card__meta {
+  color: var(--app-danger);
+}
+
+.upload-card__bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--app-border);
+  overflow: hidden;
+
+  span {
+    display: block;
+    height: 100%;
+    background: var(--app-brand);
+    transition: width 0.2s ease;
+  }
+}
+
+.upload-card__action {
+  border: 0;
+  background: none;
+  color: var(--app-brand);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.lightbox__pdf {
+  width: min(960px, 94vw);
+  height: 86vh;
+  border: 0;
+  border-radius: 8px;
+  background: #fff;
 }

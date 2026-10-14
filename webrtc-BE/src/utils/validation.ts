@@ -40,7 +40,7 @@ export function escapeRegExp(value: string): string {
 }
 
 /** Public user fields — never send password hashes or verification tokens. */
-export const PUBLIC_USER_FIELDS = "username email avatar isOnline lastSeen bio status";
+export const PUBLIC_USER_FIELDS = "username email avatar isOnline lastSeen bio status statusMessage autoAway";
 
 export const PUBLIC_USER_PROJECTION = {
     _id: 1,
@@ -51,4 +51,6 @@ export const PUBLIC_USER_PROJECTION = {
     lastSeen: 1,
     bio: 1,
     status: 1,
+    statusMessage: 1,
+    autoAway: 1,
 } as const;

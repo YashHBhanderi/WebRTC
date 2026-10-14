@@ -35,8 +35,40 @@ export function compatibleMimeTypes(head: Buffer): Set<string> {
     } else if (ascii(0, 3) === "ID3" || (head.length >= 2 && head[0] === 0xff && (head[1] & 0xe0) === 0xe0)) {
         // MP3 (ID3 tag or MPEG frame sync); ADTS AAC shares the frame-sync prefix
         ["audio/mpeg", "audio/mp3", "audio/aac"].forEach((t) => types.add(t));
+    } else if (ascii(0, 4) === "PK\x03\x04" || ascii(0, 4) === "PK\x05\x06") {
+        // ZIP container: plain archives and Office Open XML documents
+        ZIP_TYPES.forEach((t) => types.add(t));
+    } else if (head.length >= 8 && head.readUInt32BE(0) === 0xd0cf11e0 && head.readUInt32BE(4) === 0xa1b11ae1) {
+        // OLE2 compound file: legacy Office documents
+        ["application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint"].forEach((t) => types.add(t));
+    } else if (looksLikeText(head)) {
+        TEXT_TYPES.forEach((t) => types.add(t));
     }
     return types;
+}
+
+const ZIP_TYPES = [
+    "application/zip",
+    "application/x-zip-compressed",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+];
+const TEXT_TYPES = ["text/plain", "text/csv", "text/markdown"];
+
+/** UTF-8 (or ASCII) text: no NUL bytes, no other control characters except tab/CR/LF/FF, valid UTF-8. */
+function looksLikeText(head: Buffer): boolean {
+    if (!head.length) {
+        return false;
+    }
+    for (const byte of head) {
+        if (byte === 0 || (byte < 0x20 && byte !== 0x09 && byte !== 0x0a && byte !== 0x0d && byte !== 0x0c)) {
+            return false;
+        }
+    }
+    // A multi-byte character may be cut at the end of the sample: ignore the last 3 bytes for validity
+    const decoded = head.subarray(0, Math.max(0, head.length - 3)).toString("utf8");
+    return !decoded.includes("\ufffd");
 }
 
 /** First bytes of a file on disk (enough for every signature above). */

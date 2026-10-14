@@ -1,0 +1,268 @@
+:host {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+
+.gs-trigger {
+  display: none;
+}
+
+.gs {
+  position: relative;
+  width: min(640px, 100%);
+}
+
+.gs__box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 8px 0 12px;
+  border-radius: 8px;
+  background: var(--app-input);
+  border: 1px solid transparent;
+
+  &:focus-within {
+    background: var(--app-surface);
+    border-color: var(--app-brand);
+  }
+}
+
+.gs__back {
+  display: none;
+}
+
+.gs__icon {
+  color: var(--app-muted);
+  font-size: 0.85rem;
+}
+
+.gs__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 0.875rem;
+
+  &::placeholder {
+    color: var(--app-muted);
+  }
+
+  &::-webkit-search-cancel-button {
+    display: none;
+  }
+}
+
+.gs__clear,
+.gs__back {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-muted);
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: var(--app-hover);
+    color: var(--app-text);
+  }
+}
+
+.gs__clear {
+  display: inline-flex;
+}
+
+.gs__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 1050;
+  max-height: min(70vh, 560px);
+  display: flex;
+  flex-direction: column;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  box-shadow: var(--app-shadow);
+  overflow: hidden;
+}
+
+.gs__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--app-border);
+
+  select {
+    height: 28px;
+    padding: 0 8px;
+    border-radius: 14px;
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    color: var(--app-text);
+    font-size: 0.8rem;
+    max-width: 180px;
+  }
+}
+
+.gs__reset,
+.gs__retry {
+  border: 0;
+  background: none;
+  color: var(--app-brand);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.gs__state {
+  padding: 18px 14px;
+  font-size: 0.875rem;
+  color: var(--app-muted);
+}
+
+.gs__list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 6px 8px;
+  overflow-y: auto;
+
+  &--stale {
+    opacity: 0.6;
+  }
+}
+
+.gs__group {
+  padding: 10px 8px 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--app-muted);
+}
+
+.gs__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+
+  &--active {
+    background: var(--app-hover);
+  }
+}
+
+.gs__file {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-brand-soft);
+  color: var(--app-brand);
+}
+
+.gs__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gs__title,
+.gs__sub {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gs__title {
+  font-size: 0.875rem;
+  color: var(--app-text);
+
+  ::ng-deep mark {
+    padding: 0;
+    background: var(--app-highlight);
+    color: inherit;
+    border-radius: 2px;
+  }
+}
+
+.gs__sub {
+  font-size: 0.75rem;
+  color: var(--app-muted);
+}
+
+.gs__time {
+  flex: none;
+  font-size: 0.72rem;
+  color: var(--app-muted);
+}
+
+// Phones: icon in the top bar; tapping it expands the box over the bar
+@media (max-width: 767.98px) {
+  :host {
+    flex: 0;
+    justify-content: flex-end;
+  }
+
+  .gs-trigger {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--app-icon);
+    align-items: center;
+    justify-content: center;
+  }
+
+  .gs {
+    display: none;
+  }
+
+  .gs--expanded {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    z-index: 1060;
+    padding: 7px 8px;
+    background: var(--app-surface);
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  .gs__back {
+    display: inline-flex;
+  }
+
+  .gs__icon {
+    display: none;
+  }
+
+  .gs__panel {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: none;
+    border-radius: 0;
+    border: 0;
+  }
+}

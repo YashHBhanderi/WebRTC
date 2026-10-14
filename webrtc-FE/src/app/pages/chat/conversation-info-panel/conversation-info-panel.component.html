@@ -50,7 +50,7 @@
         <h4 class="block__label block__label--padded">{{ group.members.length }} participants</h4>
         <ul class="members">
           <li class="member" *ngFor="let member of sortedMembers; trackBy: trackUser">
-            <app-avatar [src]="member.avatar" [name]="member.username" [size]="40" [online]="!!member.isOnline && member._id !== myUserId"></app-avatar>
+            <app-avatar [src]="member.avatar" [name]="member.username" [size]="40" [presence]="member._id !== myUserId ? presenceKey(member) : null"></app-avatar>
             <span class="member__text">
               <span class="member__name">{{ member._id === myUserId ? 'You' : member.username }}</span>
               <span class="member__sub">{{ member.isOnline || member._id === myUserId ? 'online' : (member.bio || 'offline') }}</span>
@@ -122,6 +122,9 @@
     <section class="block" *ngIf="!loading && isGroup && group">
       <button type="button" class="danger-row" (click)="leaveGroup.emit()">
         <i class="fa-solid fa-arrow-right-from-bracket"></i> Exit group
+      </button>
+      <button type="button" class="danger-row" *ngIf="isAdmin" (click)="deleteGroup.emit()">
+        <i class="fa-regular fa-trash-can"></i> Delete group
       </button>
     </section>
   </div>

@@ -1,0 +1,146 @@
+:host { display: block; min-height: 0; height: 100%; }
+
+.tg {
+  --gutter: 56px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.tg--compact { --gutter: 48px; border-radius: 8px; }
+
+.tg__head {
+  display: grid;
+  grid-template-columns: var(--gutter) repeat(var(--cols), minmax(0, 1fr));
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-2);
+}
+
+.tg__day {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  border-left: 1px solid var(--app-border);
+  min-width: 0;
+
+  &--today .tg__dom { background: var(--app-brand); color: #fff; }
+}
+
+.tg__dow { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--app-muted); }
+
+.tg__dom {
+  min-width: 26px;
+  height: 26px;
+  line-height: 26px;
+  text-align: center;
+  border-radius: 13px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--app-text);
+}
+
+.tg__loc { flex-basis: 100%; font-size: 0.7rem; color: var(--app-muted); }
+
+.tg__scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; &::-webkit-scrollbar { display: none; } }
+
+.tg__body {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--gutter) repeat(var(--cols), minmax(0, 1fr));
+}
+
+.tg__gutter { position: relative; }
+
+.tg__hour {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-50%);
+  font-size: 0.68rem;
+  color: var(--app-muted);
+  white-space: nowrap;
+}
+
+.tg__col {
+  position: relative;
+  border-left: 1px solid var(--app-border);
+  user-select: none;
+  cursor: cell;
+  // slot lines (light) over hour lines (stronger)
+  background-image:
+    repeating-linear-gradient(to bottom, var(--app-border) 0, var(--app-border) 1px, transparent 1px, transparent var(--hour-px)),
+    repeating-linear-gradient(to bottom, color-mix(in srgb, var(--app-border) 45%, transparent) 0, color-mix(in srgb, var(--app-border) 45%, transparent) 1px, transparent 1px, transparent var(--slot-px));
+  &--today { background-color: color-mix(in srgb, var(--app-brand) 4%, transparent); }
+}
+
+.tg__off { position: absolute; left: 0; right: 0; background: color-mix(in srgb, var(--app-text) 5%, transparent); pointer-events: none; }
+
+.tg__sel, .tg__draft {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.tg__sel { background: color-mix(in srgb, var(--app-brand) 30%, transparent); border: 1px dashed var(--app-brand); }
+
+.tg__draft {
+  background: color-mix(in srgb, var(--app-brand) 35%, transparent);
+  border: 2px solid var(--app-brand);
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  color: var(--app-text);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.tg__draft-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 8px;
+  cursor: ns-resize;
+  pointer-events: auto;
+  &::after { content: ''; position: absolute; left: 50%; bottom: 2px; width: 28px; height: 3px; margin-left: -14px; border-radius: 2px; background: var(--app-brand); }
+}
+
+.tg__event {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+  padding: 2px 6px;
+  border: 0;
+  border-left: 3px solid var(--app-brand);
+  border-radius: 4px;
+  background: var(--app-brand-soft);
+  color: var(--app-text);
+  font-size: 0.74rem;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { filter: brightness(1.08); }
+  &--live { border-left-color: var(--app-danger); }
+}
+
+.tg__event-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tg__event-time { color: var(--app-muted); white-space: nowrap; }
+
+.tg__now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--app-danger);
+  pointer-events: none;
+  &::before { content: ''; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--app-danger); }
+}

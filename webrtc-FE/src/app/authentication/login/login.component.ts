@@ -1,65 +1,38 @@
-import { Component, OnInit } from '@angular/core';
-import { FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
-import { AlertService } from 'src/app/_shared/alert/alert.service';
-import { AuthService } from 'src/app/core/services/auth.service';
-import { SocketService } from 'src/app/core/services/socket.service';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { ClerkService } from 'src/app/core/services/clerk.service';
+
+/** Only paths inside this app (never another site). */
+export function safeReturnUrl(value: string | null | undefined): string {
+    // "/\evil.com" is treated like "//evil.com" by some browsers
+    return value && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\') ? value : '/chat';
+}
+
+/** Sign-in page: hosts Clerk's SignIn component. After sign-in Clerk navigates to /chat. */
 @Component({
     selector: 'app-login',
     templateUrl: './login.component.html',
     styleUrls: ['./login.component.scss']
 })
+export class LoginComponent implements OnInit, OnDestroy {
+    @ViewChild('mount', { static: true }) mount!: ElementRef<HTMLDivElement>;
+    unavailable = '';
 
-export class LoginComponent implements OnInit {
-
-    loginForm!: FormGroup;
-    summited: boolean = false;
-    formData: any = [];
-    loading: boolean = false;
-
-    constructor(
-        private fb: FormBuilder,
-        private router: Router,
-        private authService: AuthService,
-        private socketService: SocketService,
-        private alertService: AlertService,
-    ) { }
+    constructor(private clerk: ClerkService, private route: ActivatedRoute) { }
 
     ngOnInit(): void {
-        this.loginForm = this.fb.group({
-            email: ['', [Validators.required, Validators.email]],
-            password: ['', [Validators.required]]
-        });
-    }
-
-    onSubmit() {
-        this.summited = true;
-        if (this.loginForm.invalid) {
-            this.alertService.warning('Please complete all required fields in the form before submitting.');
+        if (!this.clerk.loaded) {
+            this.unavailable = this.clerk.loadError || 'Please check your connection and try again.';
             return;
         }
-        this.loading = true;
-        const email = this.loginForm.get('email')?.value;
-        const password = this.loginForm.get('password')?.value;
-        this.alertService.loading('Logging in...');
-        this.authService.loginUser(email, password).subscribe({
-            next: (response) => {
-                this.loading = false;
-                const token = response.data.token;
-                if (token) {
-                    this.socketService.connectWithToken();
-                    this.router.navigate(['/chat']);
-                }
-                this.alertService.success('Login Successfully');
-            },
-            error: (error) => {
-                this.loading = false;
-                this.alertService.error(error);
-            }
-        });
+        this.clerk.mountSignIn(this.mount.nativeElement, safeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl')));
     }
 
-    hasError(controlName: string, errorName: string): boolean {
-        return this.loginForm.controls[controlName].touched && this.loginForm.controls[controlName].hasError(errorName);
+    ngOnDestroy(): void {
+        this.clerk.unmount(this.mount.nativeElement, 'signIn');
+    }
+
+    retry(): void {
+        window.location.reload();
     }
 }

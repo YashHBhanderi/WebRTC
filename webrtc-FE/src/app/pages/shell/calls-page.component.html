@@ -1,0 +1,111 @@
+<div class="pane-layout">
+  <!-- ============================================================ start a call -->
+  <aside class="pane-side" aria-label="Make a call">
+    <header class="pane-side__header"><h1>Calls</h1></header>
+
+    <div class="dial">
+      <label for="call-people" class="dial__label">Call people</label>
+      <div class="dial__box" (click)="peopleInput.focus()">
+        <span class="dial__chip" *ngFor="let p of selected">
+          <app-avatar [src]="p.avatar" [name]="p.username" [size]="20"></app-avatar>
+          <span class="dial__chip-name">{{ p.username }}</span>
+          <button type="button" (click)="remove(p); $event.stopPropagation()" [attr.aria-label]="'Remove ' + p.username"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+        </span>
+        <input #peopleInput id="call-people" type="search" [(ngModel)]="query" (keydown)="onSearchKeydown($event)"
+               [placeholder]="selected.length ? 'Add more people' : 'Search for people'" autocomplete="off"
+               aria-describedby="call-people-hint" />
+      </div>
+      <span id="call-people-hint" class="visually-hidden">Choose one or more people, then start an audio call.</span>
+
+      <button type="button" class="btn btn-primary dial__call" (click)="startAudioCall()" [disabled]="starting">
+        <span *ngIf="starting" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+        <i *ngIf="!starting" class="fa-solid fa-phone me-2" aria-hidden="true"></i>
+        Audio call<ng-container *ngIf="selected.length > 1"> ({{ selected.length }})</ng-container>
+      </button>
+    </div>
+
+    <div class="pane-side__list">
+      <ng-container *ngIf="!peopleLoaded">
+        <div class="row-skeleton" *ngFor="let i of [1, 2, 3, 4]" aria-hidden="true"></div>
+      </ng-container>
+      <ul class="conv-list" *ngIf="peopleLoaded && suggestions.length" aria-label="People">
+        <li *ngFor="let p of suggestions; trackBy: trackById">
+          <button type="button" class="conv" (click)="toggle(p)" [attr.aria-pressed]="isSelected(p)">
+            <app-avatar [src]="p.avatar" [name]="p.username" [size]="40" [presence]="p.presence"></app-avatar>
+            <span class="conv__body"><span class="conv__row"><span class="conv__title">{{ p.username }}</span></span></span>
+            <i class="fa-solid fa-plus dial__add" aria-hidden="true"></i>
+          </button>
+        </li>
+      </ul>
+      <div class="pane-state" *ngIf="peopleLoaded && !suggestions.length">
+        <i class="fa-solid fa-user" aria-hidden="true"></i>
+        <span>{{ query.trim() ? 'No one matches “' + query.trim() + '”' : 'Everyone is already selected' }}</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============================================================ history -->
+  <section class="pane-main history" aria-label="Call history">
+    <header class="history__head">
+      <h2>History</h2>
+      <nav class="chips" aria-label="Filter call history">
+        <button type="button" class="chip" *ngFor="let f of filters" [class.chip--active]="filter === f.value" [attr.aria-pressed]="filter === f.value" (click)="setFilter(f.value)">{{ f.label }}</button>
+      </nav>
+    </header>
+
+    <div class="history__list">
+      <ng-container *ngIf="loading && !items.length">
+        <div class="row-skeleton" *ngFor="let i of [1, 2, 3, 4, 5]" aria-hidden="true"></div>
+        <span class="visually-hidden" role="status">Loading calls</span>
+      </ng-container>
+
+      <ul class="conv-list" *ngIf="items.length" aria-label="Calls">
+        <li *ngFor="let call of items; trackBy: trackById" class="history__item" [id]="'call-' + call._id">
+          <button type="button" class="conv" [class.conv--active]="call._id === focusedId" [class.history__flash]="call._id === flashId"
+                  [attr.aria-current]="call._id === focusedId ? 'true' : null" (click)="select(call)" [attr.aria-label]="describe(call)">
+            <span class="history__avatar">
+              <app-avatar [src]="call.avatar" [name]="call.title" [size]="40"></app-avatar>
+              <span class="history__badge" [class.history__badge--bad]="isBad(call)" aria-hidden="true">
+                <i class="fa-solid" [class.fa-video]="call.callType === 'video'" [class.fa-phone]="call.callType !== 'video'"></i>
+              </span>
+            </span>
+            <span class="conv__body">
+              <span class="conv__row">
+                <span class="conv__title" [class.text-danger]="call.outcome === 'missed'">{{ call.title }}</span>
+                <span class="conv__time">{{ when(call.createdAt) }}</span>
+              </span>
+              <span class="conv__row">
+                <span class="conv__preview">
+                  <i class="fa-solid history__dir" [class.fa-arrow-down]="call.direction === 'incoming'" [class.fa-arrow-up]="call.direction === 'outgoing'" aria-hidden="true"></i>
+                  {{ call.isMeeting ? 'Meeting' : call.direction === 'incoming' ? 'Incoming' : 'Outgoing' }}
+                  · {{ call.callType === 'video' ? 'Video' : 'Audio' }}
+                  <ng-container *ngIf="label(call)"> · {{ label(call) }}</ng-container>
+                  <ng-container *ngIf="call.outcome === 'answered'"> · {{ duration(call.duration) }}</ng-container>
+                  <ng-container *ngIf="peopleText(call)"> · {{ peopleText(call) }}</ng-container>
+                </span>
+              </span>
+            </span>
+          </button>
+          <span class="history__actions">
+            <button type="button" (click)="callBack(call, 'audio')" [attr.aria-label]="'Audio call ' + call.title" title="Audio call"><i class="fa-solid fa-phone" aria-hidden="true"></i></button>
+            <button type="button" (click)="callBack(call, 'video')" [attr.aria-label]="'Video call ' + call.title" title="Video call"><i class="fa-solid fa-video" aria-hidden="true"></i></button>
+            <button type="button" (click)="openChat(call)" [attr.aria-label]="'Chat with ' + call.title" title="Chat"><i class="fa-regular fa-comment" aria-hidden="true"></i></button>
+          </span>
+        </li>
+      </ul>
+
+      <div class="pane-state" *ngIf="!loading && !error && !items.length">
+        <i class="fa-solid fa-phone" aria-hidden="true"></i>
+        <strong>{{ filter === 'missed' ? 'No missed calls' : filter === 'incoming' ? 'No incoming calls' : filter === 'outgoing' ? 'No outgoing calls' : 'No calls yet' }}</strong>
+        <span *ngIf="filter === 'all'">Pick people on the left to start a call.</span>
+      </div>
+      <div class="pane-state" *ngIf="error" role="alert">
+        <strong>We couldn't load your calls.</strong>
+        <button type="button" class="btn btn-sm btn-primary" (click)="load(true)">Try again</button>
+      </div>
+      <div class="history__more" *ngIf="nextCursor && !error">
+        <button type="button" class="btn btn-sm btn-light" (click)="load()" [disabled]="loading">{{ loading ? 'Loading…' : 'Show older' }}</button>
+      </div>
+    </div>
+  </section>
+</div>

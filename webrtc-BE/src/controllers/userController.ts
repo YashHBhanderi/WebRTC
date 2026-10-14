@@ -5,58 +5,24 @@ import CustomRequest from "../types/customRequest";
 import { IStoredFile } from "../models/storedFile.schema";
 import { releaseFile, storeUpload } from "../services/file.service";
 import { discardTempFile } from "../utils/multer";
-import { AppError, publicMessage } from "../utils/errors";
+import { AppError, sendError } from "../utils/errors";
 import { io } from "../realtime/io";
+import presenceService, { publicStatus } from "../services/presence.service";
 
 function fail(res: Response, error: unknown, fallback: string): void {
-    if (!(error instanceof AppError)) {
-        console.error(fallback, error);
-    }
-    res.status(error instanceof AppError ? error.status : 500).json({ status: false, data: null, message: publicMessage(error, fallback) });
+    sendError(res, error, fallback);
 }
 
 export default class UserController {
-    static async creatUser(req: Request, res: Response): Promise<void> {
-        let uploaded: IStoredFile | undefined;
+    /** The signed-in user's app account (linked/created from the Clerk session by verifyToken). */
+    static async me(req: Request, res: Response): Promise<void> {
         try {
-            const { username, email, password } = req.body || {};
-            const name = validateUsername(username);
-            if (typeof email !== 'string' || typeof password !== 'string') throw new AppError('Email and password are required');
-            // Check before uploading so a duplicate sign-up leaves no file behind
-            if (await userServices.emailExists(email)) throw new AppError('User already exists', 409);
-
-            // Picture is optional: without one, clients show a generated initials avatar
-            const userId = new mongoose.Types.ObjectId();
-            if (req.file) {
-                uploaded = (await storeUpload(req.file, { purpose: "avatar", userId: String(userId) }, String(userId))).stored;
-            }
-            const user = await userServices.createUser({
-                _id: userId as unknown as mongoose.Schema.Types.ObjectId,
-                username: name,
-                email,
-                password,
-                avatar: uploaded ? uploaded.storageKey : "",
-                ...(uploaded ? { avatarFile: uploaded } : {}),
-            });
-            res.status(200).json({ status: true, data: user, message: 'User Created Successfully' });
+            const user = await userServices.getUserById(String((req as CustomRequest).userId));
+            if (!user) throw new AppError('Account not found', 404);
+            // My own chosen status, unmasked
+            res.status(200).json({ status: true, data: { ...user.toJSON(), status: user.status }, message: '' });
         } catch (error) {
-            await discardTempFile(req.file);
-            await releaseFile(uploaded);
-            if (error instanceof mongoose.Error.ValidationError) {
-                res.status(400).json({ status: false, data: null, message: Object.values(error.errors).map((e) => e.message).join(', ') });
-                return;
-            }
-            fail(res, error, 'Could not create the account');
-        }
-    }
-
-    static async loginUser(req: Request, res: Response): Promise<void> {
-        try {
-            const { email, password } = req.body;
-            const response = await userServices.loginUser(email, password);
-            res.status(200).json({ status: true, data: response, message: 'Login Successfully' });
-        } catch (error) {
-            res.status(500).json({ status: false, data: null, message: [error.message].join(', ') });
+            fail(res, error, 'Could not load your account');
         }
     }
 
@@ -68,7 +34,7 @@ export default class UserController {
             }
             res.status(200).json({ status: true, data: allUser, message: 'All Users' });
         } catch (error) {
-            res.status(500).json({ status: false, data: null, message: [error.message].join(', ') });
+            sendError(res, error);
         }
     }
     static async deleteUser(req: Request, res: Response): Promise<void> {
@@ -83,7 +49,7 @@ export default class UserController {
             res.status(200).json({ status: true, data: null, message: 'User Deleted Successfully' });
 
         } catch (error) {
-            res.status(500).json({ status: false, data: null, message: [error.message].join(', ') });
+            sendError(res, error);
         }
     }
 
@@ -97,7 +63,7 @@ export default class UserController {
             res.status(200).json({ status: true, data: user, message: 'User get Successfully' });
 
         } catch (error) {
-            res.status(500).json({ status: false, data: null, message: [error.message].join(', ') });
+            sendError(res, error);
         }
     }
 
@@ -110,7 +76,7 @@ export default class UserController {
             res.status(200).json({ status: true, data: user, message: 'User get Successfully' });
 
         } catch (error) {
-            res.status(500).json({ status: false, data: null, message: [error.message].join(', ') });
+            sendError(res, error);
         }
     }
 
@@ -130,7 +96,8 @@ export default class UserController {
             }
             const user = await userServices.updateProfile(userId, update, uploaded);
             // Everyone's chat lists / headers pick up the new name and picture live
-            io().emit("user:updated", { _id: userId, username: user.username, avatar: user.avatar, bio: user.bio, status: user.status });
+            io().emit("user:updated", { _id: userId, username: user.username, avatar: user.avatar, bio: user.bio, status: publicStatus(user.status) });
+            void presenceService.publish(String(userId)).catch(() => undefined);
             res.status(200).json({ status: true, data: user, message: 'Profile updated successfully' });
         } catch (error) {
             await discardTempFile(req.file);

@@ -1,0 +1,320 @@
+// Application frame: top bar across, nav rail on the left, page on the right.
+// Phones: rail becomes a bottom tab bar (secondary items move to the account menu).
+
+:host {
+  display: block;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--app-bg);
+}
+
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1100;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--app-brand);
+  color: #fff;
+}
+
+.shell {
+  --rail-width: 88px;
+  display: grid;
+  grid-template-columns: var(--rail-width) 1fr;
+  grid-template-rows: 48px 1fr;
+  grid-template-areas:
+    'top top'
+    'rail content';
+  height: 100%;
+
+  // Navigation hidden completely: the page takes the whole width
+  &--collapsed {
+    --rail-width: 0px;
+
+    .rail {
+      visibility: hidden;
+      border-right: 0;
+      padding: 0;
+    }
+  }
+}
+
+// ------------------------------------------------------------------ top bar
+
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 0;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  min-width: 0;
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+// Same column as the navigation (centred on its icons); stays visible when the navigation is hidden
+.topbar__rail {
+  width: max(var(--rail-width), 64px);
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+}
+
+// Same size / weight as a navigation icon
+.topbar__toggle {
+  width: 48px;
+  height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-icon);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    background: var(--app-hover);
+    color: var(--app-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-brand);
+    outline-offset: -2px;
+  }
+}
+
+.topbar__icon,
+.topbar__me {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-icon);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  text-decoration: none;
+
+  &:hover {
+    background: var(--app-hover);
+    color: var(--app-text);
+  }
+
+  &--active {
+    color: var(--app-brand);
+    background: var(--app-active);
+  }
+}
+
+.topbar__me {
+  border-radius: 50%;
+  padding: 0;
+
+  &::after {
+    display: none; // Bootstrap dropdown caret
+  }
+}
+
+.menu-user {
+  padding: 6px 12px 2px;
+
+  &__name {
+    font-weight: 600;
+    color: var(--app-text);
+  }
+
+  &__status {
+    font-size: 0.8rem;
+    color: var(--app-muted);
+  }
+}
+
+.count-badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--app-danger);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+
+  &--rail {
+    top: 8px;
+    right: 18px;
+  }
+}
+
+// ------------------------------------------------------------------ rail
+
+.rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  padding: 6px 4px 6px 0;
+  background: var(--app-surface-2);
+  border-right: 1px solid var(--app-border);
+  overflow-y: auto;
+}
+
+.rail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rail__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 64px;
+  padding: 8px 2px;
+  border-radius: 0 8px 8px 0;
+  color: var(--app-icon);
+  text-decoration: none;
+  font-size: 1.2rem;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--app-hover);
+    color: var(--app-text);
+  }
+
+  &--active {
+    color: var(--app-brand);
+    background: var(--app-active);
+
+    // Full-height strip along the left edge of the active item
+    &::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--app-brand);
+    }
+  }
+}
+
+.rail__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
+// ------------------------------------------------------------------ content
+
+.content {
+  grid-area: content;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+.content__page {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+
+  // Routed pages fill the content area
+  ::ng-deep > *:not(router-outlet) {
+    display: block;
+    height: 100%;
+  }
+}
+
+// ------------------------------------------------------------------ phones
+
+@media (max-width: 767.98px) {
+  .topbar {
+    padding-left: 10px;
+  }
+
+  .topbar__spacer {
+    flex: 1;
+  }
+
+  .shell,
+  .shell--collapsed {
+    grid-template-columns: 1fr;
+    grid-template-rows: 48px 1fr calc(58px + env(safe-area-inset-bottom));
+    grid-template-areas:
+      'top'
+      'content'
+      'rail';
+  }
+
+  .shell--collapsed .rail {
+    visibility: visible;
+  }
+
+  .rail {
+    flex-direction: row;
+    padding: 0 4px env(safe-area-inset-bottom);
+    border-right: 0;
+    border-top: 1px solid var(--app-border);
+    overflow: visible;
+  }
+
+  .rail__list {
+    flex-direction: row;
+    flex: 1;
+    justify-content: space-around;
+  }
+
+  .rail__item {
+    flex: 1;
+    min-height: 54px;
+    border-radius: 8px;
+    font-size: 1.05rem;
+
+    &--active::before {
+      left: 25%;
+      right: 25%;
+      top: -1px;
+      bottom: auto;
+      width: auto;
+      height: 3px;
+      border-radius: 0 0 3px 3px;
+    }
+  }
+
+}
+
+// Phones: a full-screen conversation hides the top bar and the tab bar (back arrow returns)
+@media (max-width: 767.98px) {
+  .shell--immersive {
+    grid-template-rows: 0 1fr 0;
+
+    .topbar,
+    .rail {
+      display: none;
+    }
+  }
+}

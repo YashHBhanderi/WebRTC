@@ -1,0 +1,119 @@
+<div class="modal-header me-head">
+  <i class="fa-regular fa-calendar-plus me-head__icon" aria-hidden="true"></i>
+  <h2 class="modal-title me-head__title" id="meeting-editor-title">{{ meeting ? 'Edit meeting' : 'New meeting' }}</h2>
+  <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
+</div>
+
+<form (ngSubmit)="save()" aria-labelledby="meeting-editor-title" class="me-form-wrap">
+  <div class="me-layout">
+    <!-- Left: details -->
+    <div class="me-form">
+      <input id="mtg-title" name="title" class="me-titleinput" maxlength="120" [(ngModel)]="title" required ngbAutofocus autocomplete="off" placeholder="Add a title" aria-label="Title" />
+
+      <section class="me-sec">
+        <h3 class="me-sec__h"><i class="fa-regular fa-clock"></i>When</h3>
+        <div class="me-row">
+          <div class="me-col">
+            <label for="mtg-date" class="form-label">Date</label>
+            <input id="mtg-date" name="date" type="date" class="form-control" [(ngModel)]="date" (ngModelChange)="loadGrid()" required />
+          </div>
+          <div class="me-col me-col--time">
+            <label for="mtg-start" class="form-label">Start</label>
+            <input id="mtg-start" name="start" type="time" class="form-control" [(ngModel)]="startTime" required />
+          </div>
+          <div class="me-col me-col--time">
+            <label for="mtg-end" class="form-label">End</label>
+            <input id="mtg-end" name="end" type="time" class="form-control" [(ngModel)]="endTime" required />
+          </div>
+        </div>
+        <div class="form-text">Time zone: {{ timeZone }}</div>
+
+        <div class="me-row mt-3">
+          <div class="me-col">
+            <label for="mtg-repeat" class="form-label">Repeat</label>
+            <select id="mtg-repeat" name="repeat" class="form-select" [(ngModel)]="repeat">
+              <option value="none">Does not repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekdays">Every weekday (Mon–Fri)</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+          </div>
+          <div class="me-col me-col--time" *ngIf="repeat === 'daily' || repeat === 'weekly' || repeat === 'monthly'">
+            <label for="mtg-interval" class="form-label">Every</label>
+            <input id="mtg-interval" name="interval" type="number" min="1" max="30" class="form-control" [(ngModel)]="interval" />
+          </div>
+          <div class="me-col" *ngIf="repeat !== 'none'">
+            <label for="mtg-until" class="form-label">Until</label>
+            <input id="mtg-until" name="until" type="date" class="form-control" [(ngModel)]="repeatUntil" [min]="date" />
+          </div>
+        </div>
+        <div class="me-days mt-2" *ngIf="repeat === 'weekly'" role="group" aria-label="Repeat on">
+          <button type="button" *ngFor="let d of weekdays; let i = index" class="me-day-btn" [class.me-day-btn--on]="byWeekday.has(i)"
+                  [attr.aria-pressed]="byWeekday.has(i)" (click)="toggleWeekday(i)">{{ d }}</button>
+        </div>
+        <div class="form-text mt-2" *ngIf="repeat !== 'none' && !repeatUntil">Without an end date the series repeats for up to two years.</div>
+      </section>
+
+      <section class="me-sec">
+        <h3 class="me-sec__h"><i class="fa-solid fa-user-plus"></i>People</h3>
+        <label for="mtg-people" class="visually-hidden">Invite people</label>
+        <div class="me-chips" *ngIf="inviteeList.length">
+          <span class="me-chip" *ngFor="let p of inviteeList">
+            <app-avatar [src]="p.avatar" [name]="p.username" [size]="20"></app-avatar>{{ p.username }}
+            <button type="button" (click)="removeInvitee(p._id)" [attr.aria-label]="'Remove ' + p.username"><i class="fa-solid fa-xmark"></i></button>
+          </span>
+        </div>
+        <input id="mtg-people" name="peopleSearch" class="form-control" [(ngModel)]="peopleSearch" placeholder="Invite people" autocomplete="off" />
+        <div class="me-suggest" *ngIf="peopleSearch.trim() && filteredPeople.length" role="listbox" aria-label="People">
+          <button type="button" role="option" *ngFor="let p of filteredPeople" (click)="addInvitee(p)">
+            <app-avatar [src]="p.avatar" [name]="p.username" [size]="24"></app-avatar>{{ p.username }}
+          </button>
+        </div>
+      </section>
+
+      <section class="me-sec">
+        <h3 class="me-sec__h"><i class="fa-solid fa-align-left"></i>Details <span class="text-muted fw-normal">(optional)</span></h3>
+        <label for="mtg-desc" class="visually-hidden">Details</label>
+        <textarea id="mtg-desc" name="description" class="form-control" rows="3" maxlength="2000" [(ngModel)]="description" placeholder="Add details for this meeting"></textarea>
+      </section>
+
+      <section class="me-sec">
+        <h3 class="me-sec__h"><i class="fa-solid fa-shield-halved"></i>Meeting options</h3>
+        <div class="form-check form-switch mb-2">
+          <input id="mtg-lobby" name="lobby" class="form-check-input" type="checkbox" role="switch" [(ngModel)]="lobby" />
+          <label for="mtg-lobby" class="form-check-label">Lobby — people wait until a host admits them</label>
+        </div>
+        <div class="form-check form-switch mb-2">
+          <input id="mtg-pw" name="usePassword" class="form-check-input" type="checkbox" role="switch" [(ngModel)]="usePassword" />
+          <label for="mtg-pw" class="form-check-label">Require a password for people who weren't invited</label>
+        </div>
+        <div *ngIf="usePassword">
+          <input name="password" type="password" class="form-control" maxlength="64" autocomplete="new-password" [(ngModel)]="password"
+                 [placeholder]="meeting?.hasPassword ? 'Leave empty to keep the current password' : 'At least 4 characters'" aria-label="Meeting password" />
+        </div>
+      </section>
+
+      <p class="text-danger small mb-0" *ngIf="error" role="alert">{{ error }}</p>
+    </div>
+
+    <!-- Right: day view, full height, synced with the start / end fields -->
+    <aside class="me-day" aria-label="Day view">
+      <div class="me-day__bar">
+        <button type="button" class="me-day__nav" (click)="shiftDay(-1)" aria-label="Previous day"><i class="fa-solid fa-chevron-left"></i></button>
+        <strong class="me-day__title">{{ dayTitle }}</strong>
+        <button type="button" class="me-day__nav" (click)="shiftDay(1)" aria-label="Next day"><i class="fa-solid fa-chevron-right"></i></button>
+      </div>
+      <app-time-grid class="me-day__grid" [days]="gridDays" [items]="gridItems" [draft]="draft" [draftLabel]="draftLabel" [compact]="true" [scrollToMinutes]="scrollMinutes"
+                     (rangeSelect)="onGridRange($event)" (draftChange)="onGridResize($event)"></app-time-grid>
+      <p class="me-day__hint">Click or drag to pick the time</p>
+    </aside>
+  </div>
+
+  <div class="modal-footer me-foot">
+    <button type="button" class="btn btn-light" (click)="modal.dismiss()">Cancel</button>
+    <button type="submit" class="btn btn-primary" [disabled]="saving">
+      <span *ngIf="saving" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>{{ meeting ? 'Save' : 'Schedule' }}
+    </button>
+  </div>
+</form>

@@ -1,0 +1,233 @@
+// ------------------------------------------------------------------ start a call (left)
+
+.dial {
+  padding: 0 12px 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.dial__label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--app-text-2);
+}
+
+.dial__box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: var(--app-input);
+  cursor: text;
+
+  &:focus-within {
+    outline: 2px solid var(--app-brand-soft);
+  }
+
+  input {
+    flex: 1;
+    min-width: 120px;
+    height: 28px;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: var(--app-text);
+    font-size: 0.9rem;
+  }
+}
+
+.dial__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 2px 2px 3px;
+  border-radius: 999px;
+  background: var(--app-brand-soft);
+  color: var(--app-text);
+  font-size: 0.8rem;
+
+  button {
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--app-muted);
+    font-size: 0.7rem;
+
+    &:hover {
+      background: var(--app-hover-strong);
+      color: var(--app-text);
+    }
+  }
+}
+
+.dial__chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dial__call {
+  width: 100%;
+  margin-top: 10px;
+  font-weight: 600;
+}
+
+.dial__add {
+  flex: none;
+  color: var(--app-muted);
+  font-size: 0.8rem;
+}
+
+// ------------------------------------------------------------------ history (main)
+
+.history {
+  display: flex;
+  flex-direction: column;
+  background: var(--app-surface);
+}
+
+.history__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 16px 16px 4px;
+
+  h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--app-text);
+  }
+
+  .chips {
+    padding: 0;
+  }
+}
+
+.history__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px 16px;
+}
+
+.history__item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 12px;
+
+  .conv {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &:hover .history__actions,
+  &:focus-within .history__actions {
+    opacity: 1;
+  }
+}
+
+.history__flash {
+  animation: call-flash 2.4s ease;
+}
+
+@keyframes call-flash {
+  0%,
+  60% {
+    box-shadow: inset 0 0 0 2px var(--app-brand);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
+.history__avatar {
+  position: relative;
+  flex: none;
+}
+
+.history__badge {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: #fff;
+  background: var(--app-brand);
+  border: 2px solid var(--app-surface);
+
+  &--bad {
+    background: var(--app-danger);
+  }
+}
+
+.history__dir {
+  transform: rotate(45deg);
+  font-size: 0.7rem;
+  margin-right: 2px;
+}
+
+.history__actions {
+  display: flex;
+  gap: 2px;
+  padding-right: 6px;
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+
+  button {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--app-icon);
+
+    &:hover {
+      background: var(--app-brand-soft);
+      color: var(--app-brand);
+    }
+  }
+}
+
+.history__more {
+  display: flex;
+  justify-content: center;
+  padding: 12px;
+}
+
+// Phones: the call panel stacks above the history
+@media (max-width: 767.98px) {
+  :host {
+    overflow-y: auto;
+  }
+
+  .pane-layout {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .pane-side__list {
+    max-height: 260px;
+  }
+
+  .history__actions {
+    opacity: 1;
+  }
+}

@@ -36,6 +36,34 @@ export interface ChatMessage {
   downloadUrl?: string;
   fileSize?: number;
   mimeType?: string;
+  /** sent → delivered (reached every other member's device) → seen (read by everyone else) */
+  status?: 'sent' | 'delivered' | 'seen';
+  editedAt?: string | null;
+  /** User ids @mentioned in the text */
+  mentions?: string[];
+  /** Saved ("starred") by me */
+  saved?: boolean;
+  /** type "call": a connected call that ended (author = caller, createdAt = end time) */
+  /** type "recording": a finished meeting recording; the card loads its live state */
+  recording?: { recordingId: string } | null;
+  call?: { callId: string; callType: 'audio' | 'video'; mode: 'ring' | 'meetNow'; duration: number } | null;
+}
+
+export interface MemberReceipt {
+  userId: string;
+  readAt: string | null;
+  deliveredAt: string | null;
+}
+
+export interface PinnedMessage {
+  messageId: string;
+  pinnedBy: string;
+  pinnedAt: string;
+  content: string;
+  type: string;
+  fileName?: string;
+  createdAt: string;
+  user: { _id: string; username?: string } | null;
 }
 
 export type UploadTarget =
@@ -47,7 +75,7 @@ export interface UploadResult {
   storageKey: string;
   fileUrl: string;
   thumbnailUrl: string;
-  type: 'image' | 'video' | 'audio' | 'pdf';
+  type: 'image' | 'video' | 'audio' | 'pdf' | 'file';
   mimeType: string;
   originalName: string;
   size: number;
@@ -56,8 +84,20 @@ export interface UploadResult {
 /** What a composer hands to the sender. */
 export interface MessageDraft {
   text: string;
+  /** First attachment (single-file senders) */
   file: File | null;
+  /** All attachments (each is sent as its own message) */
+  files?: File[];
   replyToId?: string | null;
+  /** Members @mentioned in `text` */
+  mentionIds?: string[];
+}
+
+/** Composer edit mode: the message being edited. */
+export interface EditTarget {
+  id: string;
+  text: string;
+  mentionIds: string[];
 }
 
 export interface GroupSummary {
@@ -76,6 +116,8 @@ export interface ChatState {
   isGroup: boolean;
   peerId: string | null;
   blockedByMe: boolean;
+  receipts?: MemberReceipt[];
+  pins?: PinnedMessage[];
 }
 
 export interface SearchResult {
@@ -101,11 +143,12 @@ export const MEDIA_TYPE_LABELS: Record<string, string> = {
   video: 'Video',
   audio: 'Audio',
   pdf: 'Document',
+  file: 'File',
 };
 
 /** Text or media caption. Without a caption the server stores the type name as content. */
 export function messageHasText(msg: Pick<ChatMessage, 'content' | 'type'>): boolean {
-  return !!msg.content && msg.type !== 'call' && msg.type !== 'system' && msg.content !== msg.type;
+  return !!msg.content && msg.type !== 'call' && msg.type !== 'system' && msg.type !== 'recording' && msg.content !== msg.type;
 }
 
 export function messagePreview(msg: Pick<ChatMessage, 'content' | 'type'> | null | undefined): string {

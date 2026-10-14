@@ -9,6 +9,8 @@ import { mediaConfig } from "./utils/network";
 import { createApp } from "./app";
 import { startRealtime } from "./realtime";
 import { runMigrations } from "./migrations";
+import meetingService from "./services/meeting.service";
+import recordingService from "./services/recording.service";
 
 /**
  * Bootstrap only: config → HTTP app → Socket.IO gateways → DB (+ migrations) → mediasoup → listen.
@@ -36,6 +38,9 @@ connectDB()
       await runMigrations();
     }
     await mediasoupService.init();
+    // Meeting reminders (5 minutes before each occurrence)
+    meetingService.startReminders();
+    await recordingService.recoverOnStartup();
     server.listen(Number(port), "0.0.0.0", () => {
       console.log(`Server is running on port ${port}`);
     });

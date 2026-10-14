@@ -1,95 +1,74 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
-import { IUser } from '../interfaces/user';
+import { firstValueFrom } from 'rxjs';
 import { environment } from 'src/environments/environment';
+import { ClerkService } from './clerk.service';
 
-
-const TOKEN_KEY = 'auth_token';
 const USER_KEY = 'user';
+const USER_CLERK_KEY = 'userClerkId';
+// Pre-Clerk session token; removed on sight
+const LEGACY_TOKEN_KEY = 'auth_token';
 
-/** True when the JWT's `exp` has passed (or the token can't be read). Checked locally, no request. */
-export function tokenExpired(token: string, nowMs = Date.now()): boolean {
-  try {
-    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const { exp } = JSON.parse(atob(payload.padEnd(Math.ceil(payload.length / 4) * 4, '=')));
-    return typeof exp === 'number' && exp * 1000 <= nowMs;
-  } catch {
-    return true;
-  }
-}
-
-/** Forget the stored session. Plain function so the HTTP interceptor can use it without DI cycles. */
+/** Forget the cached app user. Plain function so the HTTP interceptor can use it without DI cycles. */
 export function clearStoredSession(): void {
-  localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(USER_CLERK_KEY);
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
 }
 
+/**
+ * Signed in = a Clerk session plus this app's own user record (MongoDB), which the backend links
+ * or creates on the first request. The app user is cached so components can read it synchronously
+ * (getLoggedInUser); it is refetched when the Clerk user changes (e.g. another account signs in).
+ */
 @Injectable({
   providedIn: 'root'
 })
 export class AuthService {
-  private apiUrl = `${environment.apiUrl}/web/user`;  
-  private tokenKey = TOKEN_KEY;
-
   constructor(
-    private http: HttpClient, 
-    private router: Router
-  ) { }
-
-  register(user: IUser): Observable<IUser> {
-    return this.http.post<IUser>(`${this.apiUrl}/register`, user);
+    private http: HttpClient,
+    private router: Router,
+    private clerk: ClerkService,
+  ) {
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
   }
 
-
-
-  loginUser(email: string, password: string): Observable<any> {
-    const body = { email, password };
-    return this.http.post<any>(`${this.apiUrl}/login`, body).pipe(
-      map(response => {
-        const token = response.data.token;
-        if (!token) return;
-        localStorage.setItem(this.tokenKey, token);
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-        return response;
-      })
-    );
+  /** Clerk session token for the API and sockets (short-lived, refreshed by Clerk). */
+  getToken(opts?: { skipCache?: boolean }): Promise<string | null> {
+    return this.clerk.getToken(opts);
   }
 
-  getToken(): string | null {
-    return localStorage.getItem(this.tokenKey);
-  }
-
-  /** Signed in = a stored user and a token that has not expired. An expired session is cleared. */
   loggedIn(): boolean {
-    const token = this.getToken();
-    if (!token || !localStorage.getItem(USER_KEY)) {
-      return false;
-    }
-    if (tokenExpired(token)) {
-      clearStoredSession();
-      return false;
-    }
-    return true;
+    return this.clerk.isSignedIn && !!localStorage.getItem(USER_KEY) && localStorage.getItem(USER_CLERK_KEY) === this.clerk.userId;
   }
 
-  getHeaders(): HttpHeaders {
-    const token = this.getToken();
-    return new HttpHeaders({
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    });
+  /** Make sure the app user for the current Clerk session is loaded. Throws the server's message on failure. */
+  async ensureAppUser(): Promise<void> {
+    if (!this.clerk.isSignedIn) {
+      throw new Error('Not signed in');
+    }
+    if (this.loggedIn()) {
+      return;
+    }
+    const res = await firstValueFrom(this.http.get<any>(`${environment.apiUrl}/web/user/me`, { headers: { skipInterceptorToast: 'true' } }));
+    if (!res?.data?._id) {
+      throw new Error('Could not load your account');
+    }
+    localStorage.setItem(USER_KEY, JSON.stringify(res.data));
+    localStorage.setItem(USER_CLERK_KEY, this.clerk.userId || '');
   }
 
-  logout() {
+  async logout(navigate = true): Promise<void> {
     clearStoredSession();
-    this.router.navigate(['/auth/login']);
+    await this.clerk.signOut();
+    if (navigate) {
+      this.router.navigate(['/auth/login']);
+    }
   }
 
   getLoggedInUser() {
-    const loggedInUser = localStorage.getItem('user');
+    const loggedInUser = localStorage.getItem(USER_KEY);
     return loggedInUser ? JSON.parse(loggedInUser) : null;
   }
 
@@ -97,7 +76,7 @@ export class AuthService {
   updateLoggedInUser(changes: Record<string, unknown>) {
     const current = this.getLoggedInUser();
     if (current) {
-      localStorage.setItem('user', JSON.stringify({ ...current, ...changes }));
+      localStorage.setItem(USER_KEY, JSON.stringify({ ...current, ...changes }));
     }
   }
 }

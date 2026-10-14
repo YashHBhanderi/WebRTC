@@ -1,12 +1,14 @@
 import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { DialogModule } from '../dialog/dialog.module';
+import { ToastHostComponent } from './toast-host.component';
 
 @NgModule({
-  declarations: [],
+  declarations: [ToastHostComponent],
   imports: [
-    CommonModule
+    CommonModule,
+    DialogModule,
   ],
-  exports: [
-  ]
+  exports: [ToastHostComponent]
 })
 export class AlertModule { }

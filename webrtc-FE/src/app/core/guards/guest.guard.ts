@@ -1,7 +1,8 @@
 import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
-import { AuthService } from 'src/app/core/services/auth.service';
+import { ClerkService } from 'src/app/core/services/clerk.service';
+import { safeReturnUrl } from 'src/app/authentication/login/login.component';
 
-/** Login / register pages: a signed-in user goes straight to the chats instead. */
-export const guestGuard: CanActivateFn = () =>
-  inject(AuthService).loggedIn() ? inject(Router).createUrlTree(['/chat']) : true;
+/** Sign-in / sign-up pages: someone already signed in goes straight to the chats. */
+export const guestGuard: CanActivateFn = (route) =>
+  inject(ClerkService).isSignedIn ? inject(Router).parseUrl(safeReturnUrl(route.queryParamMap.get('returnUrl'))) : true;

@@ -1,3 +1,4 @@
+import { PRESENCE_LABEL, PresenceKey } from 'src/app/core/utils/presence.util';
 import { NgIf } from '@angular/common';
 import { ChangeDetectionStrategy, Component, Input, OnChanges } from '@angular/core';
 import { avatarColors, avatarInitials } from 'src/app/core/utils/avatar.util';
@@ -35,7 +36,7 @@ const failedSources = new Set<string>();
         (error)="onError()"
       />
       <ng-template #letter><span class="av__letter" aria-hidden="true">{{ initial }}</span></ng-template>
-      <span class="av__dot" *ngIf="online" aria-label="Online"></span>
+      <span class="av__dot av__dot--{{ dot }}" *ngIf="dot" role="img" [attr.aria-label]="dotLabel" [title]="dotLabel"></span>
     </span>
   `,
   styles: [`
@@ -67,7 +68,15 @@ const failedSources = new Set<string>();
       border-radius: 50%;
       background: var(--app-success, #16a34a);
       border: 2px solid var(--app-surface, #fff);
+      box-sizing: border-box;
     }
+    .av__dot--busy, .av__dot--incall, .av__dot--dnd { background: var(--app-danger, #dc2626); }
+    .av__dot--dnd::after {
+      content: ''; position: absolute; left: 22%; right: 22%; top: 50%; height: 2px; margin-top: -1px;
+      background: var(--app-surface, #fff); border-radius: 1px;
+    }
+    .av__dot--away { background: var(--app-warning, #d97706); }
+    .av__dot--offline { background: var(--app-surface, #fff); box-shadow: inset 0 0 0 2px var(--app-muted, #6b7280); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -76,6 +85,19 @@ export class AvatarComponent implements OnChanges {
   @Input() name: string | null | undefined = '';
   @Input() size = 40;
   @Input() online = false;
+  /** Full presence (wins over `online`); null = no dot. */
+  @Input() presence: PresenceKey | null | undefined = undefined;
+
+  get dot(): PresenceKey | null {
+    if (this.presence !== undefined) {
+      return this.presence;
+    }
+    return this.online ? 'available' : null;
+  }
+
+  get dotLabel(): string {
+    return this.dot ? PRESENCE_LABEL[this.dot] : '';
+  }
 
   failed = false;
   url = '';

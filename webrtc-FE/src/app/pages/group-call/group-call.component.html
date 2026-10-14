@@ -25,7 +25,13 @@
         <button type="button" class="icon-btn" (click)="setMinimized(true)" aria-label="Minimize call and return to chat" title="Minimize">
           <i class="fa-solid fa-down-left-and-up-right-to-center"></i>
         </button>
-        <span class="meet-top__badge" *ngIf="isReconnecting && phase === 'live'"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Reconnecting</span>
+        <span class="meet-top__rec" *ngIf="recordingSince && phase === 'live'" role="status" aria-label="This meeting is being recorded">
+          <span class="meet-top__rec-dot" aria-hidden="true"></span>REC <app-call-duration [startedAt]="recordingSince"></app-call-duration>
+        </span>
+        <span class="meet-top__badge" *ngIf="isReconnecting && phase === 'live'" role="status"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Reconnecting</span>
+        <span class="meet-top__badge" *ngIf="!isReconnecting && phase === 'live' && networkQuality === 'poor'" role="status">
+          <i class="fa-solid fa-signal" aria-hidden="true"></i> Your network is unstable
+        </span>
       </div>
       <h2 class="meet-top__title" [title]="meetingTitle">{{ meetingTitle }}</h2>
       <div class="meet-top__right">
@@ -41,6 +47,10 @@
           <div><dt>Duration</dt><dd><app-call-duration [startedAt]="startedAt"></app-call-duration><span *ngIf="!startedAt">—</span></dd></div>
           <div><dt>Participants</dt><dd>{{ participantCount }}</dd></div>
           <div><dt>Connection</dt><dd [class.text-warning]="isReconnecting">{{ isReconnecting ? 'Reconnecting…' : 'Connected' }}</dd></div>
+          <div><dt>Network quality</dt><dd>
+            <span class="net net--{{ networkQuality || 'none' }}" aria-hidden="true"><i></i><i></i><i></i></span>
+            {{ networkLabel }}
+          </dd></div>
           <div><dt>Speaking</dt><dd>{{ speakerName }}</dd></div>
           <div><dt>Screen sharing</dt><dd>{{ presenterName || 'No one' }}</dd></div>
         </dl>
@@ -49,14 +59,134 @@
 
     <!-- ============================================================ CONTROL BAR -->
     <nav class="meet-bar" role="toolbar" aria-label="Meeting controls">
-      <div class="meet-bar__group meet-bar__group--secondary">
-        <button type="button" class="tool tool--optional" [class.tool--active]="showChat" (click)="toggleMenu('chat')" [attr.aria-pressed]="showChat" aria-label="Chat">
-          <i class="fa-regular fa-comment-dots"></i><span class="tool__label">Chat</span>
-          <span class="tool__badge" *ngIf="chatUnread">{{ chatUnread > 9 ? '9+' : chatUnread }}</span>
+      <div class="meet-bar__group">
+        <!-- Mic: main button mutes, the arrow opens audio devices and processing -->
+        <div class="split-tool">
+          <button
+            type="button"
+            class="tool split-tool__main"
+            [class.tool--off]="isMuted || !hasAudioDevice"
+            [disabled]="phase !== 'live'"
+            (click)="toggleMute()"
+            [attr.aria-pressed]="isMuted"
+            [attr.aria-label]="!hasAudioDevice ? 'No microphone' : isMuted ? 'Unmute' : 'Mute'"
+            [title]="(isMuted ? 'Unmute' : 'Mute') + ' (Ctrl+Shift+M)'"
+          >
+            <i class="fa-solid" [class.fa-microphone]="!isMuted && hasAudioDevice" [class.fa-microphone-slash]="isMuted || !hasAudioDevice"></i><span class="tool__label">Mic</span>
+          </button>
+          <button type="button" class="split-tool__caret" [class.is-open]="showAudioMenu" (click)="toggleMenu('audio')"
+            aria-haspopup="menu" [attr.aria-expanded]="showAudioMenu" aria-label="Audio settings" title="Audio settings">
+            <i class="fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="popover-card media-menu" *ngIf="showAudioMenu" role="menu" aria-label="Audio settings">
+            <p class="media-menu__heading">Microphone</p>
+            <button type="button" class="media-menu__item" *ngFor="let d of microphones; let i = index" role="menuitemradio"
+              [attr.aria-checked]="d.deviceId === selectedMic" (click)="onMicChange(d.deviceId)">
+              <i class="fa-solid fa-check media-menu__check"></i><span>{{ d.label || 'Microphone ' + (i + 1) }}</span>
+            </button>
+            <p class="media-menu__note" *ngIf="!microphones.length">No microphone found</p>
+
+            <ng-container *ngIf="canPickSpeaker; else noSpeakerPick">
+              <p class="media-menu__heading">Speaker</p>
+              <button type="button" class="media-menu__item" role="menuitemradio" [attr.aria-checked]="!sinkId" (click)="onSpeakerChange('')">
+                <i class="fa-solid fa-check media-menu__check"></i><span>System default</span>
+              </button>
+              <button type="button" class="media-menu__item" *ngFor="let d of speakers; let i = index" role="menuitemradio"
+                [attr.aria-checked]="d.deviceId === sinkId" (click)="onSpeakerChange(d.deviceId)">
+                <i class="fa-solid fa-check media-menu__check"></i><span>{{ d.label || 'Speaker ' + (i + 1) }}</span>
+              </button>
+            </ng-container>
+            <ng-template #noSpeakerPick>
+              <p class="media-menu__note">This browser plays call audio through the system speaker.</p>
+            </ng-template>
+
+            <div class="media-menu__divider"></div>
+            <label class="media-menu__toggle">
+              <span><i class="fa-solid fa-wave-square"></i>Noise suppression</span>
+              <input type="checkbox" role="switch" [checked]="noiseSuppression" [disabled]="!hasAudioDevice || noiseBusy" (change)="toggleNoiseSuppression()" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Camera: main button turns it on/off, the arrow opens cameras and background effects -->
+        <div class="split-tool">
+          <button
+            type="button"
+            class="tool split-tool__main"
+            [class.tool--off]="!isVideoEnabled"
+            [disabled]="phase !== 'live'"
+            (click)="toggleVideo()"
+            [attr.aria-pressed]="!isVideoEnabled"
+            [attr.aria-label]="isVideoEnabled ? 'Turn camera off' : 'Turn camera on'"
+            [title]="(isVideoEnabled ? 'Camera off' : 'Camera on') + ' (Ctrl+Shift+O)'"
+          >
+            <i class="fa-solid" [class.fa-video]="isVideoEnabled" [class.fa-video-slash]="!isVideoEnabled"></i><span class="tool__label">Camera</span>
+          </button>
+          <button type="button" class="split-tool__caret" [class.is-open]="showVideoMenu" (click)="toggleMenu('video')"
+            aria-haspopup="menu" [attr.aria-expanded]="showVideoMenu" aria-label="Video settings" title="Video settings">
+            <i class="fa-solid fa-chevron-down"></i>
+          </button>
+          <div class="popover-card media-menu media-menu--video" *ngIf="showVideoMenu" role="menu" aria-label="Video settings">
+            <p class="media-menu__heading">Camera</p>
+            <button type="button" class="media-menu__item" *ngFor="let d of cameras; let i = index" role="menuitemradio"
+              [attr.aria-checked]="d.deviceId === selectedCam" [disabled]="!hasVideoDevice" (click)="onCamChange(d.deviceId)">
+              <i class="fa-solid fa-check media-menu__check"></i><span>{{ d.label || 'Camera ' + (i + 1) }}</span>
+            </button>
+            <p class="media-menu__note" *ngIf="!cameras.length">No camera found</p>
+            <button type="button" class="media-menu__item" *ngIf="cameras.length > 1 && isVideoEnabled && hasVideoDevice" (click)="flipCamera()">
+              <i class="fa-solid fa-camera-rotate"></i><span>Switch camera</span>
+            </button>
+
+            <div class="media-menu__divider"></div>
+            <label class="media-menu__toggle">
+              <span><i class="fa-solid fa-droplet"></i>Background blur</span>
+              <input type="checkbox" role="switch" [checked]="backgroundBlurOn" [disabled]="!effectsSupported || !!effectBusy"
+                (change)="selectEffect(backgroundBlurOn ? 'none' : 'blur')" />
+            </label>
+            <p class="media-menu__heading">Background effects</p>
+            <div class="effects-grid" role="radiogroup" aria-label="Background effects">
+              <button type="button" class="effect-tile" *ngFor="let e of videoEffects" role="radio" [attr.aria-checked]="videoEffect === e.id"
+                [class.is-selected]="videoEffect === e.id" [disabled]="!effectsSupported || !!effectBusy" (click)="selectEffect(e.id)" [title]="e.label">
+                <span class="effect-tile__swatch" [style.background]="e.swatch">
+                  <span *ngIf="effectBusy === e.id" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                  <ng-container *ngIf="effectBusy !== e.id">
+                    <i *ngIf="e.id === 'none'" class="fa-solid fa-ban"></i>
+                    <i *ngIf="e.id === 'blur' || e.id === 'blur-strong'" class="fa-solid fa-user"></i>
+                  </ng-container>
+                </span>
+                <span class="effect-tile__label">{{ e.label }}</span>
+              </button>
+            </div>
+            <p class="media-menu__note" *ngIf="!effectsSupported">Background effects aren't supported by this browser.</p>
+            <p class="media-menu__note" *ngIf="effectsSupported && !isVideoEnabled">Applies when your camera is on.</p>
+          </div>
+        </div>
+
+        <button
+          *ngIf="canShareScreen"
+          type="button"
+          class="tool tool--optional"
+          [class.tool--active]="isScreenSharing"
+          [disabled]="phase !== 'live' || (!!activeScreenUserId && !isScreenSharing) || (shareLocked && !isScreenSharing)"
+          (click)="toggleScreenShare()"
+          [attr.aria-pressed]="isScreenSharing"
+          [attr.aria-label]="isScreenSharing ? 'Stop presenting' : 'Share screen'"
+          [title]="shareLocked && !isScreenSharing ? 'The organizer turned off sharing for attendees' : activeScreenUserId && !isScreenSharing ? presenterName + ' is presenting' : isScreenSharing ? 'Stop presenting' : 'Share screen'"
+        >
+          <i class="fa-solid" [class.fa-arrow-up-from-bracket]="!isScreenSharing" [class.fa-rectangle-xmark]="isScreenSharing"></i><span class="tool__label">{{ isScreenSharing ? 'Stop' : 'Share' }}</span>
         </button>
+      </div>
+
+      <span class="meet-bar__sep" aria-hidden="true"></span>
+
+      <div class="meet-bar__group meet-bar__group--secondary">
         <button type="button" class="tool" [class.tool--active]="showPeople" (click)="toggleMenu('people')" [attr.aria-pressed]="showPeople" aria-label="People">
           <i class="fa-solid fa-user-group"></i><span class="tool__label">People</span>
           <span class="tool__count">{{ participantCount }}</span>
+        </button>
+        <button type="button" class="tool tool--optional" [class.tool--active]="showChat" (click)="toggleMenu('chat')" [attr.aria-pressed]="showChat" aria-label="Chat">
+          <i class="fa-regular fa-comment-dots"></i><span class="tool__label">Chat</span>
+          <span class="tool__badge" *ngIf="chatUnread">{{ chatUnread > 9 ? '9+' : chatUnread }}</span>
         </button>
         <button *ngIf="isGroup" type="button" class="tool tool--optional" [class.tool--hand]="handRaised" [disabled]="phase !== 'live'" (click)="toggleHand()" [attr.aria-pressed]="handRaised" [attr.aria-label]="handRaised ? 'Lower hand' : 'Raise hand'">
           <i class="fa-solid fa-hand"></i><span class="tool__label">{{ handRaised ? 'Lower' : 'Raise' }}</span>
@@ -82,9 +212,6 @@
             </button>
           </div>
         </div>
-        <button type="button" class="tool tool--optional" (click)="openSettings()" aria-label="Device controls">
-          <i class="fa-solid fa-sliders"></i><span class="tool__label">Controls</span>
-        </button>
         <div class="tool-wrap">
           <button type="button" class="tool" [class.tool--active]="showMore" (click)="toggleMenu('more')" aria-label="More actions" [attr.aria-expanded]="showMore">
             <i class="fa-solid fa-ellipsis"></i><span class="tool__label">More</span>
@@ -105,65 +232,26 @@
             <button type="button" class="only-narrow" *ngIf="canShareScreen" role="menuitem" [disabled]="!!activeScreenUserId && !isScreenSharing" (click)="showMore = false; toggleScreenShare()">
               <i class="fa-solid fa-display"></i>{{ isScreenSharing ? 'Stop presenting' : 'Share screen' }}
             </button>
-            <button type="button" *ngIf="isVideoEnabled && hasVideoDevice" role="menuitem" (click)="flipCamera()">
-              <i class="fa-solid fa-camera-rotate"></i>Switch camera
-            </button>
-            <button type="button" role="menuitem" (click)="openSettings()">
-              <i class="fa-solid fa-gear"></i>Settings
-            </button>
             <button type="button" role="menuitem" (click)="toggleFullscreen()">
               <i class="fa-solid" [class.fa-expand]="!isFullscreen" [class.fa-compress]="isFullscreen"></i>{{ isFullscreen ? 'Exit full screen' : 'Full screen' }}
             </button>
             <button type="button" role="menuitem" (click)="setMinimized(true)">
               <i class="fa-solid fa-down-left-and-up-right-to-center"></i>Minimize
             </button>
+            <button type="button" *ngIf="canRecord" role="menuitem" [disabled]="recordingBusy" (click)="toggleRecording()">
+              <i class="fa-solid fa-circle" [class.text-danger]="!recordingSince"></i>{{ recordingSince ? 'Stop recording' : 'Start recording' }}
+            </button>
+            <button type="button" *ngIf="isModerator" role="menuitem" (click)="showMore = false; showOptions = true">
+              <i class="fa-solid fa-sliders"></i>Meeting options
+            </button>
+            <button type="button" *ngIf="isModerator" role="menuitem" (click)="showMore = false; muteEveryone()">
+              <i class="fa-solid fa-microphone-slash"></i>Mute everyone else
+            </button>
             <button type="button" *ngIf="isHost" role="menuitem" class="text-danger" (click)="endForEveryone()">
               <i class="fa-solid fa-circle-stop"></i>End meeting for everyone
             </button>
           </div>
         </div>
-      </div>
-
-      <span class="meet-bar__sep" aria-hidden="true"></span>
-
-      <div class="meet-bar__group">
-        <button
-          type="button"
-          class="tool"
-          [class.tool--off]="!isVideoEnabled"
-          [disabled]="phase !== 'live'"
-          (click)="toggleVideo()"
-          [attr.aria-pressed]="!isVideoEnabled"
-          [attr.aria-label]="isVideoEnabled ? 'Turn camera off' : 'Turn camera on'"
-          [title]="(isVideoEnabled ? 'Camera off' : 'Camera on') + ' (Ctrl+Shift+O)'"
-        >
-          <i class="fa-solid" [class.fa-video]="isVideoEnabled" [class.fa-video-slash]="!isVideoEnabled"></i><span class="tool__label">Camera</span>
-        </button>
-        <button
-          type="button"
-          class="tool"
-          [class.tool--off]="isMuted || !hasAudioDevice"
-          [disabled]="phase !== 'live'"
-          (click)="toggleMute()"
-          [attr.aria-pressed]="isMuted"
-          [attr.aria-label]="!hasAudioDevice ? 'No microphone' : isMuted ? 'Unmute' : 'Mute'"
-          [title]="(isMuted ? 'Unmute' : 'Mute') + ' (Ctrl+Shift+M)'"
-        >
-          <i class="fa-solid" [class.fa-microphone]="!isMuted && hasAudioDevice" [class.fa-microphone-slash]="isMuted || !hasAudioDevice"></i><span class="tool__label">Mic</span>
-        </button>
-        <button
-          *ngIf="canShareScreen"
-          type="button"
-          class="tool tool--optional"
-          [class.tool--active]="isScreenSharing"
-          [disabled]="phase !== 'live' || (!!activeScreenUserId && !isScreenSharing)"
-          (click)="toggleScreenShare()"
-          [attr.aria-pressed]="isScreenSharing"
-          [attr.aria-label]="isScreenSharing ? 'Stop presenting' : 'Share screen'"
-          [title]="activeScreenUserId && !isScreenSharing ? presenterName + ' is presenting' : isScreenSharing ? 'Stop presenting' : 'Share screen'"
-        >
-          <i class="fa-solid" [class.fa-arrow-up-from-bracket]="!isScreenSharing" [class.fa-rectangle-xmark]="isScreenSharing"></i><span class="tool__label">{{ isScreenSharing ? 'Stop' : 'Share' }}</span>
-        </button>
       </div>
 
       <button type="button" class="leave-btn" (click)="leaveCall()" [attr.aria-label]="isGroup ? 'Leave meeting' : 'End call'">
@@ -173,7 +261,7 @@
 
     <!-- ============================================================ STAGE -->
     <div class="call__body" [ngClass]="'layout-' + layout">
-      <section class="call__stage" (click)="minimized && setMinimized(false)">
+      <section class="call__stage">
         <!-- 1:1 audio call -->
         <div class="audio-call" *ngIf="audioLayout">
           <div class="audio-call__avatar" [class.is-speaking]="peer.speaking"
@@ -256,6 +344,14 @@
         </div>
 
         <div class="call__notice" *ngIf="notice && !minimized" role="status">{{ notice }}</div>
+
+        <!-- Muted indicator (video layouts; the audio layout has its own) -->
+        <div class="muted-pill" *ngIf="isMuted && hasAudioDevice && !audioLayout && !minimized && phase === 'live'"
+             [class.muted-pill--alert]="talkingWhileMuted" role="status">
+          <i class="fa-solid fa-microphone-slash" aria-hidden="true"></i>
+          <span>{{ talkingWhileMuted ? "You're muted. Are you talking?" : "You're muted" }}</span>
+          <button type="button" *ngIf="talkingWhileMuted" (click)="toggleMute()">Unmute</button>
+        </div>
       </section>
 
       <!-- Speaker view: everyone else in a scrollable strip (right on desktop, bottom on phones) -->
@@ -294,6 +390,21 @@
           <i class="fa-solid fa-magnifying-glass"></i>
           <input type="search" [(ngModel)]="peopleSearch" placeholder="Search people" aria-label="Search people" />
         </div>
+        <section class="lobby-list" *ngIf="isModerator && lobbyWaiting.length" aria-label="Waiting in lobby">
+          <div class="lobby-list__head">
+            <span>Waiting in lobby ({{ lobbyWaiting.length }})</span>
+            <button type="button" class="lobby-list__all" *ngIf="lobbyWaiting.length > 1" (click)="admit('all')">Admit all</button>
+          </div>
+          <div class="lobby-list__row" *ngFor="let w of lobbyWaiting">
+            <span class="person__avatar" [style.background]="w.avatar ? null : avatarColorsOf(w.username).bg" [style.color]="w.avatar ? null : avatarColorsOf(w.username).fg">
+              <img *ngIf="w.avatar; else lobbyLetter" [src]="w.avatar | mediaUrl" alt="" />
+              <ng-template #lobbyLetter>{{ initialsOf(w.username) }}</ng-template>
+            </span>
+            <span class="lobby-list__name">{{ w.username }}</span>
+            <button type="button" class="lobby-list__deny" (click)="deny(w.userId)" [attr.aria-label]="'Deny ' + w.username" title="Deny"><i class="fa-solid fa-xmark"></i></button>
+            <button type="button" class="lobby-list__admit" (click)="admit(w.userId)">Admit</button>
+          </div>
+        </section>
         <p class="panel__hint" *ngIf="raisedHandCount">✋ {{ raisedHandCount }} raised hand{{ raisedHandCount > 1 ? 's' : '' }}</p>
         <ul class="people-list">
           <li *ngFor="let person of filteredPeople; trackBy: trackByUser" class="person" [class.person--speaking]="person.speaking">
@@ -307,6 +418,7 @@
                 <span class="person__name">{{ person.name }}</span>
                 <span class="person__sub">
                   <span *ngIf="person.isHost" class="badge-host">Host</span>
+                  <span *ngIf="!person.isHost && isCohost(person.userId)" class="badge-host badge-host--co">Co-host</span>
                   <span *ngIf="person.connecting">Connecting…</span>
                 </span>
               </span>
@@ -316,13 +428,16 @@
               <i class="fa-solid" [class.fa-video]="person.videoOn" [class.fa-video-slash]="!person.videoOn" [class.is-off]="!person.videoOn" [attr.aria-label]="person.videoOn ? 'Camera on' : 'Camera off'"></i>
               <i class="fa-solid" [class.fa-microphone]="person.audioOn" [class.fa-microphone-slash]="!person.audioOn" [class.is-off]="!person.audioOn" [attr.aria-label]="person.audioOn ? 'Mic on' : 'Muted'"></i>
             </span>
-            <div class="person__actions" *ngIf="isHost && !person.isSelf && !person.isHost" ngbDropdown placement="bottom-end" container="body">
+            <div class="person__actions" *ngIf="isModerator && !person.isSelf && !person.isHost && (isHost || !isCohost(person.userId))" ngbDropdown placement="bottom-end" container="body">
               <button type="button" class="icon-btn icon-btn--sm" ngbDropdownToggle aria-label="Participant options">
                 <i class="fa-solid fa-ellipsis-vertical"></i>
               </button>
               <div ngbDropdownMenu class="dropdown-menu-dark">
                 <button ngbDropdownItem type="button" [disabled]="!person.audioOn" (click)="muteParticipant(person.userId)">
                   <i class="fa-solid fa-microphone-slash me-2"></i>Mute
+                </button>
+                <button ngbDropdownItem type="button" *ngIf="isHost" (click)="toggleCohost(person.userId)">
+                  <i class="fa-solid fa-user-shield me-2"></i>{{ isCohost(person.userId) ? 'Remove co-host' : 'Make co-host' }}
                 </button>
                 <button ngbDropdownItem type="button" class="text-danger" (click)="removeParticipant(person.userId)">
                   <i class="fa-solid fa-user-minus me-2"></i>Remove from call
@@ -334,71 +449,40 @@
       </aside>
     </div>
 
-    <!-- Minimized bar -->
-    <div class="mini-bar" *ngIf="minimized">
-      <button type="button" class="mini-bar__info" (click)="setMinimized(false)" aria-label="Return to call">
-        <strong>{{ meetingTitle }}</strong>
-        <span *ngIf="statusLabel; else miniDuration">{{ statusLabel }}</span>
-        <ng-template #miniDuration><app-call-duration [startedAt]="startedAt"></app-call-duration></ng-template>
-      </button>
-      <button type="button" class="icon-btn" [class.is-off]="isMuted" (click)="toggleMute()" [attr.aria-label]="isMuted ? 'Unmute' : 'Mute'" [disabled]="phase !== 'live'">
-        <i class="fa-solid" [class.fa-microphone]="!isMuted" [class.fa-microphone-slash]="isMuted"></i>
-      </button>
-      <button type="button" class="icon-btn" (click)="setMinimized(false)" aria-label="Expand call">
-        <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
-      </button>
-      <button type="button" class="icon-btn icon-btn--danger" (click)="leaveCall()" [attr.aria-label]="isGroup ? 'Leave meeting' : 'End call'">
-        <i class="fa-solid fa-phone-slash"></i>
-      </button>
-    </div>
-
     <!-- Remote audio: independent of layout so moving tiles never interrupts sound -->
     <div class="call__audio" aria-hidden="true">
       <audio *ngFor="let p of remoteAudio; trackBy: trackByUser" [appMediaSrc]="p.displayAudio" [mediaKick]="mediaKick" [sinkId]="sinkId" autoplay></audio>
     </div>
 
-    <div class="menu-backdrop" *ngIf="showMore || showReactions || showInfo || showView" (click)="closeMenus()"></div>
+    <div class="menu-backdrop" *ngIf="showMore || showReactions || showInfo || showView || showAudioMenu || showVideoMenu" (click)="closeMenus()"></div>
 
-    <!-- Device controls -->
-    <div class="settings-sheet" *ngIf="showSettings" role="dialog" aria-modal="true" aria-label="Audio and video settings">
-      <div class="settings-sheet__card">
-        <div class="panel__header">
-          <h3>Controls</h3>
-          <button type="button" class="icon-btn" (click)="showSettings = false" aria-label="Close settings">
-            <i class="fa-solid fa-xmark"></i>
-          </button>
-        </div>
-        <div class="settings-sheet__toggles">
-          <button type="button" class="tool" [class.tool--off]="isMuted || !hasAudioDevice" [disabled]="phase !== 'live'" (click)="toggleMute()">
-            <i class="fa-solid" [class.fa-microphone]="!isMuted" [class.fa-microphone-slash]="isMuted"></i><span class="tool__label">{{ isMuted ? 'Unmute' : 'Mute' }}</span>
-          </button>
-          <button type="button" class="tool" [class.tool--off]="!isVideoEnabled" [disabled]="phase !== 'live'" (click)="toggleVideo()">
-            <i class="fa-solid" [class.fa-video]="isVideoEnabled" [class.fa-video-slash]="!isVideoEnabled"></i><span class="tool__label">Camera</span>
-          </button>
-        </div>
-        <label *ngIf="microphones.length">
-          <span>Microphone</span>
-          <select class="form-select" [ngModel]="selectedMic" (ngModelChange)="onMicChange($event)">
-            <option *ngFor="let d of microphones; let i = index" [value]="d.deviceId">{{ d.label || 'Microphone ' + (i + 1) }}</option>
-          </select>
-        </label>
-        <label *ngIf="cameras.length && hasVideoDevice">
-          <span>Camera</span>
-          <select class="form-select" [ngModel]="selectedCam" (ngModelChange)="onCamChange($event)">
-            <option *ngFor="let d of cameras; let i = index" [value]="d.deviceId">{{ d.label || 'Camera ' + (i + 1) }}</option>
-          </select>
-        </label>
-        <label *ngIf="canPickSpeaker && speakers.length">
-          <span>Speaker</span>
-          <select class="form-select" [ngModel]="sinkId" (ngModelChange)="onSpeakerChange($event)">
-            <option value="">System default</option>
-            <option *ngFor="let d of speakers; let i = index" [value]="d.deviceId">{{ d.label || 'Speaker ' + (i + 1) }}</option>
-          </select>
-        </label>
-        <p class="settings-sheet__note" *ngIf="!canPickSpeaker">
-          Speaker selection isn't supported by this browser; audio plays through the system output.
-        </p>
+    <div class="call__overlay call__overlay--lobby" *ngIf="phase === 'lobby'" role="status">
+      <i class="fa-solid fa-door-closed call__overlay-icon" aria-hidden="true"></i>
+      <p class="lobby-wait__title">Waiting for someone to let you in</p>
+      <p class="lobby-wait__sub">The organizer will admit you to {{ meetingTitle }} shortly.</p>
+      <button type="button" class="btn btn-light btn-sm" (click)="leaveLobby()">Leave</button>
+    </div>
+
+    <div class="popover-card options-card" *ngIf="showOptions && isModerator" role="dialog" aria-labelledby="meeting-options-title">
+      <div class="options-card__head">
+        <h3 id="meeting-options-title">Meeting options</h3>
+        <button type="button" class="icon-btn icon-btn--sm" (click)="showOptions = false" aria-label="Close meeting options"><i class="fa-solid fa-xmark"></i></button>
       </div>
+      <label class="option-row">
+        <span><strong>Lobby</strong><small>People other than hosts and co-hosts wait until admitted</small></span>
+        <input type="checkbox" class="form-check-input" role="switch" [checked]="meetingSettings.lobby" (change)="setOption('lobby', !meetingSettings.lobby)" />
+      </label>
+      <label class="option-row">
+        <span><strong>Allow attendees to unmute</strong><small>Off: attendees stay muted until you allow it</small></span>
+        <input type="checkbox" class="form-check-input" role="switch" [checked]="meetingSettings.allowUnmute" (change)="setOption('allowUnmute', !meetingSettings.allowUnmute)" />
+      </label>
+      <label class="option-row">
+        <span><strong>Allow attendees to share</strong><small>Off: only hosts and co-hosts can present</small></span>
+        <input type="checkbox" class="form-check-input" role="switch" [checked]="meetingSettings.allowShare" (change)="setOption('allowShare', !meetingSettings.allowShare)" />
+      </label>
+      <button type="button" class="btn btn-sm btn-outline-light w-100 mt-2" (click)="muteEveryone()">
+        <i class="fa-solid fa-microphone-slash me-2" aria-hidden="true"></i>Mute everyone else
+      </button>
     </div>
 
     <div class="call__overlay" *ngIf="phase === 'joining'" role="status">
@@ -410,4 +494,22 @@
       <p>{{ endMessage }}</p>
     </div>
   </ng-container>
+
+  <!-- Presenting: always-reachable controls (also while the call is minimized), draggable -->
+  <div class="presenter-bar" #presenterBar *ngIf="isScreenSharing && phase === 'live'" role="toolbar" aria-label="Presenting controls"
+       [style.left.px]="presenterPos?.x" [style.top.px]="presenterPos?.y" [class.presenter-bar--placed]="!!presenterPos">
+    <button type="button" class="presenter-bar__handle" aria-label="Move presenting controls (arrow keys)" title="Drag to move"
+            (pointerdown)="onPresenterDragStart($event, presenterBar)" (pointermove)="onPresenterDragMove($event, presenterBar)"
+            (pointerup)="onPresenterDragEnd()" (pointercancel)="onPresenterDragEnd()" (keydown)="nudgePresenter($event, presenterBar)">
+      <i class="fa-solid fa-grip-vertical" aria-hidden="true"></i>
+    </button>
+    <span class="presenter-bar__label"><span class="presenter-bar__dot" aria-hidden="true"></span>You're presenting</span>
+    <button type="button" class="presenter-bar__btn" (click)="toggleMute()" [attr.aria-pressed]="isMuted" [attr.aria-label]="isMuted ? 'Unmute' : 'Mute'" [title]="isMuted ? 'Unmute' : 'Mute'">
+      <i class="fa-solid" [class.fa-microphone]="!isMuted" [class.fa-microphone-slash]="isMuted"></i>
+    </button>
+    <button type="button" class="presenter-bar__btn" *ngIf="minimized" (click)="setMinimized(false)" aria-label="Return to the meeting" title="Return to the meeting">
+      <i class="fa-solid fa-up-right-and-down-left-from-center"></i>
+    </button>
+    <button type="button" class="presenter-bar__stop" (click)="toggleScreenShare()">Stop presenting</button>
+  </div>
 </div>

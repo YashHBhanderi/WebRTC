@@ -1,0 +1,118 @@
+<div class="pane-layout cal-layout">
+  <!-- Sidebar: same structure as Chat / Activity / Calls -->
+  <aside class="pane-side" aria-label="Calendar">
+    <header class="pane-side__header">
+      <h1>Calendar</h1>
+      <button type="button" class="cal__icon" (click)="openSettings()" title="Calendar settings" aria-label="Calendar settings">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </header>
+
+    <div class="pane-side__list cal-side__scroll">
+      <div class="mini" role="group" aria-label="Choose a date">
+        <div class="mini__head">
+          <span class="mini__month">{{ mini.month | date: 'MMMM y' }}</span>
+          <button type="button" class="cal__icon" (click)="moveMini(-1)" aria-label="Previous month"><i class="fa-solid fa-chevron-up"></i></button>
+          <button type="button" class="cal__icon" (click)="moveMini(1)" aria-label="Next month"><i class="fa-solid fa-chevron-down"></i></button>
+        </div>
+        <div class="mini__dow"><span *ngFor="let n of weekdayNames">{{ n.charAt(0) }}</span></div>
+        <div class="mini__cells">
+          <button type="button" class="mini__day" *ngFor="let c of mini.cells; trackBy: trackByDay"
+                  [class.mini__day--out]="!c.inMonth" [class.mini__day--today]="isToday(c.date)" [class.mini__day--sel]="isSelectedDay(c.date)"
+                  [attr.aria-label]="c.date | date: 'fullDate'" [attr.aria-current]="isToday(c.date) ? 'date' : null" (click)="goTo(c.date)">{{ c.date | date: 'd' }}</button>
+        </div>
+      </div>
+
+      <nav class="cal-side__lists" aria-label="Meeting lists">
+        <button type="button" class="cal-side__link" [class.cal-side__link--on]="view === 'upcoming'" (click)="setView('upcoming')"><i class="fa-regular fa-calendar-check"></i>Upcoming meetings</button>
+        <button type="button" class="cal-side__link" [class.cal-side__link--on]="view === 'past'" (click)="setView('past')"><i class="fa-solid fa-clock-rotate-left"></i>Past meetings</button>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="pane-main cal-main">
+<section class="page cal">
+  <header class="cal__toolbar">
+    <button type="button" class="btn btn-sm btn-light cal__today" *ngIf="view !== 'upcoming' && view !== 'past'" (click)="today()"><i class="fa-regular fa-calendar me-1" aria-hidden="true"></i>Today</button>
+    <div class="cal__nav" *ngIf="view !== 'upcoming' && view !== 'past'">
+      <button type="button" class="cal__icon" (click)="move(-1)" [attr.aria-label]="'Previous ' + (view === 'month' ? 'month' : view === 'day' ? 'day' : 'week')"><i class="fa-solid fa-chevron-left"></i></button>
+      <button type="button" class="cal__icon" (click)="move(1)" [attr.aria-label]="'Next ' + (view === 'month' ? 'month' : view === 'day' ? 'day' : 'week')"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+    <h2 class="cal__title">{{ title }}</h2>
+
+    <div ngbDropdown placement="bottom-end" class="cal__views" *ngIf="view !== 'upcoming' && view !== 'past'">
+      <button type="button" class="btn btn-sm btn-light" ngbDropdownToggle aria-label="Change calendar view">
+        {{ viewLabel }}
+      </button>
+      <div ngbDropdownMenu class="app-menu">
+        <button ngbDropdownItem type="button" *ngFor="let v of views" (click)="setView(v)" [class.active]="view === v" [attr.aria-checked]="view === v" role="menuitemradio">
+          <i class="fa-solid fa-check" [style.visibility]="view === v ? 'visible' : 'hidden'" aria-hidden="true"></i>{{ viewLabels[v] }}
+        </button>
+      </div>
+    </div>
+    <button type="button" class="btn btn-light btn-sm" *ngIf="view === 'upcoming' || view === 'past'" (click)="setView('work week')">Back to calendar</button>
+    <button type="button" class="btn btn-primary btn-sm cal__new" (click)="newMeeting()">
+      <i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New
+    </button>
+  </header>
+
+  <div class="empty" *ngIf="error" role="alert">
+    <h2 class="empty__title">We couldn't load your calendar.</h2>
+    <button type="button" class="btn btn-sm btn-primary" (click)="load()">Try again</button>
+  </div>
+
+  <!-- Day / Work week / Week: time grid -->
+  <app-time-grid class="cal__timegrid" *ngIf="!error && isGridView" [class.cal__grid--loading]="loading"
+                 [days]="gridDays" [items]="items" (rangeSelect)="onRangeSelect($event)" (eventClick)="select($event)"></app-time-grid>
+
+  <!-- Month grid -->
+  <div class="cal__grid" *ngIf="!error && view === 'month'" [class.cal__grid--loading]="loading" role="grid" [attr.aria-label]="title">
+    <div class="cal__dow" role="row">
+      <span role="columnheader" *ngFor="let n of weekdayNames">{{ n }}</span>
+    </div>
+    <div class="cal__cells" role="row">
+      <div class="cal__cell" role="gridcell" *ngFor="let day of days; trackBy: trackByDay"
+           [class.cal__cell--out]="!day.inMonth" [class.cal__cell--today]="day.isToday">
+        <button type="button" class="cal__date" (click)="newMeeting(day.date)" [attr.aria-label]="'New meeting on ' + (day.date | date: 'fullDate')" title="New meeting">
+          {{ day.date | date: 'd' }}
+        </button>
+        <button type="button" class="cal__event" *ngFor="let m of day.items.slice(0, 3); trackBy: trackByItem"
+                [class.cal__event--live]="statusOf(m) === 'live'" [class.cal__event--past]="statusOf(m) === 'ended'" (click)="select(m)">
+          <span class="cal__event-time">{{ m.occurrenceStart | date: 'shortTime' }}</span>
+          <span class="cal__event-title">{{ m.title }}</span>
+        </button>
+        <button type="button" class="cal__more" *ngIf="day.items.length > 3" (click)="select(day.items[3])">+{{ day.items.length - 3 }} more</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Upcoming / past list -->
+  <ng-container *ngIf="!error && (view === 'upcoming' || view === 'past')">
+    <ul class="cal__list" *ngIf="list.length" aria-label="Meetings">
+      <li *ngFor="let m of list; trackBy: trackByItem">
+        <button type="button" class="cal__row" (click)="select(m)">
+          <span class="cal__row-date">
+            <span class="cal__row-day">{{ m.occurrenceStart | date: 'd' }}</span>
+            <span class="cal__row-mon">{{ m.occurrenceStart | date: 'MMM' }}</span>
+          </span>
+          <span class="cal__row-text">
+            <span class="cal__row-title">{{ m.title }}</span>
+            <span class="cal__row-sub">{{ m.occurrenceStart | date: 'EEE' }} · {{ timeRange(m) }} · {{ m.organizer.username }}<ng-container *ngIf="m.recurrenceText"> · {{ m.recurrenceText }}</ng-container></span>
+          </span>
+          <span class="cal__badge cal__badge--live" *ngIf="statusOf(m) === 'live'">Live</span>
+        </button>
+        <button type="button" class="btn btn-sm btn-primary cal__join" *ngIf="canJoin(m)" (click)="join(m)">Join</button>
+      </li>
+    </ul>
+    <ng-container *ngIf="loading && !list.length">
+      <div class="cal__skeleton" *ngFor="let i of [1, 2, 3, 4]" aria-hidden="true"></div>
+    </ng-container>
+    <div class="empty" *ngIf="!loading && !list.length">
+      <i class="fa-solid fa-calendar-days empty__icon" aria-hidden="true"></i>
+      <h2 class="empty__title">{{ view === 'upcoming' ? 'No upcoming meetings' : 'No meetings in the last month' }}</h2>
+      <p class="empty__text" *ngIf="view === 'upcoming'">Schedule one with “New meeting”.</p>
+    </div>
+  </ng-container>
+</section>
+  </div>
+</div>

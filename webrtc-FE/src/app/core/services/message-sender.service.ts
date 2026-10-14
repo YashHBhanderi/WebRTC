@@ -24,6 +24,14 @@ export class MessageSenderService {
   /** Resolves once the message was handed to the socket; rejects if the upload failed. */
   async send(conversationId: string, draft: MessageDraft): Promise<void> {
     const text = (draft.text || '').trim();
+    const files = draft.files?.length ? draft.files : draft.file ? [draft.file] : [];
+    if (files.length > 1) {
+      // One message per file; the caption / reply / mentions go with the first
+      for (const [i, file] of files.entries()) {
+        await this.send(conversationId, i === 0 ? { ...draft, file, files: [file] } : { text: '', file, files: [file] });
+      }
+      return;
+    }
     if (!text && !draft.file) {
       return;
     }
@@ -33,6 +41,7 @@ export class MessageSenderService {
       content: text,
       createdAt: new Date().toISOString(),
       replyTo: draft.replyToId || null,
+      mentions: draft.mentionIds?.length ? draft.mentionIds : undefined,
       type: 'text',
     };
     if (draft.file) {

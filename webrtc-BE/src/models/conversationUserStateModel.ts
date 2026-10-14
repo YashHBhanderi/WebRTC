@@ -11,6 +11,10 @@ export interface IConversationUserState extends Document {
     archivedAt?: Date | null;
     /** Messages created at or before this instant are hidden for this user. */
     clearedAt?: Date | null;
+    /** Read cursor: every message from others created at or before this is read by this user. */
+    lastReadAt?: Date | null;
+    /** Delivery cursor: messages up to here reached one of this user's devices. */
+    lastDeliveredAt?: Date | null;
 }
 
 const ConversationUserStateSchema = new Schema<IConversationUserState>(
@@ -20,6 +24,8 @@ const ConversationUserStateSchema = new Schema<IConversationUserState>(
         isArchived: { type: Boolean, default: false },
         archivedAt: { type: Date, default: null },
         clearedAt: { type: Date, default: null },
+        lastReadAt: { type: Date, default: null },
+        lastDeliveredAt: { type: Date, default: null },
     },
     { timestamps: true }
 );

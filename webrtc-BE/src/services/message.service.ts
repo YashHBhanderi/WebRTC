@@ -6,16 +6,21 @@ import chatState from "./chat-state.service";
 import { getConversationForMember } from "./authorization.service";
 import { messageMedia, releaseMessageFiles } from "./file.service";
 import { AppError, NotFoundError } from "../utils/errors";
+import receiptsService from "./receipts.service";
+import messageActions from "./message-actions.service";
 import { escapeRegExp, PUBLIC_USER_FIELDS, requireObjectId } from "../utils/validation";
 
 const oid = (id: string) => new mongoose.Types.ObjectId(id);
-const MEDIA_TYPES = ["image", "video", "audio", "pdf"];
+const MEDIA_TYPES = ["image", "video", "audio", "pdf", "file"];
+export const LEGACY_MISSED_CALL = /^(Missed|Declined) (audio|video) call$/;
 
 /** Messages this user can see in a chat: not deleted, and after their "clear chat" point. */
 function visibleFilter(conversationId: string, clearedAt: Date | null): Record<string, unknown> {
     return {
         conversationId: oid(conversationId),
         isDeleted: { $ne: true },
+        // Missed / declined calls live in Call History only (older chats still have these notices)
+        $nor: [{ type: "call", content: LEGACY_MISSED_CALL }],
         ...(clearedAt ? { createdAt: { $gt: clearedAt } } : {}),
     };
 }
@@ -29,18 +34,18 @@ export default class MessageService {
     public static async deleteMessageById(messageId: string, userId: string) {
         const message = await Message.findById(messageId);
 
-        if (!message) {
-            throw new Error("Message not found");
+        if (!message || message.isDeleted) {
+            throw new NotFoundError("Message not found");
         }
 
         if (message.userId.toString() !== userId) {
-            throw new Error("Unauthorized to delete this message");
+            throw new AppError("You can only delete your own messages", 403);
         }
         message.isDeleted = true;
         await message.save();
         // Remove the stored attachment unless a forwarded copy still shows it
         await releaseMessageFiles([message.file?.storageKey]);
-        return { success: true, message: "Message deleted successfully" };
+        return { success: true, message: "Message deleted successfully", conversationId: message.conversationId ? String(message.conversationId) : null };
     }
 
     /**
@@ -48,7 +53,7 @@ export default class MessageService {
      * previous aggregation so clients are unaffected; uses the {conversationId, createdAt} index.
      */
     public static async history(conversationId: string, userId: string, page = 1, limit = 20) {
-        await getConversationForMember(conversationId, userId);
+        const conversation = await getConversationForMember(conversationId, userId);
         const safeLimit = Math.min(Math.max(limit, 1), 2000);
         const safePage = Math.max(page, 1);
         const clearedAt = await chatState.clearedAt(userId, conversationId);
@@ -61,15 +66,27 @@ export default class MessageService {
             .populate({ path: "replyTo", select: "content type userId" })
             .lean();
 
+        const receipts = await receiptsService.forConversation(conversationId, conversation.members.map(String));
+        const saved = await messageActions.savedAmong(userId, docs.map((m: any) => m._id));
+
         return Promise.all(docs.reverse().map(async (m: any) => {
             const author = m.userId && typeof m.userId === "object" ? m.userId : null;
+            const authorId = String(author ? author._id : m.userId);
+            const status = receiptsService.statusOf(m.createdAt, authorId, receipts);
             return {
                 _id: m._id,
                 content: m.content,
                 type: m.type,
                 ...(await messageMedia(m)),
                 isDeleted: m.isDeleted,
-                isRead: m.isRead,
+                // isRead = everyone else has read it (kept for older clients); status adds "delivered"
+                isRead: status === "seen",
+                status,
+                editedAt: m.editedAt || null,
+                mentions: (m.mentions || []).map(String),
+                saved: saved.has(String(m._id)),
+                call: m.call || null,
+                recording: m.recording ? { recordingId: String(m.recording.recordingId) } : null,
                 createdAt: m.createdAt,
                 userId: author ? author._id : m.userId,
                 reactions: m.reactions,
@@ -192,17 +209,24 @@ export default class MessageService {
      * Server-authored entry (call log or group notice). Returns the receiveMessage payload;
      * the caller decides who to emit it to.
      */
-    public static async postServiceMessage(conversationId: string, authorId: string, type: "call" | "system", content: string) {
+    public static async postServiceMessage(
+        conversationId: string,
+        authorId: string,
+        type: "call" | "system" | "recording",
+        content: string,
+        extra: { call?: { callId: string; callType: "audio" | "video"; mode: "ring" | "meetNow"; duration: number }; recording?: { recordingId: string }; createdAt?: Date } = {},
+    ) {
         const message = await Message.create({
             userId: oid(authorId),
             conversationId: oid(conversationId),
             content,
             type,
+            ...(extra.call ? { call: { ...extra.call, callId: oid(extra.call.callId) } } : {}),
+            ...(extra.recording ? { recording: { recordingId: oid(extra.recording.recordingId) } } : {}),
             fileUrl: "",
             thumbnailUrl: "",
-            createdAt: new Date(),
+            createdAt: extra.createdAt || new Date(),
         });
-        await Conversation.updateOne({ _id: oid(conversationId) }, { $push: { messages: message._id } });
         const author = await User.findById(authorId).select(PUBLIC_USER_FIELDS).lean();
         return {
             ...message.toObject(),

@@ -1,0 +1,91 @@
+<button type="button" class="gs-trigger" (click)="expand()" aria-label="Search (Ctrl+E)">
+  <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+</button>
+
+<div class="gs" [class.gs--expanded]="expanded" [class.gs--open]="open && query.trim().length >= 2">
+  <div class="gs__box">
+    <button type="button" class="gs__back" (click)="close()" aria-label="Close search">
+      <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+    </button>
+    <i class="fa-solid fa-magnifying-glass gs__icon" aria-hidden="true"></i>
+    <input
+      #input
+      type="search"
+      class="gs__input"
+      placeholder="Search people, chats, messages, files and meetings (Ctrl+E)"
+      autocomplete="off"
+      spellcheck="false"
+      role="combobox"
+      aria-label="Search"
+      aria-autocomplete="list"
+      [attr.aria-expanded]="open && rows.length > 0"
+      [attr.aria-controls]="listboxId"
+      [attr.aria-activedescendant]="activeIndex >= 0 ? optionId(activeIndex) : null"
+      [value]="query"
+      (input)="onInput(input.value)"
+      (focus)="onFocus()"
+      (keydown)="onKeydown($event)"
+    />
+    <button type="button" class="gs__clear" *ngIf="query" (click)="clear()" aria-label="Clear search">
+      <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+    </button>
+  </div>
+
+  <div class="gs__panel" *ngIf="open && query.trim().length >= 2">
+    <div class="gs__filters" role="group" aria-label="Filters">
+      <label class="gs__filter">
+        <span class="visually-hidden">Date</span>
+        <select [(ngModel)]="dateFilter" (ngModelChange)="refresh()" aria-label="Date">
+          <option value="any">Any time</option>
+          <option value="7d">Past week</option>
+          <option value="30d">Past month</option>
+          <option value="365d">Past year</option>
+        </select>
+      </label>
+      <label class="gs__filter">
+        <span class="visually-hidden">Sender</span>
+        <select [(ngModel)]="senderId" (ngModelChange)="refresh()" aria-label="Sender">
+          <option value="">From anyone</option>
+          <option *ngFor="let s of senders" [value]="s._id">From {{ s.username }}</option>
+        </select>
+      </label>
+      <button type="button" class="gs__reset" *ngIf="hasFilters" (click)="clearFilters()">Clear filters</button>
+    </div>
+
+    <div class="gs__state" *ngIf="loading && !rows.length" role="status">
+      <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Searching…
+    </div>
+    <div class="gs__state" *ngIf="!loading && error" role="alert">
+      We couldn't complete the search. Please try again.
+      <button type="button" class="gs__retry" (click)="refresh()">Try again</button>
+    </div>
+    <div class="gs__state" *ngIf="!loading && !error && !rows.length" role="status">
+      No results for “{{ query.trim() }}”<span *ngIf="hasFilters"> with these filters</span>.
+    </div>
+
+    <ul class="gs__list" role="listbox" [id]="listboxId" *ngIf="rows.length" aria-label="Search results" [class.gs__list--stale]="loading">
+      <ng-container *ngFor="let group of groups">
+        <li class="gs__group" role="presentation">{{ group.label }}</li>
+        <li
+          *ngFor="let row of group.rows"
+          role="option"
+          class="gs__row"
+          [id]="optionId(indexOf(row))"
+          [class.gs__row--active]="indexOf(row) === activeIndex"
+          [attr.aria-selected]="indexOf(row) === activeIndex"
+          (mousedown)="$event.preventDefault()"
+          (click)="pick(row)"
+          (mouseenter)="activeIndex = indexOf(row)"
+        >
+          <span class="gs__file" *ngIf="row.icon; else avatar"><i class="fa-solid {{ row.icon }}" aria-hidden="true"></i></span>
+          <ng-template #avatar><app-avatar [src]="row.avatar" [name]="row.avatarName" [size]="32" [presence]="row.presence"></app-avatar></ng-template>
+          <span class="gs__text">
+            <span class="gs__title" [innerHTML]="row.title | highlight: query.trim()"></span>
+            <span class="gs__sub">{{ row.subtitle }}</span>
+          </span>
+          <span class="gs__time" *ngIf="row.time">{{ row.time }}</span>
+        </li>
+      </ng-container>
+    </ul>
+  </div>
+</div>

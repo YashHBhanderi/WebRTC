@@ -1,7 +1,6 @@
 <div
   class="app-shell"
   [class.show-chat]="showChatPane && hasOpenConversation"
-  [class.has-call-bar]="!!activeCall && callMinimized"
   [class.has-panel]="rightPanel !== 'none' && hasOpenConversation"
 >
   <!-- ============================================================ SIDEBAR -->
@@ -11,21 +10,18 @@
     <ng-template #chatList>
     <!-- Default header: logged-in user + menu -->
     <header class="sidebar__header" *ngIf="sidebarMode === 'chats'; else archivedHeader">
-      <app-avatar [src]="loginUserProfile" [name]="myUsername" [size]="40"></app-avatar>
-      <h1 class="sidebar__title" [title]="myUsername">{{ myUsername }}</h1>
+      <h1 class="sidebar__title">Chat</h1>
       <div ngbDropdown placement="bottom-end" class="d-inline-block">
         <button type="button" class="icon-btn" ngbDropdownToggle aria-label="Menu">
           <i class="fa-solid fa-ellipsis-vertical"></i>
         </button>
         <div ngbDropdownMenu class="app-menu">
           <button ngbDropdownItem type="button" (click)="openCreateGroup()"><i class="fa-solid fa-user-group"></i>New group</button>
+          <a ngbDropdownItem routerLink="/saved"><i class="fa-regular fa-bookmark"></i>Saved messages</a>
           <button ngbDropdownItem type="button" (click)="setSidebarMode('archived')">
             <i class="fa-solid fa-box-archive"></i>Archived chats
             <span class="menu-count" *ngIf="archivedTotal">{{ archivedTotal }}</span>
           </button>
-          <button ngbDropdownItem type="button" (click)="setSidebarMode('profile')"><i class="fa-regular fa-user"></i>Profile</button>
-          <div class="dropdown-divider"></div>
-          <button ngbDropdownItem type="button" class="text-danger" (click)="onLogoutClick()"><i class="fa-solid fa-arrow-right-from-bracket"></i>Log out</button>
         </div>
       </div>
     </header>
@@ -38,22 +34,11 @@
       </header>
     </ng-template>
 
-    <div class="sidebar__search">
-      <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
-      <input
-        type="search"
-        [ngModel]="sidebarSearch"
-        (ngModelChange)="onSidebarSearch($event)"
-        [placeholder]="sidebarMode === 'archived' ? 'Search archived chats' : sidebarFilter === 'contacts' ? 'Search contacts' : 'Search chats'"
-        aria-label="Search conversations"
-      />
-    </div>
-
     <nav class="chips" aria-label="Filter conversations" *ngIf="sidebarMode === 'chats'">
-      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'all'" (click)="setSidebarFilter('all')">All</button>
-      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'unread'" (click)="setSidebarFilter('unread')">Unread</button>
-      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'groups'" (click)="setSidebarFilter('groups')">Groups</button>
-      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'contacts'" (click)="setSidebarFilter('contacts')">Contacts</button>
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'all'" [attr.aria-pressed]="sidebarFilter === 'all'" (click)="setSidebarFilter('all')">All</button>
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'unread'" [attr.aria-pressed]="sidebarFilter === 'unread'" (click)="setSidebarFilter('unread')">Unread</button>
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'groups'" [attr.aria-pressed]="sidebarFilter === 'groups'" (click)="setSidebarFilter('groups')">Groups</button>
+      <button type="button" class="chip" [class.chip--active]="sidebarFilter === 'contacts'" [attr.aria-pressed]="sidebarFilter === 'contacts'" (click)="setSidebarFilter('contacts')">Contacts</button>
     </nav>
 
     <div class="notify-prompt" *ngIf="showNotificationPrompt" role="status">
@@ -92,7 +77,7 @@
             [class.conv--unread]="item.unread > 0"
             (click)="openSidebarItem(item)"
           >
-            <app-avatar [src]="item.avatar" [name]="item.title" [size]="48" [online]="item.kind !== 'group' && !!item.online"></app-avatar>
+            <app-avatar [src]="item.avatar" [name]="item.title" [size]="48" [presence]="item.kind !== 'group' ? item.presence : null"></app-avatar>
             <span class="conv__body">
               <span class="conv__row">
                 <span class="conv__title">
@@ -149,7 +134,12 @@
   </aside>
 
   <!-- ============================================================ CONVERSATION -->
-  <main class="conversation" *ngIf="hasOpenConversation; else welcome" aria-label="Conversation">
+  <main class="conversation" *ngIf="hasOpenConversation; else welcome" aria-label="Conversation"
+        (dragenter)="onDragEnter($event)" (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
+    <div class="drop-zone" *ngIf="dragActive" aria-hidden="true">
+      <i class="fa-solid fa-cloud-arrow-up"></i>
+      <span>Drop files to share in this chat</span>
+    </div>
     <header class="conv-header">
       <button type="button" class="icon-btn conv-header__back" (click)="backToList()" aria-label="Back to chats">
         <i class="fa-solid fa-arrow-left"></i>
@@ -159,7 +149,7 @@
           [src]="isGroupChat ? groupAvatar : peerAvatar"
           [name]="isGroupChat ? groupname : peerName"
           [size]="44"
-          [online]="!isGroupChat && isOnline"
+          [presence]="isGroupChat ? null : peerPresence"
         ></app-avatar>
         <span class="conv-header__text">
           <span class="conv-header__name">{{ isGroupChat ? groupname : peerName }}</span>
@@ -196,6 +186,9 @@
           </ng-container>
         </ng-container>
 
+        <button type="button" class="icon-btn" (click)="openSearchPanel()" title="Search messages" aria-label="Search messages">
+          <i class="fa-solid fa-magnifying-glass"></i>
+        </button>
         <div ngbDropdown placement="bottom-end" class="d-inline-block">
           <button type="button" class="icon-btn" ngbDropdownToggle aria-label="Conversation menu">
             <i class="fa-solid fa-ellipsis-vertical"></i>
@@ -217,6 +210,33 @@
         </div>
       </div>
     </header>
+
+    <!-- Pinned messages -->
+    <div class="pins" *ngIf="pins.length" role="region" aria-label="Pinned messages">
+      <button type="button" class="pins__current" (click)="jumpToMessage(pins[0].messageId)">
+        <i class="fa-solid fa-thumbtack pins__icon" aria-hidden="true"></i>
+        <span class="pins__text">
+          <span class="pins__who">{{ pins[0].user?.username || 'Pinned' }}</span>
+          <span class="pins__preview">{{ pinPreview(pins[0]) }}</span>
+        </span>
+      </button>
+      <button type="button" class="pins__toggle" *ngIf="pins.length > 1" (click)="pinsExpanded = !pinsExpanded"
+              [attr.aria-expanded]="pinsExpanded">{{ pinsExpanded ? 'Hide' : pins.length + ' pinned' }}</button>
+      <button type="button" class="icon-btn icon-btn--sm" *ngIf="pins.length === 1" (click)="unpin(pins[0])" aria-label="Unpin message" title="Unpin">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+      <ul class="pins__list" *ngIf="pinsExpanded">
+        <li *ngFor="let pin of pins">
+          <button type="button" class="pins__item" (click)="jumpToMessage(pin.messageId); pinsExpanded = false">
+            <span class="pins__who">{{ pin.user?.username || '' }}</span>
+            <span class="pins__preview">{{ pinPreview(pin) }}</span>
+          </button>
+          <button type="button" class="icon-btn icon-btn--sm" (click)="unpin(pin)" aria-label="Unpin message" title="Unpin">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </li>
+      </ul>
+    </div>
 
     <!-- Messages -->
     <div class="messages" #scrollContainer>
@@ -243,9 +263,10 @@
       <ng-container *ngIf="!messagesLoading">
         <ng-container *ngFor="let msg of messageArray; let i = index; trackBy: trackByMessage">
           <div class="day-sep" *ngIf="isNewDay(i)"><span>{{ dayLabel(msg.createdAt) }}</span></div>
+          <div class="unread-sep" id="unread-divider" *ngIf="msg._id === firstUnreadId" role="separator"><span>New messages</span></div>
 
-          <!-- Call event -->
-          <div class="call-event" *ngIf="msg.type === 'call'" [id]="'message-' + msg._id">
+          <!-- Meeting started (Join). Finished calls render as normal messages below; legacy missed-call notices are hidden. -->
+          <div class="call-event" *ngIf="msg.type === 'call' && !msg.call && !isMissedCall(msg)" [id]="'message-' + msg._id">
             <span class="call-event__pill" [class.call-event__pill--missed]="isMissedCall(msg)">
               <i class="fa-solid" [class.fa-video]="isVideoCallMessage(msg)" [class.fa-phone]="!isVideoCallMessage(msg) && !isMissedCall(msg)" [class.fa-phone-slash]="isMissedCall(msg)"></i>
               <span>{{ msg.content || 'Call' }}</span>
@@ -260,7 +281,7 @@
           </div>
 
           <app-message-item
-            *ngIf="msg.type !== 'call' && msg.type !== 'system'"
+            *ngIf="(msg.type !== 'call' || msg.call) && msg.type !== 'system'"
             [id]="'message-' + msg._id"
             [message]="msg"
             [mine]="isMine(msg)"
@@ -269,7 +290,9 @@
             [senderName]="senderName(msg)"
             [senderAvatar]="senderAvatar(msg)"
             [replyAuthor]="replyAuthor(msg.replyTo)"
-            [showTicks]="isMine(msg) && !isGroupChat"
+            [showTicks]="isMine(msg)"
+            [pinned]="pinnedIds.has(msg._id)"
+            [mentionNames]="mentionNames(msg)"
             [highlighted]="highlightedMessageId === msg._id"
             [searchHit]="searchHitId === msg._id"
             [searchTerm]="searchTerm"
@@ -279,12 +302,39 @@
             (copy)="onCopyMessage($event)"
             (forward)="forwardMessage($event)"
             (remove)="deleteMessage($event)"
+            (edit)="onEditMessage($event)"
+            (togglePin)="onTogglePin($event)"
+            (toggleSave)="onToggleSave($event)"
+            (copyLink)="onCopyLink($event)"
             (quoteClick)="jumpToMessage($event)"
             (avatarClick)="openInfoPanel()"
             (openMedia)="openPreview($event)"
           ></app-message-item>
         </ng-container>
       </ng-container>
+
+      <!-- Attachments on their way (progress / cancel / retry) -->
+      <div class="upload-card" *ngFor="let job of uploadJobs; trackBy: trackByJob" [class.upload-card--failed]="job.state === 'failed'">
+        <div class="upload-card__thumb">
+          <img *ngIf="job.previewUrl; else uploadIconTpl" [src]="job.previewUrl" alt="" />
+          <ng-template #uploadIconTpl><i class="fa-solid {{ uploadIcon(job) }}" aria-hidden="true"></i></ng-template>
+        </div>
+        <div class="upload-card__body">
+          <span class="upload-card__name" [title]="job.file.name">{{ job.file.name }}</span>
+          <ng-container [ngSwitch]="job.state">
+            <span class="upload-card__meta" *ngSwitchCase="'failed'" role="alert">{{ job.error }}</span>
+            <span class="upload-card__meta" *ngSwitchCase="'queued'">Waiting… · {{ job.file.size | fileSize }}</span>
+            <span class="upload-card__meta" *ngSwitchDefault>{{ job.progress }}% · {{ job.file.size | fileSize }}</span>
+          </ng-container>
+          <div class="upload-card__bar" *ngIf="job.state !== 'failed'" role="progressbar" [attr.aria-valuenow]="job.progress" aria-valuemin="0" aria-valuemax="100" [attr.aria-label]="'Uploading ' + job.file.name">
+            <span [style.width.%]="job.progress"></span>
+          </div>
+        </div>
+        <button type="button" class="upload-card__action" *ngIf="job.state === 'failed'" (click)="retryUpload(job)">Try again</button>
+        <button type="button" class="icon-btn icon-btn--sm" (click)="cancelUpload(job)" [attr.aria-label]="(job.state === 'failed' ? 'Discard ' : 'Cancel upload of ') + job.file.name">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
 
       <div class="typing-row" *ngIf="isTyping" aria-live="polite">
         <span class="typing-dots"><i></i><i></i><i></i></span>
@@ -304,9 +354,14 @@
     <ng-template #composer>
       <app-message-composer
         [submit]="sendDraft"
+        [submitEdit]="saveEdit"
+        [editing]="editing"
+        [mentionCandidates]="mentionCandidates"
         [replyTo]="replyPreview"
         [pasteFromDocument]="true"
         (cancelReply)="cancelReply()"
+        (cancelEdit)="cancelEdit()"
+        (editLast)="editLastMessage()"
         (typing)="typing()"
       ></app-message-composer>
     </ng-template>
@@ -332,6 +387,7 @@
       (close)="closeRightPanel()"
       (openMedia)="openPreview($event)"
       (leaveGroup)="leaveGroup()"
+      (deleteGroup)="deleteGroup()"
       (groupChanged)="onPanelGroupChanged($event)"
     ></app-conversation-info-panel>
   </section>
@@ -357,23 +413,8 @@
   <video *ngIf="previewType === 'video'" controls autoplay (click)="$event.stopPropagation()">
     <source [src]="previewUrl" />
   </video>
+  <iframe *ngIf="previewType === 'pdf' && previewPdf" class="lightbox__pdf" [src]="previewPdf" title="PDF preview" (click)="$event.stopPropagation()"></iframe>
 </div>
-
-<!-- Incoming call -->
-<app-incoming-call
-  *ngIf="incomingCall"
-  [call]="incomingCall"
-  (accept)="acceptIncomingCall()"
-  (decline)="declineIncomingCall()"
-></app-incoming-call>
-
-<!-- Active call (full screen or minimized; survives switching chats) -->
-<app-group-call
-  *ngIf="activeCall"
-  [launch]="activeCall"
-  [(minimized)]="callMinimized"
-  (closed)="onCallClosed()"
-></app-group-call>
 
 <!-- ============================================================ MODALS -->
 <ng-template #groupModal let-modal>

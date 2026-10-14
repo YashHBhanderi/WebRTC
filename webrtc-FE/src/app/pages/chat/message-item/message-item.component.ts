@@ -14,8 +14,10 @@ import {
   SimpleChanges,
   ViewChild,
 } from '@angular/core';
+import { Placement } from '@ng-bootstrap/ng-bootstrap';
 import { CHAT_CONFIG, ChatConfig } from 'src/app/core/config/chat.config';
 import { ChatMessage, messageHasText } from 'src/app/core/interfaces/chat';
+import { fileIconFor } from '../message-composer/message-composer.component';
 
 export interface MediaOpenEvent {
   url: string;
@@ -24,7 +26,11 @@ export interface MediaOpenEvent {
   downloadUrl?: string;
 }
 
-const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'pdf']);
+const MEDIA_TYPES = new Set(['image', 'video', 'audio', 'pdf', 'file']);
+
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * One chat message: sender avatar, bubble (quote, media, text with Read more), reactions,
@@ -54,12 +60,19 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
   /** Read-only rendering (meeting chat panel): no strip, no reply, no swipe. */
   @Input() compact = false;
   @Input() myUserId = '';
+  @Input() pinned = false;
+  /** Names of the people this message @mentions (shown highlighted). */
+  @Input() mentionNames: string[] = [];
 
   @Output() reply = new EventEmitter<ChatMessage>();
   @Output() react = new EventEmitter<string>();
   @Output() copy = new EventEmitter<ChatMessage>();
   @Output() forward = new EventEmitter<ChatMessage>();
   @Output() remove = new EventEmitter<ChatMessage>();
+  @Output() edit = new EventEmitter<ChatMessage>();
+  @Output() togglePin = new EventEmitter<ChatMessage>();
+  @Output() toggleSave = new EventEmitter<ChatMessage>();
+  @Output() copyLink = new EventEmitter<ChatMessage>();
   @Output() quoteClick = new EventEmitter<string>();
   @Output() avatarClick = new EventEmitter<string>();
   @Output() openMedia = new EventEmitter<MediaOpenEvent>();
@@ -123,6 +136,64 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
   get visibleText(): string {
     const text = this.message.content || '';
     return this.isLong && !this.expanded ? `${text.slice(0, this.readMoreChars).trimEnd()}…` : text;
+  }
+
+  /** Own text messages can be edited. */
+  get canEdit(): boolean {
+    return this.mine && this.message.type === 'text' && !this.message.isDeleted;
+  }
+
+  /** Footer (pin / save / edited / time / ticks) goes on its own row when it carries more than the time. */
+  get hasFooterFlags(): boolean {
+    return this.pinned || !!this.message.saved || !!this.message.editedAt;
+  }
+
+  /** Finished call, from my side: I placed it → outgoing. */
+  get callLabel(): string {
+    const call = this.message.call;
+    if (!call) {
+      return '';
+    }
+    if (call.mode === 'meetNow') {
+      return 'Meeting';
+    }
+    return `${this.mine ? 'Outgoing' : 'Incoming'} ${call.callType === 'video' ? 'video' : 'audio'} call`;
+  }
+
+  get callDuration(): string {
+    const total = Math.max(0, Math.round(this.message.call?.duration || 0));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h) return `${h}h ${m}m`;
+    if (m) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  /** Menus flip up / sideways when there is no room below (always inside the viewport). */
+  get menuPlacement(): Placement[] {
+    return this.mine
+      ? ['bottom-end', 'top-end', 'left-bottom', 'left-top']
+      : ['bottom-start', 'top-start', 'right-bottom', 'right-top'];
+  }
+
+  get statusLabel(): string {
+    switch (this.message.status) {
+      case 'seen': return this.isGroup ? 'Seen by everyone' : 'Seen';
+      case 'delivered': return 'Delivered';
+      default: return 'Sent';
+    }
+  }
+
+  /** Text with @mentions wrapped (escaped first, so it is safe for [innerHTML]). */
+  get mentionHtml(): string {
+    const names = (this.mentionNames || []).filter(Boolean).sort((a, b) => b.length - a.length);
+    const safe = escapeHtml(this.visibleText);
+    if (!names.length) {
+      return safe;
+    }
+    const pattern = new RegExp(`@(${names.map((n) => escapeRegExp(escapeHtml(n))).join('|')})`, 'g');
+    return safe.replace(pattern, (m) => `<span class="mention">${m}</span>`);
   }
 
   get senderId(): string {
@@ -249,6 +320,10 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
   /** Pre-signed download links answer with "attachment"; legacy links open in a new tab instead. */
   get downloadTarget(): string | null {
     return this.message.downloadUrl ? null : '_blank';
+  }
+
+  fileIcon(): string {
+    return fileIconFor(this.fileName(), this.message.type);
   }
 
   fileName(): string {

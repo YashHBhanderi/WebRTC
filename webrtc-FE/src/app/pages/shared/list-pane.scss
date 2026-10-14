@@ -1,0 +1,251 @@
+// Teams-style list panes shared by Chat, Activity and Calls: filter chips, list rows, two-pane layout.
+// (Moved from chat.component.scss so every list looks and behaves the same.)
+
+.chips {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.chip {
+  flex: none;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--app-input);
+  color: var(--app-text-2);
+  font-size: 0.82rem;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--app-hover-strong);
+  }
+
+  &--active {
+    background: var(--app-brand-soft);
+    color: var(--app-brand-strong);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-brand);
+  }
+}
+
+
+.conv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 6px 12px;
+}
+
+.conv {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  transition: background 0.12s ease;
+
+  &:hover {
+    background: var(--app-hover);
+  }
+
+  &--active,
+  &--active:hover {
+    background: var(--app-active);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-brand);
+    outline-offset: -2px;
+  }
+}
+
+.conv__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.conv__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.conv__title {
+  flex: 1;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv__kind {
+  margin-right: 4px;
+  font-size: 0.7rem;
+  color: var(--app-muted);
+}
+
+.conv__time {
+  flex: none;
+  color: var(--app-muted);
+  font-size: 0.72rem;
+}
+
+.conv__preview {
+  flex: 1;
+  min-width: 0;
+  color: var(--app-text-2);
+  font-size: 0.83rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv__badges {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conv--unread {
+  .conv__title {
+    font-weight: 600;
+  }
+
+  .conv__time {
+    color: var(--app-brand);
+    font-weight: 600;
+  }
+
+  .conv__preview {
+    color: var(--app-text);
+  }
+}
+
+
+// ------------------------------------------------------------------ two-pane pages (Activity, Calls)
+
+.pane-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) 1fr;
+  height: 100%;
+  min-height: 0;
+  background: var(--app-surface);
+}
+
+.pane-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+
+.pane-side__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 10px 12px 8px 16px;
+
+  h1 {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--app-text);
+  }
+}
+
+.pane-side__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pane-main {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--app-chat-bg);
+}
+
+.pane-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--app-muted);
+  font-size: 0.875rem;
+
+  > i {
+    font-size: 1.8rem;
+    color: var(--app-brand-soft-strong);
+  }
+
+  strong {
+    color: var(--app-text);
+    font-size: 0.95rem;
+  }
+}
+
+.pane-main .pane-state {
+  height: 100%;
+}
+
+.row-skeleton {
+  height: 64px;
+  margin: 4px 6px;
+  border-radius: 12px;
+  background: var(--app-surface-2);
+}
+
+.unread-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--app-brand);
+  flex: none;
+}
+
+// Phones: one pane at a time
+@media (max-width: 767.98px) {
+  .pane-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .pane-side {
+    border-right: 0;
+  }
+
+  .pane-main--optional {
+    display: none;
+  }
+}

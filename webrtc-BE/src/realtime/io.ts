@@ -56,7 +56,7 @@ export function removeUserFromRoom(userId: string, room: string): void {
     }
 }
 
-export type AuthedSocket = Socket & { data: { userId: string } };
+export type AuthedSocket = Socket & { data: { userId: string; deviceId: string } };
 type Ack = (response: Record<string, unknown>) => void;
 
 /**

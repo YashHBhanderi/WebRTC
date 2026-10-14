@@ -5,12 +5,9 @@
  */
 export const environment = {
   production: false,
-  apiUrl: '/api',
+  apiUrl: 'http://192.168.3.75:8000',
   socketUrl: '', // same origin; /socket.io is proxied to backend
   // Fallback only: the backend's value (GET /config, from its .env) is used when reachable
   s3BaseUrl: 'https://webrtc-test-dev-128d3567472b196e1045d829b3.s3.ap-south-1.amazonaws.com',
-  BASE_URL:
-    typeof window !== 'undefined' && window.location?.origin
-      ? window.location.origin
-      : 'https://192.168.3.75:4200',
+  BASE_URL: 'https://192.168.3.75:8000',
 };

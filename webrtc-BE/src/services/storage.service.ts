@@ -1,8 +1,12 @@
+import fs from "fs";
 import { Readable } from "stream";
+import { pipeline } from "stream/promises";
 import {
     DeleteObjectCommand,
+    GetBucketLifecycleConfigurationCommand,
     GetObjectCommand,
     HeadObjectCommand,
+    PutBucketLifecycleConfigurationCommand,
     PutObjectCommand,
     S3Client,
     S3ServiceException,
@@ -103,6 +107,49 @@ class StorageService {
             await this.s3().send(new DeleteObjectCommand({ Bucket: storageConfig.bucket, Key: key }));
         } catch (error) {
             throw this.wrap("delete", key, error);
+        }
+    }
+
+    /**
+     * Makes sure objects under `prefix` expire after `days` via an S3 lifecycle rule (so retention
+     * does not depend on this app running). PutBucketLifecycleConfiguration replaces the whole
+     * configuration, so the existing rules are read first and only our own rule is added/updated.
+     */
+    async ensureExpiryRule(prefix: string, days: number): Promise<void> {
+        const id = `expire-${prefix.replace(/[^\w-]+/g, "-")}-${days}d`;
+        let rules: any[] = [];
+        try {
+            const current = await this.s3().send(new GetBucketLifecycleConfigurationCommand({ Bucket: storageConfig.bucket }));
+            rules = current.Rules || [];
+        } catch (error) {
+            // NoSuchLifecycleConfiguration just means there are no rules yet
+            if (!(error instanceof S3ServiceException) || error.name !== 'NoSuchLifecycleConfiguration') {
+                throw this.wrap('lifecycle-read', prefix, error);
+            }
+        }
+        const mine = { ID: id, Status: 'Enabled' as const, Filter: { Prefix: prefix }, Expiration: { Days: days }, AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 } };
+        const existing = rules.find((r) => r.ID === id);
+        if (existing && existing.Status === 'Enabled' && existing.Expiration?.Days === days && existing.Filter?.Prefix === prefix) {
+            return;
+        }
+        rules = [...rules.filter((r) => r.ID !== id), mine];
+        try {
+            await this.s3().send(new PutBucketLifecycleConfigurationCommand({ Bucket: storageConfig.bucket, LifecycleConfiguration: { Rules: rules } }));
+        } catch (error) {
+            throw this.wrap('lifecycle-write', prefix, error);
+        }
+    }
+
+    /** Stream an object to a local file (server-side processing; never exposed to clients). */
+    async downloadToFile(key: string, file: string): Promise<void> {
+        try {
+            const out = await this.s3().send(new GetObjectCommand({ Bucket: storageConfig.bucket, Key: key }));
+            if (!(out.Body instanceof Readable)) {
+                throw new Error("Unexpected response body");
+            }
+            await pipeline(out.Body, fs.createWriteStream(file));
+        } catch (error) {
+            throw this.wrap("download", key, error);
         }
     }
 

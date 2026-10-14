@@ -23,7 +23,8 @@
       "ES2022",
       "dom"
     ],
-    "useUnknownInCatchVariables": false
+    "useUnknownInCatchVariables": false,
+    "skipLibCheck": true
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,

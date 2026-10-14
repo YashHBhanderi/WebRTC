@@ -1,0 +1,79 @@
+<section class="page rec">
+  <p *ngIf="loading && !recording" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Loading recording…</p>
+
+  <div class="empty" *ngIf="error && !recording" role="alert">
+    <h2 class="empty__title">{{ error }}</h2>
+    <button type="button" class="btn btn-sm btn-primary" (click)="load()">Try again</button>
+  </div>
+
+  <ng-container *ngIf="recording as r">
+    <header class="page__header rec__head">
+      <div>
+        <h1 class="page__title">{{ r.title }}</h1>
+        <p class="rec__meta">
+          {{ r.startedAt | date: 'medium' }} · {{ clock(r.duration) }} · recorded by {{ r.startedByName }}<ng-container *ngIf="r.size"> · {{ r.size | fileSize }}</ng-container>
+        </p>
+      </div>
+      <a class="btn btn-sm btn-light" *ngIf="r.downloadUrl" [href]="r.downloadUrl" download rel="noopener">
+        <i class="fa-solid fa-download me-1" aria-hidden="true"></i>Download
+      </a>
+    </header>
+
+    <div class="rec__layout">
+      <div class="rec__player">
+        <video #player *ngIf="r.playbackUrl; else noVideo" [src]="r.playbackUrl" controls preload="metadata" (timeupdate)="onTimeUpdate()"></video>
+        <ng-template #noVideo>
+          <div class="rec__placeholder" role="status">
+            <i class="fa-solid" [class.fa-hourglass-half]="r.status !== 'failed'" [class.fa-triangle-exclamation]="r.status === 'failed'" aria-hidden="true"></i>
+            <p>{{ statusText }}</p>
+          </div>
+        </ng-template>
+      </div>
+
+      <aside class="rec__transcript" aria-label="Transcript">
+        <div class="rec__transcript-head">
+          <h2>Transcript</h2>
+          <div class="rec__export" *ngIf="r.transcriptStatus === 'completed' && segments.length">
+            <span class="visually-hidden">Export as</span>
+            <button type="button" class="btn btn-sm btn-light" (click)="export('txt')">TXT</button>
+            <button type="button" class="btn btn-sm btn-light" (click)="export('srt')">SRT</button>
+            <button type="button" class="btn btn-sm btn-light" (click)="export('vtt')">VTT</button>
+          </div>
+        </div>
+
+        <ng-container [ngSwitch]="r.transcriptStatus">
+          <ng-container *ngSwitchCase="'none'">
+            <p class="rec__state" *ngIf="r.status === 'completed'">No transcript for this recording.</p>
+            <p class="rec__state" *ngIf="r.status === 'processing' || r.status === 'recording'" role="status">The transcript is created after the recording is processed.</p>
+            <p class="rec__state" *ngIf="r.status === 'failed'">No transcript is available.</p>
+          </ng-container>
+          <p class="rec__state" *ngSwitchCase="'pending'" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Transcription processing…</p>
+          <p class="rec__state" *ngSwitchCase="'processing'" role="status"><span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Transcription processing…</p>
+          <div class="rec__state" *ngSwitchCase="'failed'" role="alert">
+            <p class="text-danger mb-2">{{ transcriptError || "We couldn't create a transcript for this recording." }}</p>
+            <button type="button" class="btn btn-sm btn-light" *ngIf="r.status === 'completed' && !r.expired" (click)="retryTranscript()" [disabled]="retrying">
+              <i class="fa-solid fa-rotate-right me-1" aria-hidden="true"></i>{{ retrying ? 'Retrying…' : 'Retry' }}
+            </button>
+          </div>
+          <ng-container *ngSwitchCase="'completed'">
+            <div class="rec__search">
+              <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              <input type="search" [(ngModel)]="query" placeholder="Search the transcript" aria-label="Search the transcript" />
+            </div>
+            <p class="rec__state" *ngIf="!segments.length">No speech was detected.</p>
+            <p class="rec__state" *ngIf="segments.length && query && !visibleSegments.length">No lines match “{{ query }}”.</p>
+            <ol class="rec__lines" #transcriptList (wheel)="onTranscriptWheel()" (touchmove)="onTranscriptWheel()">
+              <li *ngFor="let row of visibleSegments; trackBy: trackByIndex" [id]="'seg-' + row.i">
+                <button type="button" class="rec__line" [class.rec__line--active]="row.i === activeIndex" [attr.aria-current]="row.i === activeIndex ? 'true' : null"
+                        (click)="seek(row.s)" [attr.aria-label]="'Play from ' + stamp(row.s.startTime) + ', ' + row.s.speaker">
+                  <span class="rec__line-head"><strong>{{ row.s.speaker }}</strong><time>{{ stamp(row.s.startTime) }}</time></span>
+                  <span class="rec__line-text" [innerHTML]="row.s.text | highlight: query"></span>
+                </button>
+              </li>
+            </ol>
+          </ng-container>
+        </ng-container>
+      </aside>
+    </div>
+  </ng-container>
+</section>

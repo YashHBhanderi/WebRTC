@@ -1,6 +1,9 @@
 import * as mediasoup from "mediasoup";
 import mediasoupService from "../../services/mediasoup.service";
+import { claimPeer } from "../../services/call-session.service";
 import callService from "../../services/call.service";
+import meetingControls from "../../services/meeting-controls.service";
+import recordingService from "../../services/recording.service";
 import { emitToCall } from "../../services/call-session.service";
 import { getClientIceConfig, mediaConfig, withTestTunnelCandidate } from "../../utils/network";
 import { AuthedSocket, io } from "../io";
@@ -50,9 +53,9 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
     const createTransportHandler = (direction: "send" | "recv") => async (_: unknown, callback: (r: any) => void) => {
         try {
-            let peer = mediasoupService.getPeer(socket.id);
+            const peer = await claimPeer(socket.data.userId, socket.id, socket.data.deviceId);
             if (!peer) {
-                peer = mediasoupService.createPeer(socket.data.userId, socket.id);
+                return callback({ error: "You're already in a call on another device", code: "IN_CALL_ELSEWHERE" });
             }
             const current = direction === "send" ? peer.sendTransport : peer.recvTransport;
 
@@ -158,6 +161,10 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
             // Only a known source label is stored/forwarded — never arbitrary client appData
             const source: "camera" | "screen" = kind === "video" && appData?.source === "screen" ? "screen" : "camera";
+            const rule = await meetingControls.mayProduce(String(peer.callId), peer.userId, kind, source);
+            if (!rule.allowed) {
+                return callback({ error: "The organizer has turned off screen sharing for attendees" });
+            }
 
             const producer = await peer.sendTransport.produce({
                 kind,
@@ -167,6 +174,11 @@ export function registerMediaGateway(socket: AuthedSocket): void {
                 appData: { source },
             });
             peer.producers.set(producer.id, producer);
+            if (rule.pauseAudio) {
+                // Attendees may not unmute: nothing from this microphone is forwarded until allowed
+                await producer.pause();
+                meetingControls.rememberPolicyPause(String(peer.callId), producer.id);
+            }
 
             console.log(
                 `Producer created: ${producer.id} (${kind}/${source}, ${producer.type}, ` +
@@ -174,6 +186,8 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             );
 
             mediasoupService.watchProducer(producer, userId);
+            // Recording in progress: capture this stream too
+            void recordingService.addProducer(String(peer.callId), producer, peer.userId);
 
             if (producer.kind === "audio") {
                 const levelsCallId = String(peer.callId);
@@ -205,6 +219,21 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             console.error("Failed to create producer:", error);
             callback({ error: "Failed to create producer" });
         }
+    });
+
+    // The client stopped sending (e.g. stopped presenting). Closing it here closes every consumer
+    // of it too, so receivers drop that track ("producerclose" below) instead of keeping a dead
+    // one that a later share would be stacked behind (black screen on the second share).
+    socket.on("mediasoup:closeProducer", ({ producerId } = {} as any, callback) => {
+        const peer = mediasoupService.getPeer(socket.id);
+        const producer = producerId ? peer?.producers.get(producerId) : undefined;
+        if (!peer || !producer) {
+            return callback?.({ success: true }); // already gone — nothing to do
+        }
+        producer.close();
+        peer.producers.delete(producer.id);
+        console.log(`Producer closed by client: ${producer.id} (${(producer.appData as any)?.source || "camera"})`);
+        callback?.({ success: true });
     });
 
     socket.on("mediasoup:consume", async ({ producerId, rtpCapabilities } = {} as any, callback) => {
@@ -338,10 +367,16 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             if (!(await callService.isActiveParticipant(String(callId), socket.data.userId))) {
                 return callback({ error: "Not a participant of this call" });
             }
+            // Lobby: attendees wait until a host / co-host admits them (no media until then)
+            const { call, group } = await meetingControls.load(callId);
+            if (meetingControls.mustWait(call, group, String(socket.data.userId))) {
+                await meetingControls.enterLobby(String(callId), String(socket.data.userId));
+                return callback({ lobby: true });
+            }
 
-            let peer = mediasoupService.getPeer(socket.id);
+            const peer = await claimPeer(socket.data.userId, socket.id, socket.data.deviceId, String(callId));
             if (!peer) {
-                peer = mediasoupService.createPeer(socket.data.userId, socket.id);
+                return callback({ error: "You're already in a call on another device", code: "IN_CALL_ELSEWHERE" });
             }
             mediasoupService.joinCall(socket.id, callId, callType);
             socket.join(callId.toString());

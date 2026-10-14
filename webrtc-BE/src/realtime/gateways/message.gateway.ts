@@ -1,14 +1,19 @@
 import mongoose from "mongoose";
 import Message from "../../models/messageModel";
 import Conversation from "../../models/conversationModel";
-import { IUser } from "../../models/userModel";
+import User, { IUser } from "../../models/userModel";
 import ConversationService from "../../services/conversationService";
 import blockService from "../../services/block.service";
 import { directPeerId, isMember } from "../../services/authorization.service";
 import { attachMessageFile, messageMedia } from "../../services/file.service";
 import { IStoredFile } from "../../models/storedFile.schema";
+import notificationService from "../../services/notification.service";
+import receiptsService from "../../services/receipts.service";
+import messageActions, { MAX_MESSAGE_LENGTH, validateMessageText, validMentions } from "../../services/message-actions.service";
+import { broadcastMessage } from "../../services/call-session.service";
+import { PUBLIC_USER_FIELDS } from "../../utils/validation";
 import { publicMessage } from "../../utils/errors";
-import { AuthedSocket, io, userSockets } from "../io";
+import { AuthedSocket, emitToUsers, io } from "../io";
 
 interface SendMessagePayload {
     user: IUser;
@@ -22,11 +27,15 @@ interface SendMessagePayload {
     storageKey?: string;
     /** Forward: id of the message to copy (content + attachment) into this conversation. */
     forwardOf?: string;
+    /** User ids @mentioned in the text (must be members). */
+    mentions?: string[];
 }
 
+type Ack = ((response: { success?: boolean; error?: string; [key: string]: unknown }) => void) | undefined;
+
 /** Types a client may send ("system" is server-only). */
-const CLIENT_MESSAGE_TYPES = new Set(["text", "image", "video", "audio", "pdf", "call"]);
-const MEDIA_TYPES = new Set(["image", "video", "audio", "pdf"]);
+const CLIENT_MESSAGE_TYPES = new Set(["text", "image", "video", "audio", "pdf", "file", "call"]);
+const MEDIA_TYPES = new Set(["image", "video", "audio", "pdf", "file"]);
 
 interface MessageBody {
     type: string;
@@ -113,42 +122,68 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 return;
             }
 
+            if (body.type === "text") {
+                try {
+                    body.content = validateMessageText(body.content);
+                } catch (error) {
+                    socket.emit("message:rejected", { conversationId: String(conversation._id), reason: "invalid", message: publicMessage(error, "Message not sent") });
+                    return;
+                }
+            } else if (body.content.length > MAX_MESSAGE_LENGTH) {
+                body.content = body.content.slice(0, MAX_MESSAGE_LENGTH);
+            }
+
+            // A reply may only quote a visible message of this same chat
+            const replyTo = messageData.replyTo && mongoose.isValidObjectId(messageData.replyTo)
+                ? await Message.exists({ _id: messageData.replyTo, conversationId: conversation._id, isDeleted: { $ne: true } })
+                : null;
+            const memberIds = conversation.members.map(String);
+            const mentions = messageData.forwardOf ? [] : validMentions(messageData.mentions, memberIds, me());
+
             const newMessage = new Message({
-                userId: messageData.user._id,
+                userId: me(),
                 conversationId: conversation._id,
                 content: body.content,
                 file: body.file,
                 fileUrl: body.fileUrl,
                 thumbnailUrl: body.thumbnailUrl,
                 type: body.type,
-                replyTo: messageData.replyTo && mongoose.isValidObjectId(messageData.replyTo)
-                    ? new mongoose.Types.ObjectId(messageData.replyTo)
-                    : null,
+                replyTo: replyTo ? replyTo._id : null,
+                mentions: mentions.length ? mentions : undefined,
                 createdAt: new Date(),
             });
             await newMessage.save();
-            await Conversation.updateOne({ _id: conversation._id }, { $push: { messages: newMessage._id } });
 
-            const populatedMessage = await Message.findById(newMessage._id).populate("replyTo");
+            const populatedMessage = await Message.findById(newMessage._id).populate({ path: "replyTo", select: "content type userId" });
             const conversationId = String(conversation._id);
+            // Author details from the database — never the name/avatar the client sent
+            const author = await User.findById(me()).select(PUBLIC_USER_FIELDS).lean();
             // Pre-signed links instead of storage keys
-            const stored = populatedMessage ? { ...populatedMessage.toObject(), ...(await messageMedia(populatedMessage)), file: undefined } : {};
+            const payload = {
+                ...(populatedMessage ? { ...populatedMessage.toObject(), ...(await messageMedia(populatedMessage)), file: undefined } : {}),
+                user: author,
+                conversationId,
+                status: "sent",
+            };
+            broadcastMessage(conversationId, conversation.members, payload);
 
-            io().to(conversationId).emit("receiveMessage", {
-                ...stored,
-                user: messageData.user,
-                conversationId: messageData.conversationId,
-            });
-
-            conversation.members.forEach((member) => {
-                const memberId = member.toString();
-                if (userSockets.has(memberId) && memberId !== me()) {
-                    io().to(userSockets.get(memberId)!).emit("receiveMessage", {
-                        ...stored,
-                        conversationId: messageData.conversationId,
-                    });
-                }
-            });
+            // Mentions and replies → Activity (a mentioned author of the quoted message gets one entry)
+            const preview = body.type === "text" ? body.content : `Sent ${body.type === "pdf" ? "a document" : `a ${body.type}`}`;
+            const mentioned = new Set(mentions.map(String));
+            const quoted = populatedMessage?.replyTo as any;
+            void notificationService.notify([
+                ...[...mentioned].map((userId) => ({
+                    userId,
+                    type: "mention" as const,
+                    actorId: me(),
+                    conversationId,
+                    messageId: String(newMessage._id),
+                    text: preview,
+                })),
+                ...(quoted?.userId && String(quoted.userId) !== me() && !mentioned.has(String(quoted.userId))
+                    ? [{ userId: String(quoted.userId), type: "reply" as const, actorId: me(), conversationId, messageId: String(newMessage._id), text: preview }]
+                    : []),
+            ]);
         } catch (error) {
             console.error("Error sending message:", error);
         }
@@ -160,7 +195,9 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 return;
             }
             // Only members may react, and only to messages of that conversation
-            const allowed = await Conversation.exists({ _id: data.conversationId, members: me(), messages: data.messageId });
+            const allowed = mongoose.isValidObjectId(data.messageId) && mongoose.isValidObjectId(data.conversationId)
+                && await Conversation.exists({ _id: data.conversationId, members: me() })
+                && await Message.exists({ _id: data.messageId, conversationId: data.conversationId, isDeleted: { $ne: true } });
             if (!allowed) {
                 return;
             }
@@ -170,6 +207,20 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 reactions: updatedMessage.reactions,
                 conversationId: data.conversationId,
             });
+
+            // Reaction added (not removed) to someone else's message → their Activity
+            const added = (updatedMessage.reactions || []).some((r: any) => String(r.userId) === me() && r.emoji === data.emoji);
+            const authorId = String((updatedMessage as any).userId?._id || (updatedMessage as any).userId || "");
+            if (added && authorId && authorId !== me()) {
+                void notificationService.notify({
+                    userId: authorId,
+                    type: "reaction",
+                    actorId: me(),
+                    conversationId: data.conversationId,
+                    messageId: data.messageId,
+                    text: data.emoji,
+                });
+            }
         } catch (error) {
             console.error("Error adding reaction:", error);
         }
@@ -183,13 +234,58 @@ export function registerMessageGateway(socket: AuthedSocket): void {
             if (!conversation || !isMember(conversation, me())) {
                 return;
             }
-            await Message.updateMany(
-                { conversationId: conversation._id, isRead: false, userId: { $ne: new mongoose.Types.ObjectId(me()) } },
-                { $set: { isRead: true } }
-            );
+            await receiptsService.markRead(me(), id);
+            // Older clients flip ticks on this event
             io().to(id).emit("messagesMarkedRead", { conversationId: id, userId: me() });
+            void notificationService.markConversationRead(me(), id);
         } catch (error) {
             console.error("Error marking messages as read:", error);
+        }
+    });
+
+    // A message reached this device (sent once per chat, batched by the client)
+    socket.on("message:delivered", async (data: { conversationIds?: unknown }) => {
+        try {
+            const ids = Array.isArray(data?.conversationIds) ? data.conversationIds.map(String).slice(0, 50) : [];
+            const mine = await Conversation.find({ _id: { $in: ids.filter((id) => mongoose.isValidObjectId(id)) }, members: me() }).select("_id").lean();
+            await receiptsService.markDelivered(me(), mine.map((c) => String(c._id)));
+        } catch (error) {
+            console.error("Error marking messages delivered:", error);
+        }
+    });
+
+    socket.on("message:edit", async (data: { messageId?: string; content?: string; mentions?: string[] }, ack: Ack) => {
+        try {
+            const { message, conversation, addedMentions } = await messageActions.edit(data?.messageId, me(), data?.content, data?.mentions);
+            const conversationId = String(conversation._id);
+            emitToUsers(conversation.members, "message:updated", {
+                conversationId,
+                messageId: String(message._id),
+                content: message.content,
+                editedAt: message.editedAt,
+                mentions: (message.mentions || []).map(String),
+            });
+            void notificationService.notify(addedMentions.map((userId) => ({
+                userId,
+                type: "mention" as const,
+                actorId: me(),
+                conversationId,
+                messageId: String(message._id),
+                text: message.content,
+            })));
+            ack?.({ success: true });
+        } catch (error) {
+            ack?.({ error: publicMessage(error, "We couldn't edit the message. Please try again.") });
+        }
+    });
+
+    socket.on("message:pin", async (data: { messageId?: string; pinned?: boolean }, ack: Ack) => {
+        try {
+            const result = await messageActions.setPinned(data?.messageId, me(), data?.pinned !== false);
+            emitToUsers(result.members, "message:pins", { conversationId: result.conversationId, pins: result.pins });
+            ack?.({ success: true, pins: result.pins });
+        } catch (error) {
+            ack?.({ error: publicMessage(error, "We couldn't update the pin. Please try again.") });
         }
     });
 }

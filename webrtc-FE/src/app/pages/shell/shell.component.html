@@ -1,0 +1,111 @@
+<a class="skip-link visually-hidden-focusable" href="#main-content">Skip to content</a>
+
+<div class="shell" [class.shell--collapsed]="collapsed" [class.shell--immersive]="shellUi.immersive$ | async">
+  <!-- ============================================================ TOP BAR -->
+  <header class="topbar">
+    <!-- In the navigation column, centred on the same line as the navigation icons -->
+    <span class="topbar__rail d-none d-md-flex">
+      <button type="button" class="topbar__toggle" (click)="toggleCollapsed()"
+              [attr.aria-label]="collapsed ? 'Show navigation' : 'Hide navigation'" [attr.aria-expanded]="!collapsed"
+              [title]="collapsed ? 'Show navigation' : 'Hide navigation'" aria-controls="app-rail">
+        <lucide-icon name="panel-left" [size]="22" aria-hidden="true"></lucide-icon>
+      </button>
+    </span>
+
+    <app-global-search></app-global-search>
+    <span class="topbar__spacer d-md-none" aria-hidden="true"></span>
+
+    <a class="topbar__icon" routerLink="/settings" routerLinkActive="topbar__icon--active" aria-label="Settings" title="Settings">
+      <i class="fa-solid fa-gear" aria-hidden="true"></i>
+    </a>
+
+    <div ngbDropdown placement="bottom-end" class="d-inline-block">
+      <button type="button" class="topbar__me" ngbDropdownToggle aria-label="Account menu">
+        <app-avatar [src]="me?.avatar" [name]="me?.username || ''" [size]="32" [presence]="myPresenceKey"></app-avatar>
+      </button>
+      <div ngbDropdownMenu class="app-menu">
+        <div class="menu-user">
+          <div class="menu-user__name">{{ me?.username }}</div>
+          <div class="menu-user__status">{{ myStatusLabel }}<span *ngIf="presence.mine.statusMessage"> · {{ presence.mine.statusMessage }}</span></div>
+        </div>
+        <div class="dropdown-divider"></div>
+        <button ngbDropdownItem type="button" *ngFor="let opt of statusOptions" (click)="chooseStatus(opt.value)"
+                [attr.aria-pressed]="presence.mine.status === opt.value">
+          <span class="status-dot status-dot--{{ opt.key }}" aria-hidden="true"></span>{{ opt.label }}
+          <i class="fa-solid fa-check ms-auto" *ngIf="presence.mine.status === opt.value" aria-hidden="true"></i>
+        </button>
+        <button ngbDropdownItem type="button" (click)="openStatusMessage()">
+          <i class="fa-regular fa-comment" aria-hidden="true"></i>{{ presence.mine.statusMessage ? 'Edit status message' : 'Set status message' }}
+        </button>
+        <div class="dropdown-divider"></div>
+        <a ngbDropdownItem routerLink="/profile"><i class="fa-regular fa-user" aria-hidden="true"></i>Profile</a>
+        <a ngbDropdownItem routerLink="/saved"><i class="fa-regular fa-bookmark" aria-hidden="true"></i>Saved messages</a>
+        <a ngbDropdownItem routerLink="/settings"><i class="fa-solid fa-gear" aria-hidden="true"></i>Settings</a>
+        <div class="dropdown-divider"></div>
+        <button ngbDropdownItem type="button" class="text-danger" (click)="signOut()">
+          <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>Sign out
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============================================================ NAV RAIL -->
+  <nav class="rail" id="app-rail" aria-label="Main" [attr.aria-hidden]="collapsed ? 'true' : null">
+    <ul class="rail__list">
+      <li *ngFor="let item of primaryNav; trackBy: trackByPath">
+        <a class="rail__item" [routerLink]="item.path" routerLinkActive="rail__item--active"
+           #rla="routerLinkActive" [attr.aria-current]="rla.isActive ? 'page' : null"
+           [attr.title]="item.label + ' (Alt+' + item.shortcut + ')'">
+          <i class="fa-solid {{ item.icon }}" aria-hidden="true"></i>
+          <span class="rail__label">{{ item.label }}</span>
+          <span class="count-badge count-badge--rail" *ngIf="item.path === '/activity' && (notifications.unread$ | async) as n" aria-hidden="true">{{ n > 99 ? '99+' : n }}</span>
+          <span class="count-badge count-badge--rail" *ngIf="item.path === '/chat' && (notifications.unreadChats$ | async) as n" aria-hidden="true">{{ n > 99 ? '99+' : n }}</span>
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- ============================================================ CONTENT -->
+  <main class="content" id="main-content" tabindex="-1">
+    <div class="content__page">
+      <router-outlet></router-outlet>
+    </div>
+  </main>
+</div>
+
+<!-- Incoming call -->
+<app-incoming-call
+  *ngIf="calls.incomingCall"
+  [call]="calls.incomingCall"
+  (accept)="calls.acceptIncoming()"
+  (decline)="calls.declineIncoming()"
+></app-incoming-call>
+
+<!-- Active call (full screen or minimized; survives navigation) -->
+<app-group-call
+  *ngIf="calls.activeCall"
+  [launch]="calls.activeCall"
+  [minimized]="calls.minimized"
+  (minimizedChange)="calls.setMinimized($event)"
+  (closed)="calls.closed()"
+></app-group-call>
+
+<ng-template #statusMessageTpl let-modal>
+  <div class="modal-header">
+    <h2 class="modal-title h5" id="status-message-title">Status message</h2>
+    <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
+  </div>
+  <form (ngSubmit)="saveStatusMessage()">
+    <div class="modal-body">
+      <label for="status-message" class="form-label">What do you want people to know?</label>
+      <input id="status-message" class="form-control" name="statusMessage" maxlength="140" [(ngModel)]="statusDraft"
+             placeholder="e.g. In a workshop until 3pm" autocomplete="off" ngbAutofocus />
+      <div class="form-text">{{ statusDraft.length }}/140 · Shown next to your name in chats and search.</div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-light me-auto" *ngIf="presence.mine.statusMessage" (click)="saveStatusMessage(true)" [disabled]="savingStatus">Clear</button>
+      <button type="button" class="btn btn-light" (click)="modal.dismiss()">Cancel</button>
+      <button type="submit" class="btn btn-primary" [disabled]="savingStatus">Save</button>
+    </div>
+  </form>
+</ng-template>

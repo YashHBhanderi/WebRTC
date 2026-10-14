@@ -51,7 +51,7 @@ function withDevice(base: MediaTrackConstraints, deviceId?: string | null): Medi
 export async function getSingleTrack(kind: 'audio' | 'video', deviceId?: string | null): Promise<MediaStreamTrack> {
   const stream = await navigator.mediaDevices.getUserMedia(
     kind === 'audio'
-      ? { audio: withDevice(CALL_AUDIO, deviceId), video: false }
+      ? { audio: withDevice(callAudio(), deviceId), video: false }
       : { audio: false, video: withDevice(videoConstraints(), deviceId) }
   );
   await tightenTracks(stream);
@@ -70,18 +70,37 @@ function isMobileClient(): boolean {
     || (navigator.maxTouchPoints > 1 && /Macintosh/i.test(navigator.userAgent));
 }
 
+const NOISE_SUPPRESSION_KEY = 'noiseSuppression';
+
+/** Browser noise suppression for the mic (per device, on by default). */
+export function noiseSuppressionPreferred(): boolean {
+  try {
+    return localStorage.getItem(NOISE_SUPPRESSION_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
+export function setNoiseSuppressionPreferred(on: boolean): void {
+  try {
+    localStorage.setItem(NOISE_SUPPRESSION_KEY, on ? 'on' : 'off');
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Voice-call capture. Browser AEC/NS/AGC run on 10 ms frames and add no meaningful
  * buffering; without AEC the far end hears its own voice back from laptop speakers.
  */
-const CALL_AUDIO = {
+const callAudio = (): MediaTrackConstraints => ({
   echoCancellation: true,
-  noiseSuppression: true,
+  noiseSuppression: noiseSuppressionPreferred(),
   autoGainControl: true,
   channelCount: 1,
   sampleRate: 48000,
   latency: 0,
-} as MediaTrackConstraints;
+} as MediaTrackConstraints);
 
 /**
  * Capture size drives simulcast: Chrome only emits 3 layers from ≥ 960x540,
@@ -115,7 +134,7 @@ export async function getCallMedia(wantVideo: boolean, prefs: MediaDevicePrefs =
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: withDevice(CALL_AUDIO, prefs.audioDeviceId),
+      audio: withDevice(callAudio(), prefs.audioDeviceId),
       video: wantVideo ? withDevice(videoConstraints(), prefs.videoDeviceId) : false,
     });
     await tightenTracks(stream);
@@ -134,7 +153,7 @@ export async function getCallMedia(wantVideo: boolean, prefs: MediaDevicePrefs =
 
   try {
     const audioStream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: { echoCancellation: true, noiseSuppression: noiseSuppressionPreferred(), autoGainControl: true },
       video: false,
     });
     audioStream.getAudioTracks().forEach((track) => stream.addTrack(track));
@@ -179,7 +198,7 @@ async function tightenTracks(stream: MediaStream): Promise<void> {
       track.enabled = true;
       await track.applyConstraints({
         echoCancellation: true,
-        noiseSuppression: true,
+        noiseSuppression: noiseSuppressionPreferred(),
         autoGainControl: true,
         channelCount: 1,
       } as MediaTrackConstraints);
