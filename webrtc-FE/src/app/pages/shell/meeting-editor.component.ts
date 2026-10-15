@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
-import { firstValueFrom } from 'rxjs';
+import { Subscription, firstValueFrom } from 'rxjs';
 import { normalizeError } from 'src/app/core/errors/app-error';
 import { CalendarSettingsService } from 'src/app/core/services/calendar-settings.service';
 import { GridRange } from './time-grid.component';
@@ -20,7 +20,8 @@ const toTimeInput = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   templateUrl: './meeting-editor.component.html',
   styleUrls: ['./meeting-editor.component.scss'],
 })
-export class MeetingEditorComponent implements OnInit {
+export class MeetingEditorComponent implements OnInit, OnDestroy {
+  private subs = new Subscription();
   /** Editing an existing meeting (organizer); otherwise a new one */
   @Input() meeting: MeetingSummary | null = null;
   /** New meetings start here (defaults to the next half hour) */
@@ -107,6 +108,20 @@ export class MeetingEditorComponent implements OnInit {
     this.endTime = toTimeInput(end);
 
     void this.loadGrid();
+    this.loadPeople();
+    this.subs.add(this.users.newUsers$.subscribe((u: any) => {
+      this.people = UserService.withUser(this.people, { _id: String(u._id), username: u.username, avatar: u.avatar })
+        .sort((a, b) => a.username.localeCompare(b.username));
+      this.cdr.markForCheck();
+    }));
+    this.subs.add(this.users.reconnected$.subscribe(() => this.loadPeople()));
+  }
+
+  ngOnDestroy(): void {
+    this.subs.unsubscribe();
+  }
+
+  private loadPeople(): void {
     this.users.getAllUsersExceptCurrentUser().subscribe({
       next: (res) => {
         this.people = (res.data || []).map((u: any) => ({ _id: String(u._id), username: u.username, avatar: u.avatar }))

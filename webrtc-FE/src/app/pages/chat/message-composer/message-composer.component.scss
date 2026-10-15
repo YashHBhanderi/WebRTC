@@ -1,26 +1,29 @@
+// Footer bar around the composer box (no divider — the input box is the edge)
 :host {
   display: block;
   flex: none;
+  padding: 8px 12px max(8px, env(safe-area-inset-bottom));
+  background: var(--app-surface);
 }
 
 .icon-btn {
-  width: 40px;
-  height: 40px;
+  width: 30px;
+  height: 30px;
   flex: none;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--app-radius-sm);
   background: transparent;
-  color: var(--app-icon);
+  color: var(--app-text-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
+  font-size: 19px;
   transition: background 0.15s ease, color 0.15s ease;
 
   &:hover:not(:disabled),
   &.is-active {
-    background: var(--app-hover);
-    color: var(--app-text);
+    background: var(--app-hover-strong);
+    color: var(--app-brand);
   }
 
   &:focus-visible {
@@ -32,9 +35,9 @@
   }
 
   &--sm {
-    width: 32px;
-    height: 32px;
-    font-size: 14px;
+    width: 26px;
+    height: 26px;
+    font-size: 15px;
   }
 }
 
@@ -43,11 +46,16 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 10px;
-  padding: 8px 8px 8px 12px;
-  border-radius: 10px 10px 0 0;
-  background: var(--app-surface);
-  border-left: 4px solid var(--app-brand);
+  margin: 0;
+  padding: 8px 8px 0 10px;
+  border-radius: 0;
+  background: transparent;
+  border-left: 0;
+}
+
+.reply-bar__body {
+  padding-left: 8px;
+  border-left: 3px solid var(--app-brand);
 }
 
 .reply-bar__body,
@@ -99,46 +107,77 @@
   }
 }
 
+// One bordered box: reply / files sit inside; the row is actions · text · send
 .composer {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  padding: 8px 10px max(8px, env(safe-area-inset-bottom));
-  background: var(--app-surface-2);
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0 5px 5px;
+  border: 1px solid var(--app-bubble-border);
+  border-radius: 12px;
+  background: var(--app-input);
+  box-shadow: var(--app-shadow-sm);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 
-  &--compact {
-    padding: 6px 8px;
+  &:focus-within {
+    border-color: var(--app-brand);
+    background: var(--app-surface);
+    box-shadow: 0 0 0 1px var(--app-brand);
   }
+}
+
+.composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding-top: 5px;
+
+  > .icon-btn {
+    margin-bottom: 1px;
+  }
+}
+
+.reply-bar + .attach-list,
+.reply-bar + .composer__row,
+.attach-list + .composer__row {
+  border-top: 1px solid color-mix(in srgb, var(--app-border) 80%, transparent);
+  margin-top: 6px;
 }
 
 .composer__input {
   flex: 1;
   min-width: 0;
-  min-height: 42px;
+  min-height: 32px;
   max-height: 140px;
-  padding: 10px 14px;
+  padding: 6px 8px;
   border: 0;
-  border-radius: 21px;
-  background: var(--app-surface);
+  border-radius: 0;
+  background: transparent;
   color: var(--app-text);
-  font-size: 0.95rem;
-  line-height: 1.35;
+  font-size: 0.875rem;
+  line-height: 1.45;
   resize: none;
   outline: none;
 
-  &:focus {
-    box-shadow: 0 0 0 2px var(--app-brand-soft);
+  &::placeholder {
+    color: var(--app-muted);
   }
 }
 
 .send-btn {
-  width: 42px;
-  height: 42px;
+  width: 32px;
+  height: 32px;
   flex: none;
   border: 0;
-  border-radius: 50%;
+  border-radius: 8px;
+  font-size: 16px;
   background: var(--app-brand);
-  color: #fff;
+  color: var(--app-on-brand);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -166,27 +205,28 @@
 }
 
 @media (max-width: 300px) {
-  .composer {
-    gap: 2px;
+  :host {
     padding: 6px 4px max(6px, env(safe-area-inset-bottom));
   }
 
+  .composer {
+    padding: 3px;
+  }
+
   .icon-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 15px;
+    width: 28px;
+    height: 28px;
+    font-size: 16px;
   }
 
   .composer__input {
-    min-height: 36px;
-    padding: 8px 10px;
-    border-radius: 18px;
-    font-size: 0.88rem;
+    padding: 6px;
+    font-size: 0.85rem;
   }
 
   .send-btn {
-    width: 36px;
-    height: 36px;
+    width: 30px;
+    height: 30px;
   }
 
   .attach-bar,
@@ -198,7 +238,7 @@
 
 // Watches: the system keyboard has emoji, so the picker button gives its room to the text box
 @media (max-width: 240px) {
-  .composer > .icon-btn:first-child {
+  .composer__row > .icon-btn:nth-child(2) {
     display: none;
   }
 }
@@ -206,9 +246,9 @@
 @media (min-width: 3000px) {
   .icon-btn,
   .send-btn {
-    width: 52px;
-    height: 52px;
-    font-size: 20px;
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
   }
 }
 
@@ -216,7 +256,12 @@
   position: relative;
 }
 
-.reply-bar--edit {
+// Meeting side panel: tighter footer
+:host-context(.mchat) {
+  padding: 8px;
+}
+
+.reply-bar--edit .reply-bar__body {
   border-left-color: var(--app-warning);
 
   strong {
@@ -259,12 +304,11 @@
 .attach-list {
   display: flex;
   gap: 8px;
-  margin: 0 10px;
-  padding: 8px;
+  margin: 0;
+  padding: 8px 4px 0;
   overflow-x: auto;
-  border-radius: 10px 10px 0 0;
-  background: var(--app-surface);
-  border-left: 4px solid var(--app-brand);
+  background: transparent;
+  border: 0;
 }
 
 .attach-chip {

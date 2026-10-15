@@ -43,6 +43,7 @@ interface MessageBody {
     file?: IStoredFile | null;
     fileUrl: string;
     thumbnailUrl: string;
+    forwardedFrom?: string;
 }
 
 /**
@@ -58,16 +59,21 @@ async function resolveBody(data: SendMessagePayload, conversationId: string, use
         if (!source || source.type === "system" || !source.conversationId) {
             return null;
         }
-        const canSee = await Conversation.exists({ _id: source.conversationId, members: userId });
-        if (!canSee) {
+        const origin = await Conversation.findOne({ _id: source.conversationId, members: userId }).select("isGroup groupName").lean();
+        if (!origin) {
             return null;
         }
+        // A forward of a forward keeps naming where it first came from
+        const forwardedFrom = source.forwardedFrom
+            || (origin.isGroup ? origin.groupName : (await User.findById(source.userId).select("username").lean())?.username)
+            || "";
         return {
             type: source.type,
             content: source.content,
             file: source.file || undefined,
             fileUrl: source.fileUrl || "",
             thumbnailUrl: source.thumbnailUrl || "",
+            forwardedFrom: forwardedFrom.slice(0, 120),
         };
     }
     const content = typeof data.content === "string" ? data.content : "";
@@ -148,6 +154,7 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 fileUrl: body.fileUrl,
                 thumbnailUrl: body.thumbnailUrl,
                 type: body.type,
+                forwardedFrom: body.forwardedFrom || undefined,
                 replyTo: replyTo ? replyTo._id : null,
                 mentions: mentions.length ? mentions : undefined,
                 createdAt: new Date(),

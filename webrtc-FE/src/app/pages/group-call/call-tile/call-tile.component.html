@@ -42,8 +42,8 @@
   <div class="tile__hand" *ngIf="item.handRaised" title="Hand raised" aria-label="Hand raised">✋</div>
 
   <div class="tile__label">
-    <i *ngIf="item.kind === 'screen'" class="fa-solid fa-display me-1"></i>
-    <i *ngIf="item.kind !== 'screen' && !item.audioOn" class="fa-solid fa-microphone-slash tile__muted" aria-label="Muted"></i>
+    <i *ngIf="item.kind === 'screen'" class="ti ti-device-desktop me-1"></i>
+    <i *ngIf="item.kind !== 'screen' && !item.audioOn" class="ti ti-microphone-off tile__muted" aria-label="Muted"></i>
     <span class="tile__name">{{ item.name }}</span>
     <span class="tile__host" *ngIf="item.isHost && item.kind !== 'screen'">Host</span>
   </div>

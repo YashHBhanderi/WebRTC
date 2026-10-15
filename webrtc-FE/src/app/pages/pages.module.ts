@@ -4,7 +4,6 @@ import { PageRoutingModule } from './pages-routing.module';
 import { ChatComponent } from './chat/chat.component';
 import { GroupCallComponent } from './group-call/group-call.component';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
-import { LucideAngularModule, PanelLeft, BookOpenCheck } from 'lucide-angular';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { SimplebarAngularModule } from 'simplebar-angular';
 import { NgxSkeletonLoaderModule } from 'ngx-skeleton-loader';
@@ -94,8 +93,6 @@ import { ProfilePageComponent, SectionPlaceholderComponent, SettingsPageComponen
     ReactiveFormsModule,
     SimplebarAngularModule,
     NgxSkeletonLoaderModule,
-    // Lucide icons: register only the ones used (tree-shaken)
-    LucideAngularModule.pick({ PanelLeft, BookOpenCheck }),
   ]
 })
 export class PageModule { }

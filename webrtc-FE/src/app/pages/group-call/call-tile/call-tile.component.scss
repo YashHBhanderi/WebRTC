@@ -11,7 +11,7 @@
   height: 100%;
   overflow: hidden;
   border-radius: var(--call-radius, 14px);
-  background: var(--call-tile, #1e293b);
+  background: var(--call-tile, #212c36);
   outline: 2px solid transparent;
   outline-offset: -2px;
   transition: outline-color 0.2s ease, transform 0.2s ease;
@@ -25,12 +25,12 @@
     }
 
     &:focus-visible {
-      outline-color: var(--call-accent, #60a5fa);
+      outline-color: var(--call-accent, #c7d2d8);
     }
   }
 
   &--speaking {
-    outline-color: var(--call-speaking, #34d399);
+    outline-color: var(--call-speaking, #5cc596);
   }
 
   &--screen {
@@ -73,7 +73,7 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  background: radial-gradient(circle at 50% 40%, #334155 0%, var(--call-tile, #1e293b) 70%);
+  background: radial-gradient(circle at 50% 40%, #344452 0%, var(--call-tile, #212c36) 70%);
 }
 
 .avatar {
@@ -84,7 +84,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #475569;
+  background: #4f6477;
   color: #fff;
   font-weight: 600;
   font-size: clamp(16px, 4vw, 34px);
@@ -102,7 +102,7 @@
 }
 
 .tile__avatar-name {
-  color: #e2e8f0;
+  color: #d6dee3;
   font-size: 1rem;
   font-weight: 500;
 }
@@ -117,8 +117,8 @@
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.75);
-  color: #e2e8f0;
+  background: rgba(25, 34, 43, 0.75);
+  color: #d6dee3;
   font-size: 0.75rem;
   white-space: nowrap;
 }
@@ -143,7 +143,7 @@
   top: 10px;
   right: 10px;
   color: #fff;
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(25, 34, 43, 0.7);
   border-radius: 50%;
   width: 28px;
   height: 28px;
@@ -163,8 +163,8 @@
   gap: 6px;
   padding: 3px 8px;
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.72);
-  color: #f8fafc;
+  background: rgba(25, 34, 43, 0.72);
+  color: #f7f9fa;
   font-size: 0.75rem;
   line-height: 1.4;
 }
@@ -183,8 +183,8 @@
   flex-shrink: 0;
   padding: 0 6px;
   border-radius: 4px;
-  background: rgba(96, 165, 250, 0.25);
-  color: #bfdbfe;
+  background: rgba(199, 210, 216, 0.25);
+  color: #e4eaed;
   font-size: 0.65rem;
   font-weight: 600;
   text-transform: uppercase;

@@ -1,18 +1,18 @@
 <button type="button" class="gs-trigger" (click)="expand()" aria-label="Search (Ctrl+E)">
-  <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+  <i class="ti ti-search" aria-hidden="true"></i>
 </button>
 
 <div class="gs" [class.gs--expanded]="expanded" [class.gs--open]="open && query.trim().length >= 2">
   <div class="gs__box">
     <button type="button" class="gs__back" (click)="close()" aria-label="Close search">
-      <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+      <i class="ti ti-arrow-left" aria-hidden="true"></i>
     </button>
-    <i class="fa-solid fa-magnifying-glass gs__icon" aria-hidden="true"></i>
+    <i class="ti ti-search gs__icon" aria-hidden="true"></i>
     <input
       #input
       type="search"
       class="gs__input"
-      placeholder="Search people, chats, messages, files and meetings (Ctrl+E)"
+      placeholder="Search people, chats, messages, files and meetings…"
       autocomplete="off"
       spellcheck="false"
       role="combobox"
@@ -27,8 +27,9 @@
       (keydown)="onKeydown($event)"
     />
     <button type="button" class="gs__clear" *ngIf="query" (click)="clear()" aria-label="Clear search">
-      <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+      <i class="ti ti-x" aria-hidden="true"></i>
     </button>
+    <kbd class="gs__kbd" *ngIf="!query" aria-hidden="true">Ctrl+E</kbd>
   </div>
 
   <div class="gs__panel" *ngIf="open && query.trim().length >= 2">
@@ -77,7 +78,7 @@
           (click)="pick(row)"
           (mouseenter)="activeIndex = indexOf(row)"
         >
-          <span class="gs__file" *ngIf="row.icon; else avatar"><i class="fa-solid {{ row.icon }}" aria-hidden="true"></i></span>
+          <span class="gs__file" *ngIf="row.icon; else avatar"><i class="ti {{ row.icon }}" aria-hidden="true"></i></span>
           <ng-template #avatar><app-avatar [src]="row.avatar" [name]="row.avatarName" [size]="32" [presence]="row.presence"></app-avatar></ng-template>
           <span class="gs__text">
             <span class="gs__title" [innerHTML]="row.title | highlight: query.trim()"></span>

@@ -11,8 +11,8 @@ export interface VideoEffectOption {
 
 export const VIDEO_EFFECTS: VideoEffectOption[] = [
   { id: 'none', label: 'None', swatch: 'transparent' },
-  { id: 'blur', label: 'Blur', swatch: 'radial-gradient(circle at 50% 40%, #94a3b8, #475569)' },
-  { id: 'blur-strong', label: 'Strong blur', swatch: 'radial-gradient(circle at 50% 40%, #cbd5e1, #64748b)' },
+  { id: 'blur', label: 'Blur', swatch: 'radial-gradient(circle at 50% 40%, #8a9dac, #4f6477)' },
+  { id: 'blur-strong', label: 'Strong blur', swatch: 'radial-gradient(circle at 50% 40%, #c7d2d8, #667c8f)' },
 ];
 
 // Pinned MediaPipe build, loaded on first use only (no npm dependency; ~10 MB of WASM, then cached)

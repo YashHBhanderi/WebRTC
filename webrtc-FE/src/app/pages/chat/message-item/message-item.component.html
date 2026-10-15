@@ -14,6 +14,7 @@
     type="button"
     class="msg-row__avatar"
     *ngIf="!mine"
+    [class.msg-row__avatar--hidden]="!first && !compact"
     (click)="avatarClick.emit(senderId)"
     [attr.aria-label]="'View ' + senderName"
     tabindex="-1"
@@ -22,28 +23,76 @@
   </button>
 
   <div class="msg-row__body">
-    <span class="swipe-cue" #swipeIcon aria-hidden="true"><i class="fa-solid fa-reply"></i></span>
+    <span class="swipe-cue" #swipeIcon aria-hidden="true"><i class="ti ti-arrow-back-up"></i></span>
 
-    <div class="bubble" #bubble (appLongPress)="onLongPress()" [class.bubble--footer]="hasFooterFlags" [class.bubble--call]="!!message.call">
-      <span class="bubble__sender" *ngIf="isGroup && !mine && first">{{ senderName }}</span>
+    <div class="msg-head" *ngIf="showHead" [class.msg-head--mine]="mine">
+      <span class="msg-head__name" *ngIf="!mine">{{ senderName }}</span>
+      <time class="msg-head__time" [attr.datetime]="message.createdAt">{{ message.createdAt | date: 'shortTime' }}</time>
+      <span class="msg-head__name" *ngIf="mine">You</span>
+      <span class="msg-head__badge" *ngIf="isRecording">
+        <span class="msg-head__dot" aria-hidden="true"></span>Recorded by {{ mine ? 'You' : senderName }}
+      </span>
+    </div>
+
+    <div class="bubble" #bubble (appLongPress)="onLongPress()"
+      [class.bubble--footer]="footRow"
+      [class.bubble--call]="!!message.call"
+      [class.bubble--media]="isVisualMedia"
+      [class.bubble--card]="isCard">
+      <span class="bubble__sender" *ngIf="isGroup && !mine && first && compact">{{ senderName }}</span>
+
+      <div class="bubble__fwd" *ngIf="message.forwardedFrom">
+        <i class="ti ti-arrow-forward-up" aria-hidden="true"></i>
+        <span>Forwarded from <strong>{{ message.forwardedFrom }}</strong></span>
+      </div>
 
       <button type="button" class="bubble__quote" *ngIf="message.replyTo && (message.replyTo.content || message.replyTo.type)" (click)="quoteClick.emit(message.replyTo._id)">
         <span class="bubble__quote-author">{{ replyAuthor }}</span>
         <span class="bubble__quote-text">{{ quoteText }}</span>
       </button>
 
-      <div class="bubble__media-wrap" *ngIf="message.type === 'image' || message.type === 'video'">
-        <button type="button" class="bubble__media" *ngIf="message.type === 'image'" (click)="openFile('image')" aria-label="Open image">
-          <img [src]="message.thumbnailUrl || message.fileUrl" alt="Shared image" loading="lazy" />
+      <div class="bubble__media-wrap" *ngIf="message.type === 'image'">
+        <button type="button" class="bubble__media" (click)="openFile('image')" aria-label="Open image">
+          <img [src]="mediaPoster" alt="Shared image" loading="lazy" />
         </button>
-        <video *ngIf="message.type === 'video'" class="bubble__video" controls preload="metadata"
-          [poster]="message.thumbnailUrl && message.thumbnailUrl !== message.fileUrl ? message.thumbnailUrl : null">
-          <source [src]="message.fileUrl" />
-        </video>
-        <a *ngIf="downloadHref" class="bubble__download bubble__download--overlay" [href]="downloadHref" [attr.target]="downloadTarget"
-          rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
-          <i class="fa-solid fa-download"></i>
-        </a>
+        <div class="bubble__media-overlay">
+          <span class="bubble__media-overlay-name" [title]="fileName()">{{ fileName() }}</span>
+          <button type="button" class="bubble__media-btn" (click)="openFile('image'); $event.stopPropagation()" aria-label="View full size" title="View full size">
+            <i class="ti ti-zoom-in"></i>
+          </button>
+          <a *ngIf="downloadHref" class="bubble__media-btn" [href]="downloadHref" [attr.target]="downloadTarget"
+            rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
+            <i class="ti ti-download"></i>
+          </a>
+        </div>
+      </div>
+
+      <div class="bubble__media-wrap" *ngIf="message.type === 'video'" [class.is-playing]="videoPlaying">
+        <div class="bubble__media">
+          <video #clip
+            [attr.poster]="mediaPoster || null"
+            [src]="message.fileUrl"
+            preload="metadata"
+            playsinline
+            [controls]="videoPlaying"
+            (play)="onVideoPlay()"
+            (pause)="onVideoPause()"
+            (ended)="onVideoPause()"
+          ></video>
+          <button type="button" class="bubble__play" *ngIf="!videoPlaying" (click)="toggleInlinePlay($event)" aria-label="Play video">
+            <i class="ti ti-player-play ti-fill" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="bubble__media-overlay">
+          <span class="bubble__media-overlay-name" [title]="fileName()">{{ fileName() }}</span>
+          <button type="button" class="bubble__media-btn" (click)="openPreview($event)" aria-label="Open preview" title="Open preview">
+            <i class="ti ti-player-play"></i>
+          </button>
+          <a *ngIf="downloadHref" class="bubble__media-btn" [href]="downloadHref" [attr.target]="downloadTarget"
+            rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
+            <i class="ti ti-download"></i>
+          </a>
+        </div>
       </div>
       <div class="bubble__file-row" *ngIf="message.type === 'audio'">
         <audio class="bubble__audio" controls preload="metadata">
@@ -51,39 +100,40 @@
         </audio>
         <a *ngIf="downloadHref" class="bubble__download" [href]="downloadHref" [attr.target]="downloadTarget"
           rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
-          <i class="fa-solid fa-download"></i>
+          <i class="ti ti-download"></i>
         </a>
       </div>
-      <div class="bubble__file-row" *ngIf="message.type === 'pdf'">
-        <button type="button" class="bubble__doc" (click)="openFile('pdf')" [title]="'Open ' + fileName()">
-          <i class="fa-solid fa-file-pdf"></i>
-          <span class="bubble__doc-name">{{ fileName() }}<small class="bubble__doc-size" *ngIf="message.fileSize">{{ message.fileSize | fileSize }}</small></span>
-          <i class="fa-solid fa-eye bubble__doc-open"></i>
-        </button>
-        <a *ngIf="downloadHref" class="bubble__download" [href]="downloadHref" [attr.target]="downloadTarget"
-          rel="noopener" download [attr.aria-label]="'Download ' + fileName()" [title]="'Download ' + fileName()">
-          <i class="fa-solid fa-download"></i>
-        </a>
+      <div class="doc-card" *ngIf="message.type === 'pdf' || message.type === 'file'">
+        <div class="doc-card__main">
+          <span class="doc-card__icon" [class.doc-card__icon--pdf]="message.type === 'pdf'" aria-hidden="true">
+            <i class="ti {{ message.type === 'pdf' ? 'ti-file-type-pdf' : fileIcon() }}"></i>
+          </span>
+          <span class="doc-card__text">
+            <strong class="doc-card__name" [title]="fileName()">{{ fileName() }}</strong>
+            <small class="doc-card__meta"><ng-container *ngIf="message.fileSize">{{ message.fileSize | fileSize }} · </ng-container>{{ typeLabel }}</small>
+          </span>
+        </div>
+        <div class="doc-card__actions">
+          <button type="button" class="doc-card__btn" *ngIf="message.type === 'pdf'" (click)="openFile('pdf')">
+            <i class="ti ti-eye" aria-hidden="true"></i>Quick preview
+          </button>
+          <a *ngIf="downloadHref" class="doc-card__btn doc-card__btn--primary" [href]="downloadHref" [attr.target]="downloadTarget"
+            rel="noopener" download [attr.aria-label]="'Download ' + fileName()">
+            <i class="ti ti-download" aria-hidden="true"></i>Download
+          </a>
+        </div>
       </div>
 
       <!-- Finished call (connected calls only) -->
       <div class="bubble__call" *ngIf="message.call">
         <span class="bubble__call-icon" aria-hidden="true">
-          <i class="fa-solid" [class.fa-video]="message.call.callType === 'video'" [class.fa-phone]="message.call.callType !== 'video'"></i>
-          <i class="fa-solid bubble__call-dir" *ngIf="message.call.mode !== 'meetNow'" [class.fa-arrow-up]="mine" [class.fa-arrow-down]="!mine"></i>
+          <i class="ti" [class.ti-video]="message.call.callType === 'video'" [class.ti-phone]="message.call.callType !== 'video'"></i>
+          <i class="ti bubble__call-dir" *ngIf="message.call.mode !== 'meetNow'" [class.ti-arrow-up]="mine" [class.ti-arrow-down]="!mine"></i>
         </span>
         <span class="bubble__call-text">
           <strong>{{ callLabel }}</strong>
           <span>{{ callDuration }}</span>
         </span>
-      </div>
-
-      <div class="bubble__file-row" *ngIf="message.type === 'file'">
-        <a class="bubble__doc" [href]="downloadHref" [attr.target]="downloadTarget" rel="noopener" download [title]="'Download ' + fileName()">
-          <i class="fa-solid {{ fileIcon() }}"></i>
-          <span class="bubble__doc-name">{{ fileName() }}<small class="bubble__doc-size" *ngIf="message.fileSize">{{ message.fileSize | fileSize }}</small></span>
-          <i class="fa-solid fa-download bubble__doc-open"></i>
-        </a>
       </div>
 
       <app-recording-card *ngIf="message.type === 'recording' && message.recording" [recordingId]="message.recording.recordingId" [fallbackTitle]="message.content || ''"></app-recording-card>
@@ -93,23 +143,26 @@
         <ng-template #plain><ng-container *ngIf="mentionNames.length; else rawText"><span [innerHTML]="mentionHtml"></span></ng-container></ng-template>
         <ng-template #rawText>{{ visibleText }}</ng-template>
         <button type="button" class="read-more" *ngIf="isLong" (click)="toggleExpanded($event)">{{ expanded ? 'Read less' : 'Read more' }}</button>
-        <span class="bubble__spacer" *ngIf="!hasFooterFlags" [class.bubble__spacer--tick]="showTicks" aria-hidden="true"></span>
+        <span class="bubble__spacer" *ngIf="!footRow" [class.bubble__spacer--tick]="showTicks" aria-hidden="true"></span>
       </p>
-      <ng-template #metaRow><div class="bubble__meta-row" *ngIf="!hasFooterFlags" aria-hidden="true"></div></ng-template>
+      <ng-template #metaRow><div class="bubble__meta-row" *ngIf="!footRow" aria-hidden="true"></div></ng-template>
 
-      <span class="bubble__meta">
-        <span class="bubble__flags" *ngIf="pinned || message.saved">
-          <i *ngIf="pinned" class="fa-solid fa-thumbtack bubble__flag" aria-label="Pinned" title="Pinned"></i>
-          <i *ngIf="message.saved" class="fa-solid fa-bookmark bubble__flag" aria-label="Saved" title="Saved"></i>
+      <div class="bubble__foot">
+        <span class="bubble__foot-info" *ngIf="isVisualMedia"><ng-container *ngIf="message.fileSize">{{ message.fileSize | fileSize }} · </ng-container>{{ typeLabel }}</span>
+        <span class="bubble__meta">
+          <span class="bubble__flags" *ngIf="pinned || message.saved">
+            <i *ngIf="pinned" class="ti ti-pin bubble__flag" aria-label="Pinned" title="Pinned"></i>
+            <i *ngIf="message.saved" class="ti ti-bookmark bubble__flag" aria-label="Saved" title="Saved"></i>
+          </span>
+          <span class="bubble__edited" *ngIf="message.editedAt" [title]="'Edited ' + (message.editedAt | date: 'medium')">Edited</span>
+          <time [attr.datetime]="message.createdAt" [title]="message.createdAt | date: 'medium'">{{ message.createdAt | date: 'shortTime' }}</time>
+          <i *ngIf="showTicks" class="ti tick"
+             [class.ti-checks]="message.status === 'seen' || message.status === 'delivered'"
+             [class.ti-check]="!message.status || message.status === 'sent'"
+             [class.tick--read]="message.status === 'seen'"
+             role="img" [attr.aria-label]="statusLabel" [title]="statusLabel"></i>
         </span>
-        <span class="bubble__edited" *ngIf="message.editedAt" [title]="'Edited ' + (message.editedAt | date: 'medium')">Edited</span>
-        <time [attr.datetime]="message.createdAt" [title]="message.createdAt | date: 'medium'">{{ message.createdAt | date: 'shortTime' }}</time>
-        <i *ngIf="showTicks" class="fa-solid tick"
-           [class.fa-check-double]="message.status === 'seen' || message.status === 'delivered'"
-           [class.fa-check]="!message.status || message.status === 'sent'"
-           [class.tick--read]="message.status === 'seen'"
-           role="img" [attr.aria-label]="statusLabel" [title]="statusLabel"></i>
-      </span>
+      </div>
     </div>
 
     <div class="reactions" *ngIf="reactions.length">
@@ -123,28 +176,28 @@
       <div class="strip" [class.strip--below]="stripBelow" role="toolbar" aria-label="Message actions">
         <button type="button" class="strip__emoji" *ngFor="let e of quickReactions" (click)="sendReaction(e)" [attr.aria-label]="'React ' + e">{{ e }}</button>
         <button type="button" class="strip__btn" #plusBtn (click)="openPicker(plusBtn)" aria-label="More reactions" title="More reactions">
-          <i class="fa-solid fa-plus"></i>
+          <i class="ti ti-plus"></i>
         </button>
         <span class="strip__sep" aria-hidden="true"></span>
-        <button type="button" class="strip__btn" (click)="onReply()" aria-label="Reply" title="Reply">
-          <i class="fa-solid fa-reply"></i>
+        <button type="button" class="strip__btn" (mousedown)="$event.preventDefault()" (click)="onReply()" aria-label="Reply" title="Reply">
+          <i class="ti ti-arrow-back-up"></i>
         </button>
         <div ngbDropdown [placement]="menuPlacement" container="body" (openChange)="onMenuOpenChange($event)">
           <button type="button" class="strip__btn" ngbDropdownToggle aria-label="More options" title="More">
-            <i class="fa-solid fa-ellipsis-vertical"></i>
+            <i class="ti ti-dots-vertical"></i>
           </button>
           <div ngbDropdownMenu class="app-menu app-menu--message">
-            <button ngbDropdownItem type="button" (click)="onReply()"><i class="fa-solid fa-reply"></i>Reply</button>
-            <button ngbDropdownItem type="button" *ngIf="canEdit" (click)="edit.emit(message)"><i class="fa-solid fa-pen"></i>Edit</button>
-            <button ngbDropdownItem type="button" *ngIf="hasText" (click)="copy.emit(message)"><i class="fa-regular fa-copy"></i>Copy text</button>
-            <button ngbDropdownItem type="button" (click)="copyLink.emit(message)"><i class="fa-solid fa-link"></i>Copy link</button>
-            <a ngbDropdownItem *ngIf="downloadHref" [href]="downloadHref" [attr.target]="downloadTarget" rel="noopener" download><i class="fa-solid fa-download"></i>Download</a>
-            <button ngbDropdownItem type="button" (click)="forward.emit(message)"><i class="fa-solid fa-share"></i>Forward</button>
-            <button ngbDropdownItem type="button" (click)="togglePin.emit(message)"><i class="fa-solid fa-thumbtack"></i>{{ pinned ? 'Unpin' : 'Pin' }}</button>
-            <button ngbDropdownItem type="button" (click)="toggleSave.emit(message)"><i class="fa-regular fa-bookmark"></i>{{ message.saved ? 'Remove from saved' : 'Save' }}</button>
+            <button ngbDropdownItem type="button" (mousedown)="$event.preventDefault()" (click)="onReply()"><i class="ti ti-arrow-back-up"></i>Reply</button>
+            <button ngbDropdownItem type="button" *ngIf="canEdit" (click)="edit.emit(message)"><i class="ti ti-pencil"></i>Edit</button>
+            <button ngbDropdownItem type="button" *ngIf="hasText" (click)="copy.emit(message)"><i class="ti ti-copy"></i>Copy text</button>
+            <button ngbDropdownItem type="button" (click)="copyLink.emit(message)"><i class="ti ti-link"></i>Copy link</button>
+            <a ngbDropdownItem *ngIf="downloadHref" [href]="downloadHref" [attr.target]="downloadTarget" rel="noopener" download><i class="ti ti-download"></i>Download</a>
+            <button ngbDropdownItem type="button" (click)="forward.emit(message)"><i class="ti ti-arrow-forward-up"></i>Forward</button>
+            <button ngbDropdownItem type="button" (click)="togglePin.emit(message)"><i class="ti ti-pin"></i>{{ pinned ? 'Unpin' : 'Pin' }}</button>
+            <button ngbDropdownItem type="button" (click)="toggleSave.emit(message)"><i class="ti ti-bookmark"></i>{{ message.saved ? 'Remove from saved' : 'Save' }}</button>
             <ng-container *ngIf="mine">
               <div class="dropdown-divider"></div>
-              <button ngbDropdownItem type="button" class="text-danger" (click)="remove.emit(message)"><i class="fa-regular fa-trash-can"></i>Delete</button>
+              <button ngbDropdownItem type="button" class="text-danger" (click)="remove.emit(message)"><i class="ti ti-trash"></i>Delete</button>
             </ng-container>
           </div>
         </div>

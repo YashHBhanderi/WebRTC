@@ -113,6 +113,12 @@ export class CallsPageComponent implements OnInit, OnDestroy {
       hadCall = has;
     }));
     this.loadPeople();
+    this.sub.add(this.users.newUsers$.subscribe((u: any) => {
+      this.people = UserService.withUser(this.people, { _id: String(u._id), username: u.username, avatar: u.avatar, presence: presenceOf(u) })
+        .sort((a, b) => a.username.localeCompare(b.username));
+      this.cdr.markForCheck();
+    }));
+    this.sub.add(this.users.reconnected$.subscribe(() => this.loadPeople()));
   }
 
   ngOnDestroy(): void {

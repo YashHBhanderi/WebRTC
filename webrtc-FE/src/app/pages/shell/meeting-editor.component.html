@@ -1,5 +1,5 @@
 <div class="modal-header me-head">
-  <i class="fa-regular fa-calendar-plus me-head__icon" aria-hidden="true"></i>
+  <i class="ti ti-calendar-plus me-head__icon" aria-hidden="true"></i>
   <h2 class="modal-title me-head__title" id="meeting-editor-title">{{ meeting ? 'Edit meeting' : 'New meeting' }}</h2>
   <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
 </div>
@@ -11,7 +11,7 @@
       <input id="mtg-title" name="title" class="me-titleinput" maxlength="120" [(ngModel)]="title" required ngbAutofocus autocomplete="off" placeholder="Add a title" aria-label="Title" />
 
       <section class="me-sec">
-        <h3 class="me-sec__h"><i class="fa-regular fa-clock"></i>When</h3>
+        <h3 class="me-sec__h"><i class="ti ti-clock"></i>When</h3>
         <div class="me-row">
           <div class="me-col">
             <label for="mtg-date" class="form-label">Date</label>
@@ -56,12 +56,12 @@
       </section>
 
       <section class="me-sec">
-        <h3 class="me-sec__h"><i class="fa-solid fa-user-plus"></i>People</h3>
+        <h3 class="me-sec__h"><i class="ti ti-user-plus"></i>People</h3>
         <label for="mtg-people" class="visually-hidden">Invite people</label>
         <div class="me-chips" *ngIf="inviteeList.length">
           <span class="me-chip" *ngFor="let p of inviteeList">
             <app-avatar [src]="p.avatar" [name]="p.username" [size]="20"></app-avatar>{{ p.username }}
-            <button type="button" (click)="removeInvitee(p._id)" [attr.aria-label]="'Remove ' + p.username"><i class="fa-solid fa-xmark"></i></button>
+            <button type="button" (click)="removeInvitee(p._id)" [attr.aria-label]="'Remove ' + p.username"><i class="ti ti-x"></i></button>
           </span>
         </div>
         <input id="mtg-people" name="peopleSearch" class="form-control" [(ngModel)]="peopleSearch" placeholder="Invite people" autocomplete="off" />
@@ -73,13 +73,13 @@
       </section>
 
       <section class="me-sec">
-        <h3 class="me-sec__h"><i class="fa-solid fa-align-left"></i>Details <span class="text-muted fw-normal">(optional)</span></h3>
+        <h3 class="me-sec__h"><i class="ti ti-align-left"></i>Details <span class="text-muted fw-normal">(optional)</span></h3>
         <label for="mtg-desc" class="visually-hidden">Details</label>
         <textarea id="mtg-desc" name="description" class="form-control" rows="3" maxlength="2000" [(ngModel)]="description" placeholder="Add details for this meeting"></textarea>
       </section>
 
       <section class="me-sec">
-        <h3 class="me-sec__h"><i class="fa-solid fa-shield-halved"></i>Meeting options</h3>
+        <h3 class="me-sec__h"><i class="ti ti-shield-half"></i>Meeting options</h3>
         <div class="form-check form-switch mb-2">
           <input id="mtg-lobby" name="lobby" class="form-check-input" type="checkbox" role="switch" [(ngModel)]="lobby" />
           <label for="mtg-lobby" class="form-check-label">Lobby — people wait until a host admits them</label>
@@ -100,9 +100,9 @@
     <!-- Right: day view, full height, synced with the start / end fields -->
     <aside class="me-day" aria-label="Day view">
       <div class="me-day__bar">
-        <button type="button" class="me-day__nav" (click)="shiftDay(-1)" aria-label="Previous day"><i class="fa-solid fa-chevron-left"></i></button>
+        <button type="button" class="me-day__nav" (click)="shiftDay(-1)" aria-label="Previous day"><i class="ti ti-chevron-left"></i></button>
         <strong class="me-day__title">{{ dayTitle }}</strong>
-        <button type="button" class="me-day__nav" (click)="shiftDay(1)" aria-label="Next day"><i class="fa-solid fa-chevron-right"></i></button>
+        <button type="button" class="me-day__nav" (click)="shiftDay(1)" aria-label="Next day"><i class="ti ti-chevron-right"></i></button>
       </div>
       <app-time-grid class="me-day__grid" [days]="gridDays" [items]="gridItems" [draft]="draft" [draftLabel]="draftLabel" [compact]="true" [scrollToMinutes]="scrollMinutes"
                      (rangeSelect)="onGridRange($event)" (draftChange)="onGridResize($event)"></app-time-grid>

@@ -129,6 +129,11 @@
   gap: 6px;
 }
 
+.conv--compact {
+  gap: 8px;
+  padding: 6px 10px;
+}
+
 .conv--unread {
   .conv__title {
     font-weight: 600;

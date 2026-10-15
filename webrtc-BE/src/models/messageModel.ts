@@ -20,8 +20,10 @@ export interface IMessage extends Document {
     mentions?: mongoose.Types.ObjectId[];
     /** Set when the author edited the text. */
     editedAt?: Date | null;
-    /** type "call" written when a connected call ended (author = caller, createdAt = end time) */
-    call?: { callId: mongoose.Types.ObjectId; callType: "audio" | "video"; mode: "ring" | "meetNow"; duration: number } | null;
+    /** type "call": a call that ended (author = caller, createdAt = end time); outcome "missed" = nobody answered */
+    call?: { callId: mongoose.Types.ObjectId; callType: "audio" | "video"; mode: "ring" | "meetNow"; duration: number; outcome?: "missed" } | null;
+    /** Forwarded copy: name of the chat (group) or person the original came from */
+    forwardedFrom?: string;
     /** type "recording": a finished meeting recording (details are read live, so status/expiry stay current) */
     recording?: { recordingId: mongoose.Types.ObjectId } | null;
     createdAt: Date;
@@ -94,7 +96,12 @@ const MessageSchema = new Schema<IMessage>({
             mode: { type: String, enum: ["ring", "meetNow"] },
             /** Seconds */
             duration: { type: Number, default: 0 },
+            outcome: { type: String, enum: ["missed"], default: undefined },
         }, { _id: false }),
+        default: undefined,
+    },
+    forwardedFrom: {
+        type: String,
         default: undefined,
     },
     createdAt: {

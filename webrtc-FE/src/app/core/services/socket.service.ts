@@ -496,6 +496,11 @@ export class SocketService {
     return this.socket.fromEvent('group:removed');
   }
 
+  /** A new account was created (same shape as an entry of GET /web/users/except-current). */
+  onUserCreated(): Observable<any> {
+    return this.socket.fromEvent('user:created');
+  }
+
   /** Someone changed their name / picture / bio. */
   onUserUpdated(): Observable<{ _id: string; username: string; avatar: string; bio?: string; status?: string }> {
     return this.socket.fromEvent('user:updated');

@@ -16,7 +16,7 @@
         playsinline
       ></video>
       <div class="prejoin__cam-off" *ngIf="!camOn">
-        <i class="fa-solid fa-video-slash"></i>
+        <i class="ti ti-video-off"></i>
         <span>{{ loading ? 'Starting camera…' : 'Camera is off' }}</span>
       </div>
 
@@ -30,7 +30,7 @@
           [attr.aria-pressed]="!micOn"
           [attr.aria-label]="micOn ? 'Turn microphone off' : 'Turn microphone on'"
         >
-          <i class="fa-solid" [class.fa-microphone]="micOn" [class.fa-microphone-slash]="!micOn"></i>
+          <i class="ti" [class.ti-microphone]="micOn" [class.ti-microphone-off]="!micOn"></i>
         </button>
         <button
           type="button"
@@ -41,19 +41,19 @@
           [attr.aria-pressed]="!camOn"
           [attr.aria-label]="camOn ? 'Turn camera off' : 'Turn camera on'"
         >
-          <i class="fa-solid" [class.fa-video]="camOn" [class.fa-video-slash]="!camOn"></i>
+          <i class="ti" [class.ti-video]="camOn" [class.ti-video-off]="!camOn"></i>
         </button>
       </div>
     </div>
 
     <div class="prejoin__meter" *ngIf="hasMic" aria-hidden="true">
-      <i class="fa-solid fa-microphone"></i>
+      <i class="ti ti-microphone"></i>
       <div class="prejoin__meter-track"><div class="prejoin__meter-fill" #levelBar></div></div>
       <span>{{ micOn ? 'Speak to test your mic' : 'Mic is off' }}</span>
     </div>
 
     <p class="prejoin__error" *ngIf="permissionError" role="alert">
-      <i class="fa-solid fa-triangle-exclamation me-1"></i>{{ permissionError }}
+      <i class="ti ti-alert-triangle me-1"></i>{{ permissionError }}
     </p>
 
     <div class="prejoin__devices">

@@ -24,7 +24,7 @@ interface PeriodRow {
     .cs h3:first-child { margin-top: 0; }
     .cs__days { display: flex; flex-wrap: wrap; gap: 6px; }
     .cs__day { min-width: 46px; padding: 4px 8px; border: 1px solid var(--app-border); border-radius: 16px; background: transparent; color: var(--app-text); font-size: 0.8rem; }
-    .cs__day--on { background: var(--app-brand); border-color: var(--app-brand); color: #fff; }
+    .cs__day--on { background: var(--app-brand); border-color: var(--app-brand); color: var(--app-on-brand); }
     .cs__period { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
     .cs__period input[type=time] { width: 120px; }
     .cs__period select { width: 120px; }
@@ -67,9 +67,9 @@ interface PeriodRow {
             <option value="office">Office</option>
             <option value="remote">Remote</option>
           </select>
-          <button type="button" class="btn btn-sm btn-light" (click)="remove(i)" [disabled]="rows.length === 1" [attr.aria-label]="'Remove period ' + (i + 1)"><i class="fa-solid fa-trash-can"></i></button>
+          <button type="button" class="btn btn-sm btn-light" (click)="remove(i)" [disabled]="rows.length === 1" [attr.aria-label]="'Remove period ' + (i + 1)"><i class="ti ti-trash"></i></button>
         </div>
-        <button type="button" class="btn btn-sm btn-light" (click)="add()"><i class="fa-solid fa-plus me-1"></i>Add work hours</button>
+        <button type="button" class="btn btn-sm btn-light" (click)="add()"><i class="ti ti-plus me-1"></i>Add work hours</button>
       </div>
       <div class="form-check form-switch mt-3">
         <input id="cs-loc" class="form-check-input" type="checkbox" role="switch" [(ngModel)]="draft.showWorkLocation" />

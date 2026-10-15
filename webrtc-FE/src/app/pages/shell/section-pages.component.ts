@@ -5,6 +5,7 @@ import { CallNotificationService } from 'src/app/core/services/call-notification
 import { ThemeMode, ThemeService } from 'src/app/core/services/theme.service';
 import { NotificationCenterService, NotificationPrefs } from 'src/app/core/services/notification-center.service';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
+import { ChatUiService } from 'src/app/core/services/chat-ui.service';
 
 /** Sections whose feature arrives in a later phase: a proper empty state, not a blank page. */
 @Component({
@@ -14,7 +15,7 @@ import { AlertService } from 'src/app/_shared/alert/alert.service';
     <section class="page">
       <header class="page__header"><h1 class="page__title">{{ data['title'] }}</h1></header>
       <div class="empty">
-        <i class="fa-solid {{ data['icon'] }} empty__icon" aria-hidden="true"></i>
+        <i class="ti {{ data['icon'] }} empty__icon" aria-hidden="true"></i>
         <h2 class="empty__title">{{ data['emptyTitle'] }}</h2>
         <p class="empty__text">{{ data['emptyText'] }}</p>
       </div>
@@ -55,9 +56,21 @@ export class ProfilePageComponent {
           <button *ngFor="let opt of themeOptions" type="button" role="radio" class="segmented__opt"
                   [class.segmented__opt--on]="theme.mode === opt.value" [attr.aria-checked]="theme.mode === opt.value"
                   (click)="setTheme(opt.value)">
-            <i class="fa-solid {{ opt.icon }}" aria-hidden="true"></i>{{ opt.label }}
+            <i class="ti {{ opt.icon }}" aria-hidden="true"></i>{{ opt.label }}
           </button>
         </div>
+      </div>
+
+      <div class="card-section">
+        <h2 class="card-section__title">Chat</h2>
+        <label class="pref mt-0">
+          <input type="checkbox" class="form-check-input" [checked]="chatUi.showLastMessage"
+                 (change)="chatUi.setShowLastMessage(!chatUi.showLastMessage)" />
+          <span>
+            <span class="setting-row__label">Show last message</span>
+            <span class="setting-row__hint d-block">When off, the chat list shows only the name and a smaller profile photo.</span>
+          </span>
+        </label>
       </div>
 
       <div class="card-section">
@@ -99,9 +112,9 @@ export class ProfilePageComponent {
 })
 export class SettingsPageComponent implements OnDestroy {
   readonly themeOptions: { value: ThemeMode; label: string; icon: string }[] = [
-    { value: 'light', label: 'Light', icon: 'fa-sun' },
-    { value: 'dark', label: 'Dark', icon: 'fa-moon' },
-    { value: 'system', label: 'System', icon: 'fa-desktop' },
+    { value: 'light', label: 'Light', icon: 'ti-sun' },
+    { value: 'dark', label: 'Dark', icon: 'ti-moon' },
+    { value: 'system', label: 'System', icon: 'ti-device-desktop' },
   ];
   readonly prefOptions: { key: keyof NotificationPrefs; label: string; hint: string }[] = [
     { key: 'desktop', label: 'Show browser notifications', hint: 'When this tab is in the background' },
@@ -119,11 +132,13 @@ export class SettingsPageComponent implements OnDestroy {
     public theme: ThemeService,
     public notifications: CallNotificationService,
     public center: NotificationCenterService,
+    public chatUi: ChatUiService,
     private alert: AlertService,
     private cdr: ChangeDetectorRef,
   ) {
     this.sub.add(this.theme.mode$.subscribe(() => this.cdr.markForCheck()));
     this.sub.add(this.center.prefs$.subscribe(() => this.cdr.markForCheck()));
+    this.sub.add(this.chatUi.showLastMessage$.subscribe(() => this.cdr.markForCheck()));
   }
 
   togglePref(key: keyof NotificationPrefs): void {

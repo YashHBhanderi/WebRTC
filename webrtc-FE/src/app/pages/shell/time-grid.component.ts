@@ -56,7 +56,7 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
         <div class="tg__day" *ngFor="let c of columns; trackBy: trackByKey" [class.tg__day--today]="c.isToday">
           <span class="tg__dow">{{ c.date | date: 'EEE' }}</span>
           <span class="tg__dom">{{ c.date | date: 'd' }}</span>
-          <span class="tg__loc" *ngIf="settings.showWorkLocation && c.location"><i class="fa-solid" [class.fa-building]="c.location === 'Office'" [class.fa-house-laptop]="c.location === 'Remote'" aria-hidden="true"></i> {{ c.location }}</span>
+          <span class="tg__loc" *ngIf="settings.showWorkLocation && c.location"><i class="ti" [class.ti-building]="c.location === 'Office'" [class.ti-home]="c.location === 'Remote'" aria-hidden="true"></i> {{ c.location }}</span>
         </div>
       </div>
       <div class="tg__scroll" #scroll>

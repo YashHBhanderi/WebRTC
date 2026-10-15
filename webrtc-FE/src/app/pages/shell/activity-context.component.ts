@@ -44,7 +44,7 @@ const HIGHLIGHT_MS = 5000;
     .ctx__day { text-align: center; font-size: 0.75rem; color: var(--app-muted); margin: 12px 0 6px; }
     .ctx__msg { border-radius: 8px; }
     .ctx__call { display: flex; align-items: center; gap: 12px; padding: 16px; margin: 16px; border: 1px solid var(--app-border); border-radius: 10px; background: var(--app-surface); transition: box-shadow .2s, background .2s; }
-    .ctx__call--flash { background: var(--app-brand-soft, rgba(98, 100, 167, .18)); box-shadow: 0 0 0 2px var(--app-brand); }
+    .ctx__call--flash { background: var(--app-brand-soft, rgba(44, 58, 71, .18)); box-shadow: 0 0 0 2px var(--app-brand); }
     .ctx__call-body { flex: 1; min-width: 0; }
     .ctx__call-title { font-weight: 600; }
     .ctx__call-sub { color: var(--app-muted); font-size: 0.85rem; }
@@ -98,7 +98,7 @@ const HIGHLIGHT_MS = 5000;
           <div class="ctx__call-body">
             <div class="ctx__call-title" [class.text-danger]="c.outcome === 'missed'">{{ c.title }}</div>
             <div class="ctx__call-sub">
-              <i class="fa-solid" [class.fa-arrow-down]="c.direction === 'incoming'" [class.fa-arrow-up]="c.direction === 'outgoing'" aria-hidden="true"></i>
+              <i class="ti" [class.ti-arrow-down]="c.direction === 'incoming'" [class.ti-arrow-up]="c.direction === 'outgoing'" aria-hidden="true"></i>
               {{ c.isMeeting ? 'Meeting' : c.direction === 'incoming' ? 'Incoming' : 'Outgoing' }} · {{ c.callType === 'video' ? 'Video' : 'Audio' }}
               <ng-container *ngIf="outcomeLabel(c)"> · {{ outcomeLabel(c) }}</ng-container>
               <ng-container *ngIf="c.outcome === 'answered'"> · {{ duration(c.duration) }}</ng-container>
@@ -106,8 +106,8 @@ const HIGHLIGHT_MS = 5000;
             </div>
           </div>
           <div class="ctx__call-actions">
-            <button type="button" (click)="callBack(c, 'audio')" title="Audio call" [attr.aria-label]="'Audio call ' + c.title"><i class="fa-solid fa-phone"></i></button>
-            <button type="button" (click)="callBack(c, 'video')" title="Video call" [attr.aria-label]="'Video call ' + c.title"><i class="fa-solid fa-video"></i></button>
+            <button type="button" (click)="callBack(c, 'audio')" title="Audio call" [attr.aria-label]="'Audio call ' + c.title"><i class="ti ti-phone"></i></button>
+            <button type="button" (click)="callBack(c, 'video')" title="Video call" [attr.aria-label]="'Video call ' + c.title"><i class="ti ti-video"></i></button>
           </div>
         </div>
       </div>

@@ -6,13 +6,13 @@ import { ActivityItem, ActivityType, NotificationCenterService } from 'src/app/c
 type ActivityView = 'all' | 'unread' | 'mentions';
 
 const ICON: Record<ActivityType, string> = {
-  mention: 'fa-at',
-  reply: 'fa-reply',
-  reaction: 'fa-face-smile',
-  'missed-call': 'fa-phone-slash',
-  'meeting-invite': 'fa-calendar-plus',
-  'meeting-reminder': 'fa-clock',
-  recording: 'fa-circle-play',
+  mention: 'ti-at',
+  reply: 'ti-arrow-back-up',
+  reaction: 'ti-mood-smile',
+  'missed-call': 'ti-phone-off',
+  'meeting-invite': 'ti-calendar-plus',
+  'meeting-reminder': 'ti-clock',
+  recording: 'ti-player-play',
 };
 
 /**
@@ -25,14 +25,14 @@ const ICON: Record<ActivityType, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['../shared/list-pane.scss'],
   styles: [`
-    .act-markall { width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--app-icon); }
-    .act-markall:hover:not(:disabled) { background: var(--app-hover); color: var(--app-text); }
+    .act-markall { width: 36px; height: 36px; border: 0; border-radius: var(--app-radius); background: transparent; color: var(--app-icon); font-size: 20px; transition: background-color .15s ease, color .15s ease; }
+    .act-markall:hover:not(:disabled) { background: var(--app-hover-strong); color: var(--app-text); }
     .act-markall:disabled { opacity: 0.4; }
     .act-avatar { position: relative; flex: none; }
     .act-badge {
       position: absolute; right: -4px; bottom: -4px; width: 20px; height: 20px; border-radius: 50%;
       display: inline-flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #fff;
-      background: var(--app-brand); border: 2px solid var(--app-surface);
+      background: var(--slate-600); border: 2px solid var(--app-surface);
     }
     .act-badge--missed-call { background: var(--app-danger); }
     .act-badge--reaction { background: var(--app-warning); }
@@ -55,7 +55,7 @@ const ICON: Record<ActivityType, string> = {
         <header class="pane-side__header">
           <h1>Activity</h1>
           <button type="button" class="act-markall" (click)="markAllRead()" [disabled]="!hasUnread" title="Mark all as read" aria-label="Mark all as read">
-            <lucide-icon name="book-open-check" [size]="22" aria-hidden="true"></lucide-icon>
+            <i class="ti ti-checks" aria-hidden="true"></i>
           </button>
         </header>
 
@@ -75,7 +75,7 @@ const ICON: Record<ActivityType, string> = {
                       [attr.aria-current]="item._id === selectedId ? 'true' : null" (click)="open(item)">
                 <span class="act-avatar">
                   <app-avatar [src]="item.actor?.avatar" [name]="item.actor?.username || '?'" [size]="44"></app-avatar>
-                  <span class="act-badge act-badge--{{ item.type }}" aria-hidden="true"><i class="fa-solid {{ icon(item.type) }}"></i></span>
+                  <span class="act-badge act-badge--{{ item.type }}" aria-hidden="true"><i class="ti {{ icon(item.type) }}"></i></span>
                 </span>
                 <span class="conv__body">
                   <span class="conv__row">
@@ -87,7 +87,7 @@ const ICON: Record<ActivityType, string> = {
                     <span class="conv__badges"><span class="unread-dot" *ngIf="!item.read"><span class="visually-hidden">Unread</span></span></span>
                   </span>
                   <span class="conv__row">
-                    <span class="act-context"><i class="fa-solid {{ icon(item.type) }}" aria-hidden="true"></i> {{ contextLabel(item) }}</span>
+                    <span class="act-context"><i class="ti {{ icon(item.type) }}" aria-hidden="true"></i> {{ contextLabel(item) }}</span>
                   </span>
                 </span>
               </button>
@@ -95,7 +95,7 @@ const ICON: Record<ActivityType, string> = {
           </ul>
 
           <div class="pane-state" *ngIf="!loading && !error && !items.length">
-            <i class="fa-solid" [class.fa-bell]="view === 'all'" [class.fa-circle-check]="view === 'unread'" [class.fa-at]="view === 'mentions'" aria-hidden="true"></i>
+            <i class="ti" [class.ti-bell]="view === 'all'" [class.ti-circle-check]="view === 'unread'" [class.ti-at]="view === 'mentions'" aria-hidden="true"></i>
             <strong>{{ view === 'unread' ? "You're all caught up" : view === 'mentions' ? 'No mentions yet' : 'No activity yet' }}</strong>
             <span *ngIf="view === 'all'">Mentions, replies, reactions and missed calls show up here.</span>
           </div>
@@ -110,12 +110,12 @@ const ICON: Record<ActivityType, string> = {
       </aside>
 
       <section class="pane-main pane-main--optional" [class.act-show]="!!contextItem" aria-label="Activity details">
-        <button type="button" class="btn btn-sm btn-light act-back" *ngIf="contextItem" (click)="contextItem = null; selectedId = null"><i class="fa-solid fa-arrow-left me-1"></i>Activity</button>
+        <button type="button" class="btn btn-sm btn-light act-back" *ngIf="contextItem" (click)="contextItem = null; selectedId = null"><i class="ti ti-arrow-left me-1"></i>Activity</button>
         <app-activity-context *ngIf="contextItem; else noneSelected" [item]="contextItem"></app-activity-context>
       </section>
       <ng-template #noneSelected>
         <div class="pane-state">
-          <i class="fa-regular fa-bell" aria-hidden="true"></i>
+          <i class="ti ti-bell" aria-hidden="true"></i>
           <strong>Select an activity</strong>
           <span>Open a mention, reply or reaction to see that message here, or a missed call to see it in context.</span>
         </div>
@@ -233,7 +233,7 @@ export class ActivityPageComponent implements OnInit, OnDestroy {
   }
 
   icon(type: ActivityType): string {
-    return ICON[type] || 'fa-bell';
+    return ICON[type] || 'ti-bell';
   }
 
   contextLabel(item: ActivityItem): string {

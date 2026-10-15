@@ -115,10 +115,10 @@ function writeStorage(key: string, value: unknown): void {
       flex-direction: column;
       width: ${PICKER_WIDTH}px;
       max-width: calc(100vw - ${GAP * 2}px);
-      border: 1px solid var(--app-border, #e4e7ec);
+      border: 1px solid var(--app-border, #dde4e8);
       border-radius: 14px;
       background: var(--app-surface, #fff);
-      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.22);
+      box-shadow: 0 16px 40px rgba(25, 34, 43, 0.22);
       overflow: hidden;
       animation: ep-in 0.12s ease-out;
     }
@@ -130,7 +130,7 @@ function writeStorage(key: string, value: unknown): void {
     }
     @keyframes ep-in { from { opacity: 0; transform: translateY(4px); } }
     @media (prefers-reduced-motion: reduce) { app-emoji-picker .ep { animation: none; } }
-    app-emoji-picker .ep__loading { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--app-muted, #64748b); }
+    app-emoji-picker .ep__loading { display: flex; align-items: center; justify-content: center; flex: 1; color: var(--app-muted, #667c8f); }
 
     /* Skin tone button sits at the right end of the search row */
     app-emoji-picker .ep__skin { position: absolute; top: 10px; right: 10px; z-index: 5; }
@@ -140,15 +140,15 @@ function writeStorage(key: string, value: unknown): void {
       display: inline-flex; align-items: center; justify-content: center;
       border: 0; border-radius: 10px; background: transparent;
     }
-    app-emoji-picker .ep__skin-btn:hover, app-emoji-picker .ep__skin-option:hover { background: var(--app-hover, #f2f4f7); }
-    app-emoji-picker .ep__skin-btn:focus-visible, app-emoji-picker .ep__skin-option:focus-visible { outline: 2px solid var(--app-brand, #2563eb); }
-    app-emoji-picker .ep__skin-option.is-active { background: var(--app-active, #e8effc); }
+    app-emoji-picker .ep__skin-btn:hover, app-emoji-picker .ep__skin-option:hover { background: var(--app-hover, #f0f3f5); }
+    app-emoji-picker .ep__skin-btn:focus-visible, app-emoji-picker .ep__skin-option:focus-visible { outline: 2px solid var(--app-brand, #2c3a47); }
+    app-emoji-picker .ep__skin-option.is-active { background: var(--app-active, #e6ecef); }
     app-emoji-picker .ep__swatch { width: 18px; height: 18px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
     app-emoji-picker .ep__skin-menu {
       position: absolute; top: 38px; right: 0;
       display: flex; flex-direction: column; gap: 2px; padding: 4px;
-      border: 1px solid var(--app-border, #e4e7ec); border-radius: 12px;
-      background: var(--app-surface, #fff); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+      border: 1px solid var(--app-border, #dde4e8); border-radius: 12px;
+      background: var(--app-surface, #fff); box-shadow: 0 8px 24px rgba(25, 34, 43, 0.18);
     }
 
     /*
@@ -167,7 +167,7 @@ function writeStorage(key: string, value: unknown): void {
       border: 0;
       border-radius: 0;
       background: transparent;
-      color: var(--app-text, #111827);
+      color: var(--app-text, #19222b);
       font-family: var(--app-font);
       font-size: 16px;
     }
@@ -186,8 +186,8 @@ function writeStorage(key: string, value: unknown): void {
       border: 1px solid transparent;
       border-radius: 10px;
       outline: 0;
-      background: var(--app-input, #f0f2f5);
-      color: var(--app-text, #111827);
+      background: var(--app-input, #f0f3f5);
+      color: var(--app-text, #19222b);
       font: inherit;
       font-size: 0.9rem;
       -webkit-appearance: none;
@@ -195,12 +195,12 @@ function writeStorage(key: string, value: unknown): void {
     }
     app-emoji-picker .emoji-mart-search input::-webkit-search-decoration { -webkit-appearance: none; }
     app-emoji-picker .emoji-mart-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
-    app-emoji-picker .emoji-mart-search input::placeholder { color: var(--app-muted, #6b7280); }
-    app-emoji-picker .emoji-mart-search input:focus { border-color: var(--app-brand, #2563eb); background: var(--app-surface, #fff); }
+    app-emoji-picker .emoji-mart-search input::placeholder { color: var(--app-muted, #667c8f); }
+    app-emoji-picker .emoji-mart-search input:focus { border-color: var(--app-brand, #2c3a47); background: var(--app-surface, #fff); }
     app-emoji-picker .emoji-mart-search-icon {
       position: absolute; top: 18px; right: 58px; z-index: 2;
       display: flex; align-items: center; padding: 2px 4px;
-      border: 0; background: none; color: var(--app-muted, #6b7280); cursor: pointer;
+      border: 0; background: none; color: var(--app-muted, #667c8f); cursor: pointer;
     }
     app-emoji-picker .emoji-mart-search-icon svg { fill: currentColor; width: 13px; height: 13px; }
 
@@ -216,7 +216,7 @@ function writeStorage(key: string, value: unknown): void {
       width: 100%;
       padding: 8px 4px 6px;
       background: var(--app-surface, #fff) !important;
-      color: var(--app-text, #111827) !important;
+      color: var(--app-text, #19222b) !important;
       font-size: 0.82rem;
       font-weight: 600;
     }
@@ -242,17 +242,17 @@ function writeStorage(key: string, value: unknown): void {
       inset: 0;
       z-index: 0;
       border-radius: 10px;
-      background-color: var(--app-hover-strong, #e6e9ee);
+      background-color: var(--app-hover-strong, #e4eaed);
     }
-    app-emoji-picker .emoji-mart-emoji:focus-visible { outline: 2px solid var(--app-brand, #2563eb); }
-    app-emoji-picker .emoji-mart-no-results { padding-top: 40px; text-align: center; font-size: 14px; color: var(--app-muted, #6b7280); }
+    app-emoji-picker .emoji-mart-emoji:focus-visible { outline: 2px solid var(--app-brand, #2c3a47); }
+    app-emoji-picker .emoji-mart-no-results { padding-top: 40px; text-align: center; font-size: 14px; color: var(--app-muted, #667c8f); }
     app-emoji-picker .emoji-mart-no-results .emoji-mart-category-label { display: none; }
     app-emoji-picker .emoji-mart-no-results .emoji-mart-emoji:hover:before { content: none; }
 
     /* Category tabs (bottom) */
     app-emoji-picker .emoji-mart-bar {
       order: 3; flex: none;
-      border: 0 !important; border-top: 1px solid var(--app-border, #e4e7ec) !important; border-radius: 0 !important;
+      border: 0 !important; border-top: 1px solid var(--app-border, #dde4e8) !important; border-radius: 0 !important;
     }
     app-emoji-picker .emoji-mart-anchors {
       display: flex; flex-direction: row; justify-content: space-between;
@@ -262,11 +262,11 @@ function writeStorage(key: string, value: unknown): void {
       position: relative; display: block; flex: 1 1 auto;
       margin: 0; padding: 9px 2px; overflow: hidden;
       border: 0; border-radius: 8px; background: none; box-shadow: none;
-      color: var(--app-icon, #54656f); text-align: center; cursor: pointer;
+      color: var(--app-icon, #4f6477); text-align: center; cursor: pointer;
       transition: background 0.12s ease, color 0.12s ease;
     }
-    app-emoji-picker .emoji-mart-anchor:hover { background: var(--app-hover, #f2f4f7); color: var(--app-text, #111827); }
-    app-emoji-picker .emoji-mart-anchor-selected { background: var(--app-active, #e8effc); color: var(--app-brand, #2563eb) !important; }
+    app-emoji-picker .emoji-mart-anchor:hover { background: var(--app-hover, #f0f3f5); color: var(--app-text, #19222b); }
+    app-emoji-picker .emoji-mart-anchor-selected { background: var(--app-active, #e6ecef); color: var(--app-brand, #2c3a47) !important; }
     app-emoji-picker .emoji-mart-anchor-bar { display: none; }
     app-emoji-picker .emoji-mart-anchors svg { display: inline-block; width: 18px; height: 18px; fill: currentColor; }
   `],
@@ -316,7 +316,7 @@ export class EmojiPickerComponent implements AfterViewInit, OnDestroy {
     ref.setInput('showPreview', false);
     ref.setInput('perLine', 8);
     ref.setInput('emojiSize', 24);
-    ref.setInput('color', '#2563eb');
+    ref.setInput('color', '#2c3a47');
     ref.setInput('autoFocus', !this.sheet);
     ref.setInput('title', '');
     ref.setInput('skin', this.skin);

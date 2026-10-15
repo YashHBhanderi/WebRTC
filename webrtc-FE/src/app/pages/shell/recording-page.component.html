@@ -15,7 +15,7 @@
         </p>
       </div>
       <a class="btn btn-sm btn-light" *ngIf="r.downloadUrl" [href]="r.downloadUrl" download rel="noopener">
-        <i class="fa-solid fa-download me-1" aria-hidden="true"></i>Download
+        <i class="ti ti-download me-1" aria-hidden="true"></i>Download
       </a>
     </header>
 
@@ -24,7 +24,7 @@
         <video #player *ngIf="r.playbackUrl; else noVideo" [src]="r.playbackUrl" controls preload="metadata" (timeupdate)="onTimeUpdate()"></video>
         <ng-template #noVideo>
           <div class="rec__placeholder" role="status">
-            <i class="fa-solid" [class.fa-hourglass-half]="r.status !== 'failed'" [class.fa-triangle-exclamation]="r.status === 'failed'" aria-hidden="true"></i>
+            <i class="ti" [class.ti-hourglass]="r.status !== 'failed'" [class.ti-alert-triangle]="r.status === 'failed'" aria-hidden="true"></i>
             <p>{{ statusText }}</p>
           </div>
         </ng-template>
@@ -52,12 +52,12 @@
           <div class="rec__state" *ngSwitchCase="'failed'" role="alert">
             <p class="text-danger mb-2">{{ transcriptError || "We couldn't create a transcript for this recording." }}</p>
             <button type="button" class="btn btn-sm btn-light" *ngIf="r.status === 'completed' && !r.expired" (click)="retryTranscript()" [disabled]="retrying">
-              <i class="fa-solid fa-rotate-right me-1" aria-hidden="true"></i>{{ retrying ? 'Retrying…' : 'Retry' }}
+              <i class="ti ti-rotate-clockwise me-1" aria-hidden="true"></i>{{ retrying ? 'Retrying…' : 'Retry' }}
             </button>
           </div>
           <ng-container *ngSwitchCase="'completed'">
             <div class="rec__search">
-              <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+              <i class="ti ti-search" aria-hidden="true"></i>
               <input type="search" [(ngModel)]="query" placeholder="Search the transcript" aria-label="Search the transcript" />
             </div>
             <p class="rec__state" *ngIf="!segments.length">No speech was detected.</p>

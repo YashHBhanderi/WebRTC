@@ -27,7 +27,7 @@ const RECENT_MESSAGES = 40;
       <header class="mchat__header">
         <h3>Meeting chat</h3>
         <button type="button" class="mchat__close" (click)="close.emit()" aria-label="Close chat">
-          <i class="fa-solid fa-xmark"></i>
+          <i class="ti ti-x"></i>
         </button>
       </header>
       <div class="mchat__list" #list>
@@ -59,8 +59,8 @@ const RECENT_MESSAGES = 40;
       flex-direction: column;
       border-radius: var(--call-radius, 14px);
       overflow: hidden;
-      background: var(--app-chat-bg, #eef1f5);
-      color: var(--app-text, #111827);
+      background: var(--app-chat-bg, #f0f3f5);
+      color: var(--app-text, #19222b);
     }
     .mchat__header {
       flex: none;
@@ -69,20 +69,20 @@ const RECENT_MESSAGES = 40;
       justify-content: space-between;
       padding: 10px 8px 10px 16px;
       background: var(--app-surface, #fff);
-      border-bottom: 1px solid var(--app-border, #e4e7ec);
+      border-bottom: 1px solid var(--app-border, #dde4e8);
     }
     .mchat__header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
     .mchat__close {
       width: 36px; height: 36px; border: 0; border-radius: 50%;
-      background: transparent; color: var(--app-icon, #54656f);
+      background: transparent; color: var(--app-icon, #4f6477);
     }
-    .mchat__close:hover { background: var(--app-hover, #f2f4f7); }
+    .mchat__close:hover { background: var(--app-hover, #f0f3f5); }
     .mchat__list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 10px 12px; }
-    .mchat__state { padding: 24px; text-align: center; color: var(--app-muted, #6b7280); font-size: 0.85rem; }
+    .mchat__state { padding: 24px; text-align: center; color: var(--app-muted, #667c8f); font-size: 0.85rem; }
     .mchat__notice {
       margin: 8px auto; width: fit-content; max-width: 100%;
       padding: 3px 10px; border-radius: 8px;
-      background: var(--app-surface, #fff); color: var(--app-text-2, #4b5563);
+      background: var(--app-surface, #fff); color: var(--app-text-2, #4f6477);
       font-size: 0.75rem; text-align: center;
     }
   `],

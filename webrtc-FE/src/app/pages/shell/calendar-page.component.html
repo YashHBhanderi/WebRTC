@@ -4,7 +4,7 @@
     <header class="pane-side__header">
       <h1>Calendar</h1>
       <button type="button" class="cal__icon" (click)="openSettings()" title="Calendar settings" aria-label="Calendar settings">
-        <i class="fa-solid fa-gear"></i>
+        <i class="ti ti-settings"></i>
       </button>
     </header>
 
@@ -12,8 +12,8 @@
       <div class="mini" role="group" aria-label="Choose a date">
         <div class="mini__head">
           <span class="mini__month">{{ mini.month | date: 'MMMM y' }}</span>
-          <button type="button" class="cal__icon" (click)="moveMini(-1)" aria-label="Previous month"><i class="fa-solid fa-chevron-up"></i></button>
-          <button type="button" class="cal__icon" (click)="moveMini(1)" aria-label="Next month"><i class="fa-solid fa-chevron-down"></i></button>
+          <button type="button" class="cal__icon" (click)="moveMini(-1)" aria-label="Previous month"><i class="ti ti-chevron-up"></i></button>
+          <button type="button" class="cal__icon" (click)="moveMini(1)" aria-label="Next month"><i class="ti ti-chevron-down"></i></button>
         </div>
         <div class="mini__dow"><span *ngFor="let n of weekdayNames">{{ n.charAt(0) }}</span></div>
         <div class="mini__cells">
@@ -24,8 +24,8 @@
       </div>
 
       <nav class="cal-side__lists" aria-label="Meeting lists">
-        <button type="button" class="cal-side__link" [class.cal-side__link--on]="view === 'upcoming'" (click)="setView('upcoming')"><i class="fa-regular fa-calendar-check"></i>Upcoming meetings</button>
-        <button type="button" class="cal-side__link" [class.cal-side__link--on]="view === 'past'" (click)="setView('past')"><i class="fa-solid fa-clock-rotate-left"></i>Past meetings</button>
+        <button type="button" class="cal-side__link" [class.cal-side__link--on]="view === 'upcoming'" (click)="setView('upcoming')"><i class="ti ti-calendar-check"></i>Upcoming meetings</button>
+        <button type="button" class="cal-side__link" [class.cal-side__link--on]="view === 'past'" (click)="setView('past')"><i class="ti ti-history"></i>Past meetings</button>
       </nav>
     </div>
   </aside>
@@ -33,10 +33,10 @@
   <div class="pane-main cal-main">
 <section class="page cal">
   <header class="cal__toolbar">
-    <button type="button" class="btn btn-sm btn-light cal__today" *ngIf="view !== 'upcoming' && view !== 'past'" (click)="today()"><i class="fa-regular fa-calendar me-1" aria-hidden="true"></i>Today</button>
+    <button type="button" class="btn btn-sm btn-light cal__today" *ngIf="view !== 'upcoming' && view !== 'past'" (click)="today()"><i class="ti ti-calendar me-1" aria-hidden="true"></i>Today</button>
     <div class="cal__nav" *ngIf="view !== 'upcoming' && view !== 'past'">
-      <button type="button" class="cal__icon" (click)="move(-1)" [attr.aria-label]="'Previous ' + (view === 'month' ? 'month' : view === 'day' ? 'day' : 'week')"><i class="fa-solid fa-chevron-left"></i></button>
-      <button type="button" class="cal__icon" (click)="move(1)" [attr.aria-label]="'Next ' + (view === 'month' ? 'month' : view === 'day' ? 'day' : 'week')"><i class="fa-solid fa-chevron-right"></i></button>
+      <button type="button" class="cal__icon" (click)="move(-1)" [attr.aria-label]="'Previous ' + (view === 'month' ? 'month' : view === 'day' ? 'day' : 'week')"><i class="ti ti-chevron-left"></i></button>
+      <button type="button" class="cal__icon" (click)="move(1)" [attr.aria-label]="'Next ' + (view === 'month' ? 'month' : view === 'day' ? 'day' : 'week')"><i class="ti ti-chevron-right"></i></button>
     </div>
     <h2 class="cal__title">{{ title }}</h2>
 
@@ -46,13 +46,13 @@
       </button>
       <div ngbDropdownMenu class="app-menu">
         <button ngbDropdownItem type="button" *ngFor="let v of views" (click)="setView(v)" [class.active]="view === v" [attr.aria-checked]="view === v" role="menuitemradio">
-          <i class="fa-solid fa-check" [style.visibility]="view === v ? 'visible' : 'hidden'" aria-hidden="true"></i>{{ viewLabels[v] }}
+          <i class="ti ti-check" [style.visibility]="view === v ? 'visible' : 'hidden'" aria-hidden="true"></i>{{ viewLabels[v] }}
         </button>
       </div>
     </div>
     <button type="button" class="btn btn-light btn-sm" *ngIf="view === 'upcoming' || view === 'past'" (click)="setView('work week')">Back to calendar</button>
     <button type="button" class="btn btn-primary btn-sm cal__new" (click)="newMeeting()">
-      <i class="fa-solid fa-plus me-1" aria-hidden="true"></i>New
+      <i class="ti ti-plus me-1" aria-hidden="true"></i>New
     </button>
   </header>
 
@@ -108,7 +108,7 @@
       <div class="cal__skeleton" *ngFor="let i of [1, 2, 3, 4]" aria-hidden="true"></div>
     </ng-container>
     <div class="empty" *ngIf="!loading && !list.length">
-      <i class="fa-solid fa-calendar-days empty__icon" aria-hidden="true"></i>
+      <i class="ti ti-calendar empty__icon" aria-hidden="true"></i>
       <h2 class="empty__title">{{ view === 'upcoming' ? 'No upcoming meetings' : 'No meetings in the last month' }}</h2>
       <p class="empty__text" *ngIf="view === 'upcoming'">Schedule one with “New meeting”.</p>
     </div>

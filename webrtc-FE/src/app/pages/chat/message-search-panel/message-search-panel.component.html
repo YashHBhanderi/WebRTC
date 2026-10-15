@@ -1,13 +1,13 @@
 <aside class="panel" aria-label="Search messages">
   <header class="panel__header">
     <button type="button" class="icon-btn" (click)="close.emit()" aria-label="Close search">
-      <i class="fa-solid fa-xmark"></i>
+      <i class="ti ti-x"></i>
     </button>
     <h2>Search messages</h2>
   </header>
 
   <div class="search-box">
-    <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
+    <i class="ti ti-search" aria-hidden="true"></i>
     <input
       #input
       type="text"
@@ -19,7 +19,7 @@
       autocomplete="off"
     />
     <button type="button" class="icon-btn icon-btn--sm" *ngIf="query" (click)="clearQuery()" aria-label="Clear search">
-      <i class="fa-solid fa-circle-xmark"></i>
+      <i class="ti ti-circle-x"></i>
     </button>
   </div>
 

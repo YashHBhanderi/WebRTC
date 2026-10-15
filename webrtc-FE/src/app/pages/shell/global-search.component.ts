@@ -36,7 +36,7 @@ interface ResultGroup {
 }
 
 const DATE_DAYS: Record<Exclude<DateFilter, 'any'>, number> = { '7d': 7, '30d': 30, '365d': 365 };
-const FILE_ICONS: Record<string, string> = { image: 'fa-image', video: 'fa-film', audio: 'fa-music', pdf: 'fa-file-pdf' };
+const FILE_ICONS: Record<string, string> = { image: 'ti-photo', video: 'ti-movie', audio: 'ti-music', pdf: 'ti-file-type-pdf' };
 
 /**
  * Top-bar search over people, chats, messages and files. Debounced (one request per pause, the
@@ -108,6 +108,15 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
         this.setResults(results);
         this.cdr.markForCheck();
       });
+    this.sub.add(this.users.newUsers$.subscribe((u: any) => {
+      if (this.sendersLoaded) {
+        this.senders = UserService.withUser(this.senders, { _id: String(u._id), username: u.username })
+          .sort((a, b) => a.username.localeCompare(b.username));
+        this.cdr.markForCheck();
+      }
+    }));
+    // Possibly missed new users while offline: reload the sender filter when it's next opened
+    this.sub.add(this.users.reconnected$.subscribe(() => (this.sendersLoaded = false)));
   }
 
   ngOnDestroy(): void {
@@ -321,7 +330,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
           title: m.title,
           subtitle: `${this.formatDate(m.startAt)}${m.recurring ? ' · Recurring' : ''}`,
           avatarName: m.title,
-          icon: 'fa-calendar-days',
+          icon: 'ti-calendar',
           go: () => this.router.navigate(['/calendar'], { queryParams: { meeting: m._id } }),
         })),
       });
@@ -345,7 +354,7 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
       subtitle: `${sender} · ${m.conversationTitle}`,
       avatar: kind === 'message' ? m.user?.avatar : undefined,
       avatarName: sender,
-      icon: kind === 'file' ? FILE_ICONS[m.type] || 'fa-file' : undefined,
+      icon: kind === 'file' ? FILE_ICONS[m.type] || 'ti-file' : undefined,
       time: this.formatDate(m.createdAt),
       go: () => this.router.navigate(['/chat'], {
         queryParams: { c: m.conversationId, m: m._id, q: kind === 'message' ? q : null },

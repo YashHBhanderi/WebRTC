@@ -214,7 +214,7 @@ export default class MessageService {
         authorId: string,
         type: "call" | "system" | "recording",
         content: string,
-        extra: { call?: { callId: string; callType: "audio" | "video"; mode: "ring" | "meetNow"; duration: number }; recording?: { recordingId: string }; createdAt?: Date } = {},
+        extra: { call?: { callId: string; callType: "audio" | "video"; mode: "ring" | "meetNow"; duration: number; outcome?: "missed" }; recording?: { recordingId: string }; createdAt?: Date } = {},
     ) {
         const message = await Message.create({
             userId: oid(authorId),

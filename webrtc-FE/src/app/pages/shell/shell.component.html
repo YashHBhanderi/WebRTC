@@ -6,9 +6,9 @@
     <!-- In the navigation column, centred on the same line as the navigation icons -->
     <span class="topbar__rail d-none d-md-flex">
       <button type="button" class="topbar__toggle" (click)="toggleCollapsed()"
-              [attr.aria-label]="collapsed ? 'Show navigation' : 'Hide navigation'" [attr.aria-expanded]="!collapsed"
-              [title]="collapsed ? 'Show navigation' : 'Hide navigation'" aria-controls="app-rail">
-        <lucide-icon name="panel-left" [size]="22" aria-hidden="true"></lucide-icon>
+              [attr.aria-label]="collapsed ? 'Expand navigation' : 'Collapse navigation'" [attr.aria-expanded]="!collapsed"
+              [title]="collapsed ? 'Expand navigation' : 'Collapse navigation'" aria-controls="app-rail">
+        <i class="ti ti-menu-2" aria-hidden="true"></i>
       </button>
     </span>
 
@@ -16,12 +16,13 @@
     <span class="topbar__spacer d-md-none" aria-hidden="true"></span>
 
     <a class="topbar__icon" routerLink="/settings" routerLinkActive="topbar__icon--active" aria-label="Settings" title="Settings">
-      <i class="fa-solid fa-gear" aria-hidden="true"></i>
+      <i class="ti ti-settings" aria-hidden="true"></i>
     </a>
+    <span class="topbar__divider" aria-hidden="true"></span>
 
     <div ngbDropdown placement="bottom-end" class="d-inline-block">
-      <button type="button" class="topbar__me" ngbDropdownToggle aria-label="Account menu">
-        <app-avatar [src]="me?.avatar" [name]="me?.username || ''" [size]="32" [presence]="myPresenceKey"></app-avatar>
+      <button type="button" class="topbar__me" ngbDropdownToggle aria-label="Account menu" [title]="(me?.username || '') + ' (' + myStatusLabel + ')'">
+        <app-avatar [src]="me?.avatar" [name]="me?.username || ''" [size]="28" [presence]="myPresenceKey"></app-avatar>
       </button>
       <div ngbDropdownMenu class="app-menu">
         <div class="menu-user">
@@ -32,34 +33,39 @@
         <button ngbDropdownItem type="button" *ngFor="let opt of statusOptions" (click)="chooseStatus(opt.value)"
                 [attr.aria-pressed]="presence.mine.status === opt.value">
           <span class="status-dot status-dot--{{ opt.key }}" aria-hidden="true"></span>{{ opt.label }}
-          <i class="fa-solid fa-check ms-auto" *ngIf="presence.mine.status === opt.value" aria-hidden="true"></i>
+          <i class="ti ti-check ms-auto" *ngIf="presence.mine.status === opt.value" aria-hidden="true"></i>
         </button>
         <button ngbDropdownItem type="button" (click)="openStatusMessage()">
-          <i class="fa-regular fa-comment" aria-hidden="true"></i>{{ presence.mine.statusMessage ? 'Edit status message' : 'Set status message' }}
+          <i class="ti ti-message" aria-hidden="true"></i>{{ presence.mine.statusMessage ? 'Edit status message' : 'Set status message' }}
         </button>
         <div class="dropdown-divider"></div>
-        <a ngbDropdownItem routerLink="/profile"><i class="fa-regular fa-user" aria-hidden="true"></i>Profile</a>
-        <a ngbDropdownItem routerLink="/saved"><i class="fa-regular fa-bookmark" aria-hidden="true"></i>Saved messages</a>
-        <a ngbDropdownItem routerLink="/settings"><i class="fa-solid fa-gear" aria-hidden="true"></i>Settings</a>
+        <a ngbDropdownItem routerLink="/profile"><i class="ti ti-user" aria-hidden="true"></i>Profile</a>
+        <a ngbDropdownItem routerLink="/saved"><i class="ti ti-bookmark" aria-hidden="true"></i>Saved messages</a>
+        <a ngbDropdownItem routerLink="/settings"><i class="ti ti-settings" aria-hidden="true"></i>Settings</a>
         <div class="dropdown-divider"></div>
         <button ngbDropdownItem type="button" class="text-danger" (click)="signOut()">
-          <i class="fa-solid fa-arrow-right-from-bracket" aria-hidden="true"></i>Sign out
+          <i class="ti ti-logout" aria-hidden="true"></i>Sign out
         </button>
       </div>
     </div>
   </header>
 
   <!-- ============================================================ NAV RAIL -->
-  <nav class="rail" id="app-rail" aria-label="Main" [attr.aria-hidden]="collapsed ? 'true' : null">
+  <nav class="rail" id="app-rail" aria-label="Main">
     <ul class="rail__list">
       <li *ngFor="let item of primaryNav; trackBy: trackByPath">
         <a class="rail__item" [routerLink]="item.path" routerLinkActive="rail__item--active"
            #rla="routerLinkActive" [attr.aria-current]="rla.isActive ? 'page' : null"
-           [attr.title]="item.label + ' (Alt+' + item.shortcut + ')'">
-          <i class="fa-solid {{ item.icon }}" aria-hidden="true"></i>
+           [attr.aria-label]="item.label"
+           [attr.title]="collapsed ? null : item.label + ' (Alt+' + item.shortcut + ')'"
+           [ngbTooltip]="item.label + ' (Alt+' + item.shortcut + ')'" [disableTooltip]="!collapsed"
+           placement="end" container="body" [openDelay]="150">
+          <span class="rail__tile" aria-hidden="true">
+            <i class="ti {{ item.icon }}" [class.ti-fill]="rla.isActive"></i>
+            <span class="count-badge count-badge--rail" *ngIf="item.path === '/activity' && (notifications.unread$ | async) as n">{{ n > 99 ? '99+' : n }}</span>
+            <span class="count-badge count-badge--rail" *ngIf="item.path === '/chat' && (notifications.unreadChats$ | async) as n">{{ n > 99 ? '99+' : n }}</span>
+          </span>
           <span class="rail__label">{{ item.label }}</span>
-          <span class="count-badge count-badge--rail" *ngIf="item.path === '/activity' && (notifications.unread$ | async) as n" aria-hidden="true">{{ n > 99 ? '99+' : n }}</span>
-          <span class="count-badge count-badge--rail" *ngIf="item.path === '/chat' && (notifications.unreadChats$ | async) as n" aria-hidden="true">{{ n > 99 ? '99+' : n }}</span>
         </a>
       </li>
     </ul>

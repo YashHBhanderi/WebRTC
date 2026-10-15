@@ -1,24 +1,56 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, filter, share, switchMap, take } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { IUser } from '../interfaces/user';
 import { IConversation } from '../interfaces/conversation';
 import { IApiResponse } from '../interfaces/apiResponse';
 import { Router } from '@angular/router';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
+import { SocketService } from './socket.service';
+import { AuthService } from './auth.service';
 @Injectable({
   providedIn: 'root'
 })
 export class UserService {
   private apiUrl = environment.apiUrl;
 
+  /** Accounts created while the app is open (never me); merge with `withUser` to stay duplicate-free. */
+  readonly newUsers$: Observable<IUser>;
+  /**
+   * The socket came back after a disconnect: events may have been missed, so user lists should
+   * reload from the API. (Not emitted for the first connect.)
+   */
+  readonly reconnected$: Observable<unknown>;
+
   constructor(
     private http: HttpClient,
     private router: Router,
     private alertService: AlertService,
+    private socket: SocketService,
+    private auth: AuthService,
+  ) {
+    this.newUsers$ = this.socket.onUserCreated().pipe(
+      filter((u: IUser) => !!u?._id && String(u._id) !== String(this.auth.getLoggedInUser()?._id || '')),
+      share(),
+    );
+    this.reconnected$ = this.socket.onDisconnect().pipe(
+      switchMap(() => this.socket.onConnect().pipe(take(1))),
+      share(),
+    );
+  }
 
-  ) { }
+  /** `list` with `user` added (or updated in place when already there) — safe for repeated events. */
+  static withUser<T extends { _id?: string }>(list: T[], user: T): T[] {
+    const id = String(user._id);
+    const index = list.findIndex((u) => String(u._id) === id);
+    if (index === -1) {
+      return [...list, user];
+    }
+    const next = [...list];
+    next[index] = { ...next[index], ...user };
+    return next;
+  }
 
   // The Clerk session token is added by AuthInterceptor
   getHeaders(): HttpHeaders {

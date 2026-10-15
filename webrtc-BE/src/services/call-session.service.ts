@@ -161,7 +161,7 @@ export async function announceCallEnded(call: any, extra: { endedBy?: string; re
     emitToUsers(group?.members, "call:ended", payload);
 
     // Someone picked up and the call is over: one chat message, stamped with the end time.
-    // Missed / declined / cancelled calls get none (they are in Call History).
+    // Unanswered 1:1 rings get a "missed" entry; declined / cancelled calls stay in Call History only.
     if (call.callStatus === "ended" && call.startedAt && group) {
         const endedAt = call.endedAt ? new Date(call.endedAt) : new Date();
         const duration = Math.max(0, Math.round((endedAt.getTime() - new Date(call.startedAt).getTime()) / 1000));
@@ -177,6 +177,24 @@ export async function announceCallEnded(call: any, extra: { endedBy?: string; re
             broadcastMessage(groupId, group.members, message);
         } catch (error) {
             console.error("Failed to post the call summary message:", error);
+        }
+    }
+
+    if (call.callStatus === "missed" && group && (call.mode || "ring") === "ring") {
+        try {
+            const message = await MessageService.postServiceMessage(
+                groupId,
+                String(call.initiatedBy),
+                "call",
+                "Missed call",
+                {
+                    call: { callId, callType: call.callType, mode: "ring", duration: 0, outcome: "missed" },
+                    createdAt: call.endedAt ? new Date(call.endedAt) : new Date(),
+                },
+            );
+            broadcastMessage(groupId, group.members, message);
+        } catch (error) {
+            console.error("Failed to post the missed call message:", error);
         }
     }
 

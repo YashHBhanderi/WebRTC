@@ -33,16 +33,16 @@ const COLLAPSE_KEY = 'app.navCollapsed';
 })
 export class ShellComponent implements OnInit, OnDestroy {
   readonly primaryNav: NavItem[] = [
-    { path: '/activity', label: 'Activity', icon: 'fa-bell', shortcut: '1' },
-    { path: '/chat', label: 'Chat', icon: 'fa-comment-dots', shortcut: '2' },
-    { path: '/calls', label: 'Calls', icon: 'fa-phone', shortcut: '3' },
-    { path: '/calendar', label: 'Calendar', icon: 'fa-calendar-days', shortcut: '4' },
-    { path: '/files', label: 'Files', icon: 'fa-folder', shortcut: '5' },
+    { path: '/activity', label: 'Activity', icon: 'ti-bell', shortcut: '1' },
+    { path: '/chat', label: 'Chat', icon: 'ti-message-circle', shortcut: '2' },
+    { path: '/calls', label: 'Calls', icon: 'ti-phone', shortcut: '3' },
+    { path: '/calendar', label: 'Calendar', icon: 'ti-calendar', shortcut: '4' },
+    { path: '/files', label: 'Files', icon: 'ti-folder', shortcut: '5' },
   ];
   /** Not in the sidebar (account menu / Settings button) but still reachable with Alt+6 / Alt+7. */
   readonly secondaryNav: NavItem[] = [
-    { path: '/profile', label: 'Profile', icon: 'fa-user', shortcut: '6' },
-    { path: '/settings', label: 'Settings', icon: 'fa-gear', shortcut: '7' },
+    { path: '/profile', label: 'Profile', icon: 'ti-user', shortcut: '6' },
+    { path: '/settings', label: 'Settings', icon: 'ti-settings', shortcut: '7' },
   ];
 
   readonly statusOptions = STATUS_OPTIONS;

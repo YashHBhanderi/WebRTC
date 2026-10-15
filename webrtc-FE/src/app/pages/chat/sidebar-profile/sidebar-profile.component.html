@@ -1,6 +1,6 @@
 <header class="sp-header">
   <button type="button" class="sp-icon-btn" (click)="back.emit()" aria-label="Back to chats" title="Back">
-    <i class="fa-solid fa-arrow-left"></i>
+    <i class="ti ti-arrow-left"></i>
   </button>
   <h1 class="sp-header__title">Profile</h1>
 </header>
@@ -10,7 +10,7 @@
     <button type="button" class="sp-photo__btn" (click)="photoInput.click()" [disabled]="saving" aria-label="Change profile picture">
       <app-avatar [src]="avatarPreview || user?.avatar" [name]="trimmedName || user?.username" [size]="148"></app-avatar>
       <span class="sp-photo__overlay" aria-hidden="true">
-        <i class="fa-solid fa-camera"></i>
+        <i class="ti ti-camera"></i>
         <span>Change photo</span>
       </span>
     </button>
@@ -22,7 +22,7 @@
     <div class="sp-field__head">
       <label class="sp-field__label" for="sp-username">Username</label>
       <button type="button" class="sp-icon-btn sp-icon-btn--sm" *ngIf="!editingName" (click)="editName()" aria-label="Edit username" title="Edit">
-        <i class="fa-solid fa-pen"></i>
+        <i class="ti ti-pencil"></i>
       </button>
     </div>
     <ng-container *ngIf="editingName; else nameView">
@@ -50,7 +50,7 @@
     <div class="sp-field__head">
       <label class="sp-field__label" for="sp-bio">Bio</label>
       <button type="button" class="sp-icon-btn sp-icon-btn--sm" *ngIf="!editingBio" (click)="editBio()" aria-label="Edit bio" title="Edit">
-        <i class="fa-solid fa-pen"></i>
+        <i class="ti ti-pencil"></i>
       </button>
     </div>
     <ng-container *ngIf="editingBio; else bioView">
@@ -97,7 +97,7 @@
         </select>
         <button type="button" class="sp-icon-btn sp-icon-btn--sm" (click)="previewing ? stopRingtonePreview() : previewRingtone()"
           [attr.aria-label]="previewing ? 'Stop preview' : 'Play ringtone'" [title]="previewing ? 'Stop' : 'Play'">
-          <i class="fa-solid" [class.fa-play]="!previewing" [class.fa-stop]="previewing"></i>
+          <i class="ti" [class.ti-player-play]="!previewing" [class.ti-player-stop]="previewing"></i>
         </button>
       </div>
     </div>
@@ -111,7 +111,7 @@
     <div class="sp-device__row">
       <span class="sp-device__label">Call notifications</span>
       <ng-container [ngSwitch]="callNotifications.permission">
-        <span *ngSwitchCase="'granted'" class="sp-device__status sp-device__status--on"><i class="fa-solid fa-check"></i> On</span>
+        <span *ngSwitchCase="'granted'" class="sp-device__status sp-device__status--on"><i class="ti ti-check"></i> On</span>
         <button *ngSwitchCase="'default'" type="button" class="btn btn-primary btn-sm sp-device__btn" (click)="enableNotifications()">Turn on</button>
         <span *ngSwitchCase="'denied'" class="sp-device__status">Blocked</span>
         <span *ngSwitchDefault class="sp-device__status">Not available</span>

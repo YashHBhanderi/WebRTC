@@ -7,11 +7,11 @@
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  margin-top: 3px;
+  margin-top: 4px;
   border-radius: 10px;
 
   &--first {
-    margin-top: 10px;
+    margin-top: 16px;
   }
 
   &--mine {
@@ -26,12 +26,76 @@
 .msg-row__avatar {
   flex: none;
   align-self: flex-start;
-  margin-top: 2px;
+  margin: 2px 4px 0 0;
   padding: 0;
   border: 0;
   border-radius: 50%;
   background: none;
   cursor: pointer;
+
+  // Later messages in a run keep the column but not the picture
+  &--hidden {
+    visibility: hidden;
+    height: 0;
+  }
+}
+
+.msg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 2px 4px;
+  min-width: 0;
+}
+
+.msg-head__name {
+  min-width: 0;
+  color: var(--app-brand);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msg-head__time {
+  flex: none;
+  color: var(--app-muted);
+  font-size: 0.66rem;
+}
+
+.msg-head--mine {
+  align-self: flex-end;
+  align-items: center;
+}
+
+.msg-head:not(.msg-head--mine) {
+  align-items: center;
+}
+
+// "● Recorded by …" pill on recording messages
+.msg-head__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--app-hover-strong);
+  color: var(--app-text-2);
+  font-size: 0.62rem;
+  font-weight: 600;
+  white-space: nowrap;
+
+  .msg-head--mine & {
+    order: -1;
+  }
+}
+
+.msg-head__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--app-danger);
 }
 
 .msg-row__body {
@@ -54,24 +118,39 @@
   z-index: 1;
   min-width: 84px;
   max-width: 100%;
-  padding: 6px 9px 7px;
-  border-radius: 10px;
+  padding: 8px 12px 8px;
+  border: 1px solid var(--app-bubble-border);
+  border-radius: 12px;
   background: var(--app-bubble-in);
   color: var(--app-text);
-  box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--app-shadow-sm);
   overflow-wrap: anywhere;
   transition: box-shadow 0.3s ease;
 
+  // Outgoing: dark slate card. Content inside picks up light-on-dark values from these overrides.
   .msg-row--mine & {
+    --app-text: #ffffff;
+    --app-text-2: rgba(255, 255, 255, 0.82);
+    --app-muted: var(--slate-200);
+    --app-icon: var(--slate-200);
+    --app-quote: rgba(255, 255, 255, 0.1);
+    --app-brand: var(--slate-200);
+    --app-brand-strong: #ffffff;
+    --app-brand-soft: rgba(255, 255, 255, 0.12);
+    --app-brand-soft-strong: rgba(255, 255, 255, 0.24);
+    --app-on-brand: var(--slate-800);
+    --app-read: var(--app-accent);
+    --app-surface: rgba(0, 0, 0, 0.18);
+    --app-surface-2: rgba(0, 0, 0, 0.18);
+    --app-input: rgba(0, 0, 0, 0.2);
+    --app-border: rgba(255, 255, 255, 0.14);
+    --app-hover: rgba(255, 255, 255, 0.1);
+    --app-hover-strong: rgba(255, 255, 255, 0.16);
+    --app-active: rgba(255, 255, 255, 0.16);
+    border-color: var(--app-bubble-out-border);
     background: var(--app-bubble-out);
-  }
-
-  .msg-row--first:not(.msg-row--mine) & {
-    border-top-left-radius: 2px;
-  }
-
-  .msg-row--first.msg-row--mine & {
-    border-top-right-radius: 2px;
+    color: #ffffff;
+    box-shadow: 0 1px 3px rgba(25, 34, 43, 0.18);
   }
 
   .msg-row--highlight & {
@@ -95,11 +174,11 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  margin: 2px 0 4px;
-  padding: 5px 8px;
+  margin: 0 0 8px;
+  padding: 6px 8px;
   border: 0;
   border-left: 4px solid var(--app-brand);
-  border-radius: 6px;
+  border-radius: 4px;
   background: var(--app-quote);
   color: inherit;
   text-align: left;
@@ -126,8 +205,8 @@
 .bubble__text {
   margin: 0;
   white-space: pre-wrap;
-  font-size: 0.92rem;
-  line-height: 1.4;
+  font-size: 0.875rem;
+  line-height: 1.5;
 
   ::ng-deep mark {
     padding: 0 1px;
@@ -153,6 +232,7 @@
 }
 
 .bubble__media {
+  position: relative;
   display: block;
   margin: 0 0 4px;
   padding: 0;
@@ -160,26 +240,45 @@
   border-radius: 8px;
   overflow: hidden;
   background: var(--app-input);
+  line-height: 0;
 
-  img {
+  img,
+  video {
     display: block;
-    width: 100%;
+    width: auto;
+    height: auto;
     // Tiny images stay tappable around the download button
     min-width: 96px;
     min-height: 96px;
-    max-width: 320px;
+    max-width: 100%;
     max-height: 340px;
     object-fit: cover;
+    vertical-align: top;
   }
 }
 
-.bubble__video {
-  display: block;
-  width: min(320px, 100%);
-  max-height: 340px;
-  margin-bottom: 4px;
-  border-radius: 8px;
-  background: #000;
+.bubble__play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(18, 25, 32, 0.62);
+  color: #fff;
+  font-size: 18px;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(4px);
+
+  &:hover {
+    background: rgba(18, 25, 32, 0.8);
+  }
 }
 
 .bubble__audio {
@@ -188,48 +287,72 @@
   margin-bottom: 4px;
 }
 
-.bubble__doc {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: min(280px, 100%);
-  margin-bottom: 4px;
-  padding: 10px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--app-quote);
-  color: var(--app-text);
-  text-align: left;
+// Download: overlay on photos/videos, inline next to audio
+.bubble__media-wrap {
+  position: relative;
+  width: fit-content;
+  // max-width: min(320px, 100%);
 
-  .fa-file-pdf {
-    font-size: 26px;
-    color: var(--app-danger);
+  &:hover .bubble__download--overlay,
+  &:focus-within .bubble__download--overlay,
+  &:hover .bubble__media-overlay,
+  &:focus-within .bubble__media-overlay {
+    opacity: 1;
+  }
+
+  &.is-playing .bubble__media-overlay {
+    opacity: 0;
+    pointer-events: none;
   }
 }
 
-.bubble__doc-name {
+// Photo hover bar: file name · zoom · download
+.bubble__media-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 24px 8px 8px 12px;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(to top, rgba(18, 25, 32, 0.72), transparent);
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.bubble__media-overlay-name {
   flex: 1;
   min-width: 0;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.bubble__doc-open {
-  color: var(--app-muted);
-  font-size: 0.75rem;
-}
+.bubble__media-btn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 15px;
+  text-decoration: none;
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
 
-// Download: overlay on photos/videos, inline next to documents and audio
-.bubble__media-wrap {
-  position: relative;
-  width: fit-content;
-  max-width: 100%;
-
-  &:hover .bubble__download--overlay,
-  &:focus-within .bubble__download--overlay {
-    opacity: 1;
+  &:hover,
+  &:focus-visible {
+    background: rgba(255, 255, 255, 0.32);
+    color: #fff;
   }
 }
 
@@ -239,9 +362,118 @@
   gap: 6px;
   margin-bottom: 4px;
 
-  .bubble__doc,
   .bubble__audio {
     margin-bottom: 0;
+  }
+}
+
+// ------------------------------------------------------------------ document card (pdf / file)
+
+.doc-card {
+  display: flex;
+  flex-direction: column;
+  width: min(320px, 100%);
+  min-width: min(260px, 100%);
+}
+
+.doc-card__main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.doc-card__icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--app-brand-soft);
+  color: var(--app-brand);
+  font-size: 22px;
+
+  &--pdf {
+    background: color-mix(in srgb, var(--app-danger) 12%, transparent);
+    color: var(--app-danger);
+  }
+
+  .msg-row--mine &--pdf {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ff9c9c;
+  }
+}
+
+.doc-card__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.doc-card__name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-card__meta {
+  color: var(--app-muted);
+  font-size: 0.7rem;
+}
+
+.doc-card__actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.doc-card__btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-input);
+  color: var(--app-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 0.15s ease, filter 0.15s ease;
+
+  .ti {
+    font-size: 15px;
+  }
+
+  &:hover {
+    background: var(--app-hover-strong);
+    color: var(--app-text);
+  }
+
+  &--primary {
+    flex: 0 1 auto;
+    border-color: var(--app-brand);
+    background: var(--app-brand);
+    color: var(--app-on-brand);
+
+    &:only-child {
+      flex: 1;
+    }
+
+    &:hover {
+      background: var(--app-brand);
+      color: var(--app-on-brand);
+      filter: brightness(1.12);
+    }
   }
 }
 
@@ -267,23 +499,29 @@
     position: absolute;
     top: 6px;
     right: 6px;
-    background: rgba(2, 6, 23, 0.55);
+    background: rgba(18, 25, 32, 0.55);
     color: #fff;
     opacity: 0;
     transition: opacity 0.15s ease;
 
     &:hover,
     &:focus-visible {
-      background: rgba(2, 6, 23, 0.75);
+      background: rgba(18, 25, 32, 0.75);
       color: #fff;
     }
   }
 }
 
-// Touch screens have no hover: keep the download button visible
+// Touch screens have no hover: keep the download / zoom buttons visible
 @media (hover: none) {
-  .bubble__download--overlay {
+  .bubble__download--overlay,
+  .bubble__media-overlay {
     opacity: 1;
+  }
+
+  .bubble__media-wrap.is-playing .bubble__media-overlay {
+    opacity: 0;
+    pointer-events: none;
   }
 }
 
@@ -304,8 +542,8 @@
 
 .bubble__meta {
   position: absolute;
-  right: 8px;
-  bottom: 5px;
+  right: 10px;
+  bottom: 6px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -345,7 +583,7 @@
   background: var(--app-surface);
   font-size: 0.8rem;
   line-height: 1.5;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 1px 2px rgba(25, 34, 43, 0.08);
 
   span {
     color: var(--app-text-2);
@@ -370,7 +608,7 @@
   padding: 3px;
   border-radius: 999px;
   background: var(--app-surface);
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.16);
+  box-shadow: 0 4px 16px rgba(25, 34, 43, 0.16);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
@@ -505,7 +743,7 @@
   }
 
   .bubble__media img,
-  .bubble__video {
+  .bubble__media video {
     max-width: 220px;
   }
 }
@@ -528,9 +766,9 @@
   }
 
   .bubble__media img,
-  .bubble__video,
+  .bubble__media video,
   .bubble__audio,
-  .bubble__doc {
+  .doc-card {
     max-width: 100%;
   }
 }
@@ -560,28 +798,112 @@
   padding: 0 2px;
 }
 
-a.bubble__doc {
-  text-decoration: none;
-  color: inherit;
-}
-
-.bubble__doc-size {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 400;
-  opacity: 0.7;
-}
-
 // ------------------------------------------------------------------ footer row (pin / save / edited + time)
 
-// With flags the footer is its own right-aligned row under the content, so the icons never crowd
-// the text; the time stays right next to them.
+// Plain text: the time floats at the end of the last line. With flags, media or cards the footer is
+// its own row under the content (info left, time / ticks right), so nothing crowds the content.
+.bubble__foot {
+  display: contents;
+}
+
+.bubble--footer .bubble__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 .bubble--footer .bubble__meta {
   position: static;
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 6px;
+  margin-left: auto;
+}
+
+.bubble__foot-info {
+  min-width: 0;
+  color: var(--app-muted);
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// ------------------------------------------------------------------ media / card bubbles
+
+.bubble--media {
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px;
+
+  .bubble__media img,
+  .bubble__media video {
+    border-radius: 8px;
+  }
+
+  .bubble__text {
+    padding: 4px 6px 0;
+  }
+
+  // Footer must not widen the bubble past the photo / video
+  .bubble__foot {
+    width: 0;
+    min-width: 100%;
+    padding: 0 6px 2px;
+  }
+
+  .bubble__quote,
+  .bubble__fwd {
+    margin-left: 0;
+    margin-right: 0;
+  }
+}
+
+.bubble--card {
+  padding: 14px;
+
+  .bubble__text {
+    margin-top: 10px;
+  }
+
+  .bubble__foot {
+    margin-top: 10px;
+  }
+}
+
+// ------------------------------------------------------------------ forwarded header
+
+.bubble__fwd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--app-border);
+  color: var(--app-muted);
+  font-size: 0.72rem;
+  font-style: italic;
+
+  .ti {
+    flex: none;
+    font-size: 14px;
+    font-style: normal;
+  }
+
+  span {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  strong {
+    color: var(--app-text);
+    font-style: normal;
+    font-weight: 600;
+  }
 }
 
 .bubble__flags {

@@ -15,13 +15,13 @@
   left: 8px;
   z-index: 1100;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   background: var(--app-brand);
-  color: #fff;
+  color: var(--app-on-brand);
 }
 
 .shell {
-  --rail-width: 88px;
+  --rail-width: 68px;
   display: grid;
   grid-template-columns: var(--rail-width) 1fr;
   grid-template-rows: 48px 1fr;
@@ -29,16 +29,11 @@
     'top top'
     'rail content';
   height: 100%;
+  transition: grid-template-columns 0.2s ease;
 
-  // Navigation hidden completely: the page takes the whole width
+  // Collapsed: compact icon-only rail (labels move into tooltips)
   &--collapsed {
-    --rail-width: 0px;
-
-    .rail {
-      visibility: hidden;
-      border-right: 0;
-      padding: 0;
-    }
+    --rail-width: 56px;
   }
 }
 
@@ -46,12 +41,15 @@
 
 .topbar {
   grid-area: top;
+  position: relative;
+  z-index: 40;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0 12px 0 0;
-  background: var(--app-surface);
-  border-bottom: 1px solid var(--app-border);
+  background: var(--app-header-bg);
+  border-bottom: 1px solid var(--app-header-border);
+  color: #fff;
   min-width: 0;
 }
 
@@ -59,66 +57,81 @@
   flex: 1;
 }
 
-// Same column as the navigation (centred on its icons); stays visible when the navigation is hidden
+// Above the navigation column, centred on its icons
 .topbar__rail {
-  width: max(var(--rail-width), 64px);
+  width: var(--rail-width);
   flex: none;
   align-self: stretch;
   align-items: center;
   justify-content: center;
+  transition: width 0.2s ease;
 }
 
-// Same size / weight as a navigation icon
-.topbar__toggle {
-  width: 48px;
-  height: 40px;
+.topbar__toggle,
+.topbar__icon {
+  width: 32px;
+  height: 32px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   background: transparent;
-  color: var(--app-icon);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  &:hover {
-    background: var(--app-hover);
-    color: var(--app-text);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--app-brand);
-    outline-offset: -2px;
-  }
-}
-
-.topbar__icon,
-.topbar__me {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--app-icon);
+  color: var(--app-header-icon);
+  font-size: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
   text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
 
   &:hover {
-    background: var(--app-hover);
-    color: var(--app-text);
+    background: var(--app-header-hover);
+    color: #fff;
   }
 
-  &--active {
-    color: var(--app-brand);
-    background: var(--app-active);
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
   }
 }
 
-.topbar__me {
+.topbar__icon {
   border-radius: 50%;
+  font-size: 19px;
+
+  &--active {
+    background: var(--app-header-hover);
+    color: #fff;
+  }
+}
+
+.topbar__divider {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--app-header-divider);
+}
+
+.topbar__me {
+  // Presence dot ring blends into the header
+  --app-surface: var(--app-header-bg);
+  display: inline-flex;
+  margin-left: 2px;
   padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2);
+  transition: box-shadow 0.15s ease;
+
+  &:hover {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
 
   &::after {
     display: none; // Bootstrap dropdown caret
@@ -154,9 +167,16 @@
   line-height: 17px;
   text-align: center;
 
+  // Pinned to the icon's top-right corner
   &--rail {
-    top: 8px;
-    right: 18px;
+    top: -5px;
+    right: -9px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    font-size: 0.56rem;
+    line-height: 15px;
+    box-shadow: 0 0 0 2px var(--app-rail-bg);
   }
 }
 
@@ -167,10 +187,12 @@
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  padding: 6px 4px 6px 0;
-  background: var(--app-surface-2);
-  border-right: 1px solid var(--app-border);
+  padding: 8px 0;
+  background: var(--app-rail-bg);
+  border-right: 1px solid var(--app-rail-border);
+  overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: none;
 }
 
 .rail__list {
@@ -179,7 +201,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .rail__item {
@@ -188,42 +210,105 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-height: 64px;
-  padding: 8px 2px;
-  border-radius: 0 8px 8px 0;
-  color: var(--app-icon);
+  gap: 3px;
+  padding: 6px 0;
+  color: var(--app-rail-text);
   text-decoration: none;
-  font-size: 1.2rem;
-  transition: background 0.15s ease, color 0.15s ease;
+  outline: none;
+  transition: color 0.15s ease;
+
+  // Short bar on the left edge of the active item
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 4px;
+    height: 24px;
+    margin-top: -12px;
+    border-radius: 0 999px 999px 0;
+    background: var(--app-rail-indicator);
+    transform: scaleY(0);
+    opacity: 0;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
 
   &:hover {
-    background: var(--app-hover);
-    color: var(--app-text);
+    color: var(--app-rail-active-icon);
+
+    .rail__tile {
+      color: var(--app-rail-active-icon);
+      transform: scale(1.06);
+    }
+  }
+
+  &:active .rail__tile {
+    transform: scale(0.94);
+  }
+
+  &:focus-visible .rail__tile {
+    border-radius: var(--app-radius-sm);
+    box-shadow: 0 0 0 2px var(--app-rail-indicator);
   }
 
   &--active {
-    color: var(--app-brand);
-    background: var(--app-active);
+    color: var(--app-rail-active-icon);
 
-    // Full-height strip along the left edge of the active item
     &::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      width: 3px;
-      background: var(--app-brand);
+      transform: scaleY(1);
+      opacity: 1;
+    }
+
+    .rail__tile,
+    &:hover .rail__tile {
+      color: var(--app-rail-active-icon);
+      transform: none;
+    }
+
+    .rail__label {
+      font-weight: 600;
+      opacity: 1;
     }
   }
 }
 
+.rail__tile {
+  position: relative;
+  width: 28px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--app-rail-icon);
+  font-size: 22px;
+  transition: color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+
+  .ti {
+    vertical-align: 0;
+  }
+}
+
 .rail__label {
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.64rem;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+// Collapsed (desktop): icons only
+@media (min-width: 768px) {
+  .shell--collapsed {
+    .rail__label {
+      display: none;
+    }
+
+    .rail__item {
+      padding: 10px 0;
+    }
+  }
 }
 
 // ------------------------------------------------------------------ content
@@ -270,39 +355,45 @@
       'rail';
   }
 
-  .shell--collapsed .rail {
-    visibility: visible;
-  }
-
   .rail {
     flex-direction: row;
     padding: 0 4px env(safe-area-inset-bottom);
     border-right: 0;
-    border-top: 1px solid var(--app-border);
+    border-top: 1px solid var(--app-rail-border);
     overflow: visible;
   }
 
   .rail__list {
     flex-direction: row;
     flex: 1;
+    gap: 0;
     justify-content: space-around;
   }
 
   .rail__item {
     flex: 1;
-    min-height: 54px;
-    border-radius: 8px;
-    font-size: 1.05rem;
+    justify-content: center;
+    min-height: 58px;
+    padding: 4px 0;
+
+    // Indicator moves to the top edge of the tab
+    &::before {
+      left: 50%;
+      top: 0;
+      width: 24px;
+      height: 3px;
+      margin: 0 0 0 -12px;
+      border-radius: 0 0 999px 999px;
+      transform: scaleX(0);
+    }
 
     &--active::before {
-      left: 25%;
-      right: 25%;
-      top: -1px;
-      bottom: auto;
-      width: auto;
-      height: 3px;
-      border-radius: 0 0 3px 3px;
+      transform: scaleX(1);
     }
+  }
+
+  .rail__tile {
+    font-size: 21px;
   }
 
 }

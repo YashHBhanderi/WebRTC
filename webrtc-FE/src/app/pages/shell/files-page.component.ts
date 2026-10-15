@@ -51,7 +51,7 @@ type Filter = '' | 'image' | 'video' | 'audio' | 'pdf' | 'file';
           <span role="cell" class="files-name">
             <span class="files-icon">
               <img *ngIf="item.type === 'image' && item.thumbnailUrl; else icon" [src]="item.thumbnailUrl" alt="" loading="lazy" />
-              <ng-template #icon><i class="fa-solid {{ iconOf(item) }}" aria-hidden="true"></i></ng-template>
+              <ng-template #icon><i class="ti {{ iconOf(item) }}" aria-hidden="true"></i></ng-template>
             </span>
             <span class="files-name__text">
               <span class="files-name__title" [title]="item.fileName || ''">{{ item.fileName || label(item) }}</span>
@@ -63,10 +63,10 @@ type Filter = '' | 'image' | 'video' | 'audio' | 'pdf' | 'file';
           <span role="cell" class="files-muted">{{ item.createdAt | date: 'MMM d, y' }}</span>
           <span role="cell" class="files-actions">
             <button type="button" class="icon-btn-sm" (click)="openInChat(item)" [attr.aria-label]="'Show ' + (item.fileName || 'file') + ' in chat'" title="Show in chat">
-              <i class="fa-regular fa-comment"></i>
+              <i class="ti ti-message"></i>
             </button>
             <a class="icon-btn-sm" *ngIf="item.downloadUrl" [href]="item.downloadUrl" download rel="noopener" [attr.aria-label]="'Download ' + (item.fileName || 'file')" title="Download">
-              <i class="fa-solid fa-download"></i>
+              <i class="ti ti-download"></i>
             </a>
           </span>
         </div>
@@ -77,7 +77,7 @@ type Filter = '' | 'image' | 'video' | 'audio' | 'pdf' | 'file';
         <span class="visually-hidden" role="status">Loading files</span>
       </ng-container>
       <div class="empty" *ngIf="!loading && !error && !items.length">
-        <i class="fa-solid fa-folder-open empty__icon" aria-hidden="true"></i>
+        <i class="ti ti-folder-open empty__icon" aria-hidden="true"></i>
         <h2 class="empty__title">No files yet</h2>
         <p class="empty__text">Files shared in your chats will be collected here.</p>
       </div>

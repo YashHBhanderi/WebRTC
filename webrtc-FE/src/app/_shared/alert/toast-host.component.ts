@@ -2,10 +2,10 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { AlertService, Toast, ToastSeverity } from './alert.service';
 
 const ICON: Record<ToastSeverity, string> = {
-  success: 'fa-circle-check',
-  error: 'fa-circle-exclamation',
-  warning: 'fa-triangle-exclamation',
-  info: 'fa-circle-info',
+  success: 'ti-circle-check',
+  error: 'ti-alert-circle',
+  warning: 'ti-alert-triangle',
+  info: 'ti-info-circle',
 };
 
 /** Bottom-right toast stack. Rendered once, in AppComponent. */
@@ -20,14 +20,14 @@ const ICON: Record<ToastSeverity, string> = {
            [attr.aria-live]="t.severity === 'error' || t.severity === 'warning' ? 'assertive' : 'polite'"
            (mouseenter)="alert.hold(t.id)" (mouseleave)="alert.release(t.id)"
            (focusin)="alert.hold(t.id)" (focusout)="alert.release(t.id)">
-        <i class="fa-solid app-toast__icon {{ icon(t.severity) }}" aria-hidden="true"></i>
+        <i class="ti app-toast__icon {{ icon(t.severity) }}" aria-hidden="true"></i>
         <div class="app-toast__body">
           <div class="app-toast__title" *ngIf="t.title">{{ t.title }}</div>
           <div class="app-toast__message">{{ t.message }}<span class="app-toast__count" *ngIf="t.count > 1"> ({{ t.count }})</span></div>
           <button *ngIf="t.action" type="button" class="app-toast__action" (click)="run(t)">{{ t.action.label }}</button>
         </div>
         <button type="button" class="app-toast__close" aria-label="Dismiss notification" (click)="alert.dismiss(t.id)">
-          <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+          <i class="ti ti-x" aria-hidden="true"></i>
         </button>
       </div>
     </section>
@@ -49,7 +49,7 @@ const ICON: Record<ToastSeverity, string> = {
     }
     .app-toast--success { --toast-accent: var(--app-success); }
     .app-toast--error { --toast-accent: var(--app-danger); }
-    .app-toast--warning { --toast-accent: var(--app-warning, #d97706); }
+    .app-toast--warning { --toast-accent: var(--app-warning, #c4831f); }
     .app-toast--info { --toast-accent: var(--app-brand); }
     .app-toast__icon { color: var(--toast-accent); margin-top: 2px; font-size: 1rem; }
     .app-toast__body { flex: 1; min-width: 0; overflow-wrap: anywhere; }

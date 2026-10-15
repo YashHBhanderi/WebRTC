@@ -27,12 +27,12 @@
   margin: 0;
   font-size: 1.35rem;
   font-weight: 600;
-  color: #f8fafc;
+  color: #f7f9fa;
 }
 
 .prejoin__subtitle {
   margin: 4px 0 0;
-  color: #94a3b8;
+  color: #8a9dac;
   font-size: 0.9rem;
 }
 
@@ -41,7 +41,7 @@
   aspect-ratio: 16 / 9;
   border-radius: 16px;
   overflow: hidden;
-  background: #0f172a;
+  background: #121920;
 }
 
 .prejoin__video {
@@ -63,7 +63,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  color: #94a3b8;
+  color: #8a9dac;
 
   i {
     font-size: 28px;
@@ -84,25 +84,25 @@
   height: 48px;
   border-radius: 50%;
   border: 0;
-  background: rgba(30, 41, 59, 0.85);
+  background: rgba(33, 44, 54, 0.85);
   color: #fff;
   font-size: 18px;
   transition: background 0.15s ease;
 
   &:hover:not(:disabled) {
-    background: rgba(51, 65, 85, 0.95);
+    background: rgba(52, 68, 82, 0.95);
   }
 
   &:focus-visible {
-    outline: 2px solid #60a5fa;
+    outline: 2px solid #c7d2d8;
     outline-offset: 2px;
   }
 
   &--off {
-    background: #dc2626;
+    background: #d04848;
 
     &:hover:not(:disabled) {
-      background: #b91c1c;
+      background: #b13a3a;
     }
   }
 
@@ -115,7 +115,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #94a3b8;
+  color: #8a9dac;
   font-size: 0.8rem;
 }
 
@@ -123,14 +123,14 @@
   flex: 1;
   height: 6px;
   border-radius: 999px;
-  background: #1e293b;
+  background: #212c36;
   overflow: hidden;
 }
 
 .prejoin__meter-fill {
   height: 100%;
   width: 100%;
-  background: #34d399;
+  background: #5cc596;
   transform: scaleX(0);
   transform-origin: left center;
   transition: transform 0.08s linear;
@@ -155,14 +155,14 @@
     flex-direction: column;
     gap: 4px;
     min-width: 0;
-    color: #cbd5e1;
+    color: #c7d2d8;
     font-size: 0.75rem;
   }
 
   select {
-    background-color: #1e293b;
-    border-color: #334155;
-    color: #f8fafc;
+    background-color: #212c36;
+    border-color: #344452;
+    color: #f7f9fa;
   }
 }
 

@@ -1,15 +1,10 @@
 // Full-viewport meeting surface layered over the chat. Minimized = floating card / phone bar.
 :host {
-  --call-bg: #0b1120;
-  --call-panel: #111a2e;
-  --call-tile: #1e293b;
-  --call-ctrl: #1f2a40;
-  --call-ctrl-hover: #2b3854;
-  --call-text: #f8fafc;
-  --call-muted: #94a3b8;
-  --call-accent: #60a5fa;
-  --call-danger: #dc2626;
-  --call-speaking: #34d399;
+  --call-panel: var(--call-surface);
+  --call-ctrl: var(--call-control);
+  --call-ctrl-hover: var(--call-control-hover);
+  --call-danger: #d04848;
+  --call-speaking: #5cc596;
   --call-radius: 14px;
 
   position: fixed;
@@ -59,7 +54,7 @@
   transition: background 0.15s ease;
 
   &:hover:not(:disabled) {
-    background: rgba(148, 163, 184, 0.16);
+    background: rgba(138, 157, 172, 0.16);
   }
 
   &:focus-visible {
@@ -80,7 +75,7 @@
     background: var(--call-danger);
 
     &:hover:not(:disabled) {
-      background: #b91c1c;
+      background: #b13a3a;
     }
   }
 
@@ -142,7 +137,7 @@
 }
 
 .meet-top__presenting {
-  color: #93c5fd;
+  color: #c7d2d8;
   font-size: 0.78rem;
   white-space: nowrap;
   overflow: hidden;
@@ -154,14 +149,14 @@
   padding: 4px 10px;
   border: 0;
   border-radius: 8px;
-  background: rgba(148, 163, 184, 0.12);
+  background: rgba(138, 157, 172, 0.12);
   color: var(--call-text);
   font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 
   &:hover {
-    background: rgba(148, 163, 184, 0.2);
+    background: rgba(138, 157, 172, 0.2);
   }
 }
 
@@ -169,9 +164,9 @@
   position: absolute;
   z-index: 30;
   background: var(--call-panel);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid rgba(138, 157, 172, 0.18);
   border-radius: 14px;
-  box-shadow: 0 16px 40px rgba(2, 6, 23, 0.5);
+  box-shadow: 0 16px 40px rgba(18, 25, 32, 0.5);
   padding: 8px;
 }
 
@@ -219,8 +214,8 @@
   margin: 0 12px 10px;
   padding: 6px;
   border-radius: 14px;
-  background: rgba(17, 26, 46, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgba(25, 34, 43, 0.92);
+  border: 1px solid rgba(138, 157, 172, 0.12);
 }
 
 .meet-bar__group {
@@ -236,7 +231,7 @@
 .meet-bar__sep {
   width: 1px;
   height: 32px;
-  background: rgba(148, 163, 184, 0.2);
+  background: rgba(138, 157, 172, 0.2);
 }
 
 .tool-wrap {
@@ -275,8 +270,8 @@
   }
 
   &--active {
-    background: #1d3a66;
-    color: #bfdbfe;
+    background: #344452;
+    color: #e4eaed;
   }
 
   &--off {
@@ -285,7 +280,7 @@
 
   &--hand {
     background: #fbbf24;
-    color: #1f2937;
+    color: #19222b;
 
     &:hover:not(:disabled) {
       background: #f59e0b;
@@ -319,7 +314,7 @@
 }
 
 .tool__count {
-  background: #334155;
+  background: #344452;
 }
 
 .leave-btn {
@@ -336,7 +331,7 @@
   font-weight: 600;
 
   &:hover {
-    background: #b91c1c;
+    background: #b13a3a;
   }
 
   &:focus-visible {
@@ -363,7 +358,7 @@
 
     &:hover,
     &:focus-visible {
-      background: rgba(148, 163, 184, 0.14);
+      background: rgba(138, 157, 172, 0.14);
       transform: scale(1.12);
     }
   }
@@ -397,7 +392,7 @@
     }
 
     &:hover:not(:disabled) {
-      background: rgba(148, 163, 184, 0.12);
+      background: rgba(138, 157, 172, 0.12);
     }
 
     &:disabled {
@@ -434,7 +429,7 @@
   justify-content: space-between;
   padding: 4px 4px 8px;
   margin-bottom: 4px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  border-bottom: 1px solid rgba(138, 157, 172, 0.14);
 
   button {
     width: 38px;
@@ -488,7 +483,7 @@
   height: auto;
   aspect-ratio: 16 / 10;
   border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(2, 6, 23, 0.55);
+  box-shadow: 0 10px 30px rgba(18, 25, 32, 0.55);
   transition: width 0.25s ease, transform 0.25s ease;
 }
 
@@ -518,7 +513,7 @@
   margin-top: -20px;
   border: 0;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(25, 34, 43, 0.8);
   color: var(--call-text);
 
   &--prev {
@@ -534,7 +529,7 @@
   }
 
   &:hover:not(:disabled) {
-    background: rgba(30, 41, 59, 0.95);
+    background: rgba(33, 44, 54, 0.95);
   }
 }
 
@@ -546,7 +541,7 @@
   transform: translateX(-50%);
   padding: 2px 10px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(25, 34, 43, 0.8);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
@@ -559,12 +554,12 @@
   border: 0;
   border-radius: 999px;
   padding: 6px 12px;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(25, 34, 43, 0.8);
   color: var(--call-text);
   font-size: 0.8rem;
 
   &:hover {
-    background: rgba(30, 41, 59, 0.95);
+    background: rgba(33, 44, 54, 0.95);
   }
 }
 
@@ -580,7 +575,7 @@
   gap: 6px;
   padding: 18px 26px;
   border-radius: 18px;
-  background: rgba(15, 23, 42, 0.6);
+  background: rgba(25, 34, 43, 0.6);
   backdrop-filter: blur(6px);
   text-align: center;
 
@@ -590,7 +585,7 @@
   }
 
   span {
-    color: #cbd5e1;
+    color: #c7d2d8;
     font-size: 0.9rem;
   }
 }
@@ -600,7 +595,7 @@
 .person__avatar {
   border-radius: 50%;
   overflow: hidden;
-  background: #475569;
+  background: #4f6477;
   color: #fff;
   display: flex;
   align-items: center;
@@ -623,8 +618,8 @@
 }
 
 @keyframes ring-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.55); }
-  100% { box-shadow: 0 0 0 18px rgba(96, 165, 250, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(199, 210, 216, 0.55); }
+  100% { box-shadow: 0 0 0 18px rgba(199, 210, 216, 0); }
 }
 
 .stage-waiting {
@@ -639,8 +634,8 @@
   max-width: calc(100% - 32px);
   padding: 10px 16px;
   border-radius: 12px;
-  background: rgba(15, 23, 42, 0.75);
-  color: #cbd5e1;
+  background: rgba(25, 34, 43, 0.75);
+  color: #c7d2d8;
   font-size: 0.85rem;
 }
 
@@ -655,7 +650,7 @@
   padding: 24px;
   text-align: center;
   border-radius: var(--call-radius);
-  background: radial-gradient(circle at 50% 35%, #1e3a5f 0%, var(--call-bg) 65%);
+  background: radial-gradient(circle at 50% 35%, #344452 0%, var(--call-bg) 65%);
 }
 
 .audio-call__avatar {
@@ -679,7 +674,7 @@
 
 .audio-call__status {
   margin: 0;
-  color: #cbd5e1;
+  color: #c7d2d8;
   font-size: 1rem;
   font-variant-numeric: tabular-nums;
 }
@@ -735,7 +730,7 @@
 .floating-reaction__name {
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.75);
+  background: rgba(25, 34, 43, 0.75);
   font-size: 0.7rem;
   white-space: nowrap;
 }
@@ -767,8 +762,8 @@
   max-width: calc(100% - 32px);
   padding: 8px 14px;
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(25, 34, 43, 0.9);
+  border: 1px solid rgba(138, 157, 172, 0.2);
   font-size: 0.85rem;
   text-align: center;
 }
@@ -783,7 +778,7 @@
   min-height: 0;
   border-radius: var(--call-radius);
   background: var(--call-panel);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  border: 1px solid rgba(138, 157, 172, 0.12);
   overflow: hidden;
 
   &--light {
@@ -853,7 +848,7 @@
   border-radius: 10px;
 
   &:hover {
-    background: rgba(148, 163, 184, 0.08);
+    background: rgba(138, 157, 172, 0.08);
   }
 }
 
@@ -910,8 +905,8 @@
 .badge-host {
   padding: 0 6px;
   border-radius: 4px;
-  background: rgba(96, 165, 250, 0.2);
-  color: #bfdbfe;
+  background: rgba(199, 210, 216, 0.2);
+  color: #e4eaed;
   font-weight: 600;
 }
 
@@ -941,7 +936,7 @@
   gap: 12px;
   padding: 24px;
   text-align: center;
-  background: rgba(2, 6, 23, 0.82);
+  background: rgba(18, 25, 32, 0.82);
 
   p {
     margin: 0;
@@ -1054,7 +1049,7 @@
     border-radius: 0;
 
     &--light {
-      background: var(--app-chat-bg, #eef1f5);
+      background: var(--app-chat-bg, #f0f3f5);
     }
   }
 
@@ -1277,7 +1272,7 @@
   }
 
   &:hover:not(:disabled) {
-    background: rgba(148, 163, 184, 0.12);
+    background: rgba(138, 157, 172, 0.12);
   }
 
   &:disabled {
@@ -1298,7 +1293,7 @@
 .media-menu__divider {
   height: 1px;
   margin: 6px 4px;
-  background: rgba(148, 163, 184, 0.16);
+  background: rgba(138, 157, 172, 0.16);
 }
 
 .media-menu__toggle {
@@ -1321,7 +1316,7 @@
   }
 
   &:hover {
-    background: rgba(148, 163, 184, 0.08);
+    background: rgba(138, 157, 172, 0.08);
   }
 
   // Switch look for the checkbox
@@ -1332,7 +1327,7 @@
     height: 20px;
     margin: 0;
     border-radius: 999px;
-    background: #475569;
+    background: #4f6477;
     position: relative;
     cursor: pointer;
     transition: background 0.15s ease;
@@ -1416,7 +1411,7 @@
   width: 100%;
   aspect-ratio: 16 / 10;
   border-radius: 8px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  border: 1px solid rgba(138, 157, 172, 0.25);
   color: rgba(255, 255, 255, 0.85);
   font-size: 15px;
   overflow: hidden;
@@ -1460,7 +1455,7 @@
     &:nth-child(3) { height: 12px; }
   }
 
-  &--good i { background: #4ade80; }
+  &--good i { background: #5cc596; }
   &--fair i:nth-child(-n + 2) { background: #fbbf24; }
   &--poor i:nth-child(1) { background: #f87171; }
 }
@@ -1478,13 +1473,13 @@
   gap: 8px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(17, 24, 39, 0.78);
+  background: rgba(25, 34, 43, 0.78);
   color: #fff;
   font-size: 0.8rem;
   pointer-events: auto;
 
   &--alert {
-    background: rgba(185, 28, 28, 0.92);
+    background: rgba(177, 58, 58, 0.92);
   }
 
   button {
@@ -1492,7 +1487,7 @@
     border-radius: 999px;
     padding: 2px 10px;
     background: #fff;
-    color: #111827;
+    color: #19222b;
     font-weight: 600;
     font-size: 0.75rem;
   }
@@ -1509,7 +1504,7 @@
   gap: 6px;
   padding: 6px;
   border-radius: 12px;
-  background: #1f2937;
+  background: #19222b;
   color: #fff;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   font-size: 0.82rem;
@@ -1546,7 +1541,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
+  background: #e05a5a;
 }
 
 .presenter-bar__btn {
@@ -1567,18 +1562,18 @@
   border-radius: 8px;
   padding: 0 12px;
   height: 32px;
-  background: #dc2626;
+  background: #d04848;
   color: #fff;
   font-weight: 600;
   white-space: nowrap;
 
   &:hover {
-    background: #b91c1c;
+    background: #b13a3a;
   }
 }
 
 .presenter-bar :focus-visible {
-  outline: 2px solid #93c5fd;
+  outline: 2px solid #c7d2d8;
   outline-offset: 2px;
 }
 
@@ -1615,7 +1610,7 @@
 .lobby-list__all {
   border: 0;
   background: none;
-  color: #93c5fd;
+  color: #c7d2d8;
   font-size: 0.78rem;
   font-weight: 600;
 }
@@ -1649,7 +1644,7 @@
   border: 0;
   border-radius: 6px;
   padding: 4px 10px;
-  background: #2563eb;
+  background: #2c3a47;
   color: #fff;
   font-size: 0.78rem;
   font-weight: 600;
@@ -1719,7 +1714,7 @@
   gap: 6px;
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(220, 38, 38, 0.2);
+  background: rgba(208, 72, 72, 0.2);
   color: #fecaca;
   font-size: 0.75rem;
   font-weight: 700;
@@ -1731,7 +1726,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
+  background: #e05a5a;
   animation: rec-pulse 1.4s ease-in-out infinite;
 }
 

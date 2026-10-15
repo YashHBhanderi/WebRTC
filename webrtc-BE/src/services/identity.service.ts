@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/express";
-import User from "../models/userModel";
+import User, { IUser } from "../models/userModel";
+import { io } from "../realtime/io";
 import { AppError, ForbiddenError } from "../utils/errors";
 import { USERNAME_MAX, USERNAME_MIN } from "./userServices";
 
@@ -68,6 +69,7 @@ async function lookupOrProvision(clerkUserId: string): Promise<string> {
             clerkId: clerkUserId,
             isVerified: true,
         });
+        announceNewUser(created);
         return String(created._id);
     } catch (error) {
         // Another server process linked/created it at the same moment (unique email / clerkId)
@@ -75,6 +77,19 @@ async function lookupOrProvision(clerkUserId: string): Promise<string> {
             return confirmLink(clerkUserId);
         }
         throw error;
+    }
+}
+
+/**
+ * Everyone connected adds the new account to their contact / member pickers live. Sent only after
+ * the insert succeeded; the payload is what GET /web/users/except-current returns for a user.
+ */
+function announceNewUser(user: IUser): void {
+    try {
+        io().emit("user:created", user.toJSON());
+    } catch (error) {
+        // Clients still pick the user up on their next (re)load / reconnect
+        console.error("[identity] could not announce the new user", error);
     }
 }
 

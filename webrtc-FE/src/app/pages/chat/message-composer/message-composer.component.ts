@@ -38,7 +38,18 @@ export interface ReplyPreview {
 })
 export class MessageComposerComponent implements OnDestroy {
   @Input() submit!: (draft: MessageDraft) => Promise<boolean>;
-  @Input() replyTo: ReplyPreview | null = null;
+  @Input() set replyTo(value: ReplyPreview | null) {
+    const started = !!value && value.id !== this._replyTo?.id;
+    this._replyTo = value;
+    if (started) {
+      this.cdr.markForCheck();
+      this.focus();
+    }
+  }
+  get replyTo(): ReplyPreview | null {
+    return this._replyTo;
+  }
+  private _replyTo: ReplyPreview | null = null;
   @Input() placeholder = 'Type a message';
   /** Accept files pasted anywhere on the page (main chat) rather than only into the box. */
   @Input() pasteFromDocument = false;
@@ -142,8 +153,11 @@ export class MessageComposerComponent implements OnDestroy {
     return fileIconFor(item.file.name, item.kind);
   }
 
+  /** Reply / edit / attach: wait past the click so the strip or dropdown cannot steal the caret. */
   focus(): void {
-    setTimeout(() => this.input.nativeElement.focus());
+    const move = () => this.input?.nativeElement.focus();
+    setTimeout(move);
+    setTimeout(move, 80);
   }
 
   onInput(): void {
@@ -350,14 +364,14 @@ export class MessageComposerComponent implements OnDestroy {
 /** Font Awesome icon for a file name / kind (shared by the composer, messages and upload cards). */
 export function fileIconFor(name: string, kind?: string): string {
   const ext = (name.split('.').pop() || '').toLowerCase();
-  if (kind === 'image') return 'fa-file-image';
-  if (kind === 'video') return 'fa-file-video';
-  if (kind === 'audio') return 'fa-file-audio';
-  if (kind === 'pdf' || ext === 'pdf') return 'fa-file-pdf';
-  if (['doc', 'docx'].includes(ext)) return 'fa-file-word';
-  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'fa-file-excel';
-  if (['ppt', 'pptx'].includes(ext)) return 'fa-file-powerpoint';
-  if (ext === 'zip') return 'fa-file-zipper';
-  if (['txt', 'log', 'md'].includes(ext)) return 'fa-file-lines';
-  return 'fa-file';
+  if (kind === 'image') return 'ti-photo';
+  if (kind === 'video') return 'ti-movie';
+  if (kind === 'audio') return 'ti-file-music';
+  if (kind === 'pdf' || ext === 'pdf') return 'ti-file-type-pdf';
+  if (['doc', 'docx'].includes(ext)) return 'ti-file-type-doc';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'ti-file-type-xls';
+  if (['ppt', 'pptx'].includes(ext)) return 'ti-file-type-ppt';
+  if (ext === 'zip') return 'ti-file-zip';
+  if (['txt', 'log', 'md'].includes(ext)) return 'ti-file-text';
+  return 'ti-file';
 }

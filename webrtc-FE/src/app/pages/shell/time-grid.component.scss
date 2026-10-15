@@ -30,7 +30,7 @@
   border-left: 1px solid var(--app-border);
   min-width: 0;
 
-  &--today .tg__dom { background: var(--app-brand); color: #fff; }
+  &--today .tg__dom { background: var(--app-brand); color: var(--app-on-brand); }
 }
 
 .tg__dow { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--app-muted); }

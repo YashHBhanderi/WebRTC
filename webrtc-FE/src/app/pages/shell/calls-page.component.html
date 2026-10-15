@@ -9,7 +9,7 @@
         <span class="dial__chip" *ngFor="let p of selected">
           <app-avatar [src]="p.avatar" [name]="p.username" [size]="20"></app-avatar>
           <span class="dial__chip-name">{{ p.username }}</span>
-          <button type="button" (click)="remove(p); $event.stopPropagation()" [attr.aria-label]="'Remove ' + p.username"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+          <button type="button" (click)="remove(p); $event.stopPropagation()" [attr.aria-label]="'Remove ' + p.username"><i class="ti ti-x" aria-hidden="true"></i></button>
         </span>
         <input #peopleInput id="call-people" type="search" [(ngModel)]="query" (keydown)="onSearchKeydown($event)"
                [placeholder]="selected.length ? 'Add more people' : 'Search for people'" autocomplete="off"
@@ -19,7 +19,7 @@
 
       <button type="button" class="btn btn-primary dial__call" (click)="startAudioCall()" [disabled]="starting">
         <span *ngIf="starting" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
-        <i *ngIf="!starting" class="fa-solid fa-phone me-2" aria-hidden="true"></i>
+        <i *ngIf="!starting" class="ti ti-phone me-2" aria-hidden="true"></i>
         Audio call<ng-container *ngIf="selected.length > 1"> ({{ selected.length }})</ng-container>
       </button>
     </div>
@@ -33,12 +33,12 @@
           <button type="button" class="conv" (click)="toggle(p)" [attr.aria-pressed]="isSelected(p)">
             <app-avatar [src]="p.avatar" [name]="p.username" [size]="40" [presence]="p.presence"></app-avatar>
             <span class="conv__body"><span class="conv__row"><span class="conv__title">{{ p.username }}</span></span></span>
-            <i class="fa-solid fa-plus dial__add" aria-hidden="true"></i>
+            <i class="ti ti-plus dial__add" aria-hidden="true"></i>
           </button>
         </li>
       </ul>
       <div class="pane-state" *ngIf="peopleLoaded && !suggestions.length">
-        <i class="fa-solid fa-user" aria-hidden="true"></i>
+        <i class="ti ti-user" aria-hidden="true"></i>
         <span>{{ query.trim() ? 'No one matches “' + query.trim() + '”' : 'Everyone is already selected' }}</span>
       </div>
     </div>
@@ -66,7 +66,7 @@
             <span class="history__avatar">
               <app-avatar [src]="call.avatar" [name]="call.title" [size]="40"></app-avatar>
               <span class="history__badge" [class.history__badge--bad]="isBad(call)" aria-hidden="true">
-                <i class="fa-solid" [class.fa-video]="call.callType === 'video'" [class.fa-phone]="call.callType !== 'video'"></i>
+                <i class="ti" [class.ti-video]="call.callType === 'video'" [class.ti-phone]="call.callType !== 'video'"></i>
               </span>
             </span>
             <span class="conv__body">
@@ -76,7 +76,7 @@
               </span>
               <span class="conv__row">
                 <span class="conv__preview">
-                  <i class="fa-solid history__dir" [class.fa-arrow-down]="call.direction === 'incoming'" [class.fa-arrow-up]="call.direction === 'outgoing'" aria-hidden="true"></i>
+                  <i class="ti history__dir" [class.ti-arrow-down]="call.direction === 'incoming'" [class.ti-arrow-up]="call.direction === 'outgoing'" aria-hidden="true"></i>
                   {{ call.isMeeting ? 'Meeting' : call.direction === 'incoming' ? 'Incoming' : 'Outgoing' }}
                   · {{ call.callType === 'video' ? 'Video' : 'Audio' }}
                   <ng-container *ngIf="label(call)"> · {{ label(call) }}</ng-container>
@@ -87,15 +87,15 @@
             </span>
           </button>
           <span class="history__actions">
-            <button type="button" (click)="callBack(call, 'audio')" [attr.aria-label]="'Audio call ' + call.title" title="Audio call"><i class="fa-solid fa-phone" aria-hidden="true"></i></button>
-            <button type="button" (click)="callBack(call, 'video')" [attr.aria-label]="'Video call ' + call.title" title="Video call"><i class="fa-solid fa-video" aria-hidden="true"></i></button>
-            <button type="button" (click)="openChat(call)" [attr.aria-label]="'Chat with ' + call.title" title="Chat"><i class="fa-regular fa-comment" aria-hidden="true"></i></button>
+            <button type="button" (click)="callBack(call, 'audio')" [attr.aria-label]="'Audio call ' + call.title" title="Audio call"><i class="ti ti-phone" aria-hidden="true"></i></button>
+            <button type="button" (click)="callBack(call, 'video')" [attr.aria-label]="'Video call ' + call.title" title="Video call"><i class="ti ti-video" aria-hidden="true"></i></button>
+            <button type="button" (click)="openChat(call)" [attr.aria-label]="'Chat with ' + call.title" title="Chat"><i class="ti ti-message" aria-hidden="true"></i></button>
           </span>
         </li>
       </ul>
 
       <div class="pane-state" *ngIf="!loading && !error && !items.length">
-        <i class="fa-solid fa-phone" aria-hidden="true"></i>
+        <i class="ti ti-phone" aria-hidden="true"></i>
         <strong>{{ filter === 'missed' ? 'No missed calls' : filter === 'incoming' ? 'No incoming calls' : filter === 'outgoing' ? 'No outgoing calls' : 'No calls yet' }}</strong>
         <span *ngIf="filter === 'all'">Pick people on the left to start a call.</span>
       </div>

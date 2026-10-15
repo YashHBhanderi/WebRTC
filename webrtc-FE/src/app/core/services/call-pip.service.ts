@@ -180,7 +180,7 @@ export class CallPipService {
     }
     this.cardKey = key;
     const g = this.canvas.getContext('2d')!;
-    g.fillStyle = '#0b1120';
+    g.fillStyle = '#121920';
     g.fillRect(0, 0, CARD_W, CARD_H);
     g.fillStyle = s.stage.colors.bg;
     g.beginPath();
@@ -189,13 +189,13 @@ export class CallPipService {
     g.fillStyle = s.stage.colors.fg;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.font = '600 40px system-ui, sans-serif';
+    g.font = '600 40px Inter, system-ui, sans-serif';
     g.fillText(s.stage.initials, CARD_W / 2, 106);
-    g.fillStyle = '#f8fafc';
-    g.font = '600 24px system-ui, sans-serif';
+    g.fillStyle = '#f7f9fa';
+    g.font = '600 24px Inter, system-ui, sans-serif';
     g.fillText(s.stage.name, CARD_W / 2, 190, CARD_W - 40);
-    g.fillStyle = '#94a3b8';
-    g.font = '18px system-ui, sans-serif';
+    g.fillStyle = '#8a9dac';
+    g.font = '18px Inter, system-ui, sans-serif';
     g.fillText(s.muted ? `${s.status} · You're muted` : s.status, CARD_W / 2, 224, CARD_W - 40);
     // captureStream(0): push exactly one frame per change (no timers, nothing to throttle)
     const track = this.canvasStream!.getVideoTracks()[0] as any;

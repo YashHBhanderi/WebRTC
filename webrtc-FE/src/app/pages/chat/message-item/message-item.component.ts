@@ -79,6 +79,7 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
 
   @ViewChild('bubble', { static: true }) bubble!: ElementRef<HTMLElement>;
   @ViewChild('swipeIcon', { static: true }) swipeIcon!: ElementRef<HTMLElement>;
+  @ViewChild('clip') clip?: ElementRef<HTMLVideoElement>;
 
   readonly quickReactions: string[];
   readonly readMoreChars: number;
@@ -90,6 +91,7 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
   menuOpen = false;
   pickerOpen = false;
   pickerAnchor: HTMLElement | null = null;
+  videoPlaying = false;
 
   private touchCleanup: (() => void) | null = null;
   private dismissCleanup: (() => void) | null = null;
@@ -121,6 +123,7 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.pauseClip();
     this.touchCleanup?.();
     this.dismissCleanup?.();
   }
@@ -148,6 +151,56 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
     return this.pinned || !!this.message.saved || !!this.message.editedAt;
   }
 
+  get isRecording(): boolean {
+    return this.message.type === 'recording' && !!this.message.recording;
+  }
+
+  /** Name + time above the bubble: incoming runs, and every recording (carries the "Recorded by" pill). */
+  get showHead(): boolean {
+    return !this.compact && ((!this.mine && this.first) || this.isRecording);
+  }
+
+  get isVisualMedia(): boolean {
+    return this.message.type === 'image' || this.message.type === 'video';
+  }
+
+  /** Still frame for photos, and for videos that have a real thumbnail (not the video file itself). */
+  get mediaPoster(): string {
+    if (this.message.type === 'image') {
+      return this.message.thumbnailUrl || this.message.fileUrl || '';
+    }
+    const thumb = this.message.thumbnailUrl || '';
+    return thumb && thumb !== this.message.fileUrl ? thumb : '';
+  }
+
+  /** Bubbles that act as a card (document, recording). */
+  get isCard(): boolean {
+    return this.message.type === 'pdf' || this.message.type === 'file' || this.isRecording;
+  }
+
+  /** Time / ticks on their own row instead of floating at the end of the text. */
+  get footRow(): boolean {
+    return this.hasFooterFlags || this.isVisualMedia || this.isCard;
+  }
+
+  /** "PNG image", "PDF document", "DOCX file". */
+  get typeLabel(): string {
+    const type = this.message.type;
+    if (type === 'pdf') {
+      return 'PDF document';
+    }
+    const fromMime = (this.message.mimeType || '').split('/')[1]?.split(/[+;.-]/)[0] || '';
+    const fromName = /\.([a-z0-9]{1,6})$/i.exec(this.fileName())?.[1] || '';
+    const ext = (fromName || fromMime).toUpperCase().replace('JPEG', 'JPG');
+    if (type === 'image') {
+      return ext ? `${ext} image` : 'Image';
+    }
+    if (type === 'video') {
+      return ext ? `${ext} video` : 'Video';
+    }
+    return ext ? `${ext} file` : 'File';
+  }
+
   /** Finished call, from my side: I placed it → outgoing. */
   get callLabel(): string {
     const call = this.message.call;
@@ -157,7 +210,7 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
     if (call.mode === 'meetNow') {
       return 'Meeting';
     }
-    return `${this.mine ? 'Outgoing' : 'Incoming'} ${call.callType === 'video' ? 'video' : 'audio'} call`;
+    return `${this.mine ? 'Outgoing' : 'Incoming'} ${call.callType === 'video' ? 'video' : 'voice'} call`;
   }
 
   get callDuration(): string {
@@ -310,6 +363,43 @@ export class MessageItemComponent implements OnInit, OnChanges, OnDestroy {
     if (this.message.fileUrl) {
       this.openMedia.emit({ url: this.message.fileUrl, type, downloadUrl: this.downloadHref || undefined });
     }
+  }
+
+  /** Center play: watch the clip in the bubble. Overlay play: open the lightbox. */
+  toggleInlinePlay(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const el = this.clip?.nativeElement;
+    if (!el) {
+      return;
+    }
+    if (el.paused) {
+      void el.play().catch(() => this.onVideoPause());
+    } else {
+      el.pause();
+    }
+  }
+
+  openPreview(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.pauseClip();
+    this.openFile('video');
+  }
+
+  onVideoPlay(): void {
+    this.videoPlaying = true;
+    this.cdr.markForCheck();
+  }
+
+  onVideoPause(): void {
+    this.videoPlaying = false;
+    this.cdr.markForCheck();
+  }
+
+  private pauseClip(): void {
+    this.clip?.nativeElement.pause();
+    this.videoPlaying = false;
   }
 
   /** Download link for media messages ('' for text/call/system messages). */

@@ -32,6 +32,7 @@ import { ChatMessage, ChatState, ChatUser, EditTarget, GroupSummary, MemberRecei
 import { ActiveGroupMeeting, CallManagerService } from 'src/app/core/services/call-manager.service';
 import { NotificationCenterService } from 'src/app/core/services/notification-center.service';
 import { ShellUiService } from 'src/app/core/services/shell-ui.service';
+import { ChatUiService } from 'src/app/core/services/chat-ui.service';
 import { ReplyPreview } from './message-composer/message-composer.component';
 import { MediaOpenEvent } from './message-item/message-item.component';
 import { CallNotificationService } from 'src/app/core/services/call-notification.service';
@@ -209,6 +210,7 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     private calls: CallManagerService,
     private notificationCenter: NotificationCenterService,
     private shellUi: ShellUiService,
+    public chatUi: ChatUiService,
     @Inject(CHAT_CONFIG) config: ChatConfig,
   ) {
     this.pageSize = config.historyPageSize;
@@ -244,6 +246,13 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     this.subs.add(this.socketService.messagesMarkedRead().subscribe((data: any) => this.handleMessagesMarkedRead(data)));
     this.subs.add(this.socketService.onPresence().subscribe((data: any) => this.onPresence(data)));
     this.subs.add(this.socketService.onUserUpdated().subscribe((data) => this.onUserUpdated(data)));
+    // New accounts show up in contacts / new chat / group member pickers without a reload
+    this.subs.add(this.userService.newUsers$.subscribe((user) => {
+      this.users = UserService.withUser(this.users, user);
+      this.rebuildSidebar();
+    }));
+    // Missed events while offline: resync the list
+    this.subs.add(this.userService.reconnected$.subscribe(() => this.loadUsers()));
     // A reconnected socket is in no rooms: rejoin the open chat so typing/room events keep flowing
     this.subs.add(this.socketService.onConnect().subscribe(() => {
       if (this.conversationId) {
@@ -1310,6 +1319,43 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     return msg.type === 'call' && /^(missed|declined)/i.test(msg.content || '');
   }
 
+  /** Call log line, from my side: I placed it → outgoing / unanswered. */
+  callLogLabel(msg: ChatMessage): string {
+    const call = msg.call;
+    if (!call) {
+      return msg.content || 'Call';
+    }
+    if (call.mode === 'meetNow') {
+      return 'Meeting';
+    }
+    const kind = call.callType === 'video' ? 'video' : 'voice';
+    if (call.outcome === 'missed') {
+      return this.isMine(msg) ? `Unanswered ${kind} call` : `Missed ${kind} call`;
+    }
+    return `${this.isMine(msg) ? 'Outgoing' : 'Incoming'} ${kind} call`;
+  }
+
+  callLogDuration(msg: ChatMessage): string {
+    const total = Math.max(0, Math.round(msg.call?.duration || 0));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  /** 1:1 chats only (groups start meetings from the header). */
+  get canCallBack(): boolean {
+    return !this.isGroupChat && !this.blockedByMe && !this.inCallHere;
+  }
+
+  callAgain(msg: ChatMessage): void {
+    if (msg.call?.callType === 'video') {
+      this.startVideoCall();
+    } else {
+      this.startAudioCall();
+    }
+  }
+
   isVideoCallMessage(msg: ChatMessage): boolean {
     return /video|meeting/i.test(msg.content || '') || /callType=video/.test(msg.fileUrl || '');
   }
@@ -1433,6 +1479,7 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
 
   setReply(message: ChatMessage): void {
     this.replyingTo = message;
+    this.composer?.focus();
   }
 
   cancelReply(): void {

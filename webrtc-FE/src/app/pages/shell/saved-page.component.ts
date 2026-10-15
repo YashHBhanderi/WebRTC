@@ -37,7 +37,7 @@ interface SavedItem {
             <span class="activity__meta"><span class="activity__time">{{ item.createdAt | date: 'MMM d' }}</span></span>
           </button>
           <button type="button" class="activity__callback" (click)="unsave(item)" aria-label="Remove from saved" title="Remove from saved">
-            <i class="fa-solid fa-bookmark" aria-hidden="true"></i>
+            <i class="ti ti-bookmark" aria-hidden="true"></i>
           </button>
         </li>
       </ul>
@@ -47,7 +47,7 @@ interface SavedItem {
         <span class="visually-hidden" role="status">Loading saved messages</span>
       </ng-container>
       <div class="empty" *ngIf="!loading && !error && !items.length">
-        <i class="fa-regular fa-bookmark empty__icon" aria-hidden="true"></i>
+        <i class="ti ti-bookmark empty__icon" aria-hidden="true"></i>
         <h2 class="empty__title">No saved messages</h2>
         <p class="empty__text">Use “Save” in a message's menu to keep it here.</p>
       </div>

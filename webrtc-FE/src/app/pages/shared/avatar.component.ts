@@ -50,8 +50,8 @@ const failedSources = new Set<string>();
       align-items: center;
       justify-content: center;
       border-radius: 50%;
-      background: var(--app-avatar-bg, #dbeafe);
-      color: var(--app-brand-strong, #1d4ed8);
+      background: var(--app-avatar-bg, #e4eaed);
+      color: var(--app-brand-strong, #19222b);
       font-weight: 600;
       text-transform: uppercase;
       user-select: none;
@@ -66,17 +66,17 @@ const failedSources = new Set<string>();
       min-width: 9px;
       min-height: 9px;
       border-radius: 50%;
-      background: var(--app-success, #16a34a);
+      background: var(--app-success, #2f9466);
       border: 2px solid var(--app-surface, #fff);
       box-sizing: border-box;
     }
-    .av__dot--busy, .av__dot--incall, .av__dot--dnd { background: var(--app-danger, #dc2626); }
+    .av__dot--busy, .av__dot--incall, .av__dot--dnd { background: var(--app-danger, #d04848); }
     .av__dot--dnd::after {
       content: ''; position: absolute; left: 22%; right: 22%; top: 50%; height: 2px; margin-top: -1px;
       background: var(--app-surface, #fff); border-radius: 1px;
     }
-    .av__dot--away { background: var(--app-warning, #d97706); }
-    .av__dot--offline { background: var(--app-surface, #fff); box-shadow: inset 0 0 0 2px var(--app-muted, #6b7280); }
+    .av__dot--away { background: var(--app-warning, #c4831f); }
+    .av__dot--offline { background: var(--app-surface, #fff); box-shadow: inset 0 0 0 2px var(--app-muted, #667c8f); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

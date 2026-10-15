@@ -44,7 +44,7 @@
 .me-col { flex: 1 1 150px; min-width: 0; &--time { flex: 0 1 120px; } }
 
 .me-days { display: flex; gap: 6px; flex-wrap: wrap; }
-.me-day-btn { padding: 3px 10px; border: 1px solid var(--app-border); border-radius: 14px; background: transparent; color: var(--app-text); font-size: .8rem; &--on { background: var(--app-brand); border-color: var(--app-brand); color: #fff; } }
+.me-day-btn { padding: 3px 10px; border: 1px solid var(--app-border); border-radius: 14px; background: transparent; color: var(--app-text); font-size: .8rem; &--on { background: var(--app-brand); border-color: var(--app-brand); color: var(--app-on-brand); } }
 
 .me-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .me-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 6px; border-radius: 999px; background: var(--app-brand-soft); font-size: .82rem;

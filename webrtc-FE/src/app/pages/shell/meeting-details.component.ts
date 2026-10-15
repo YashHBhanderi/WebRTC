@@ -24,32 +24,32 @@ interface RecordingRow {
   template: `
     <div class="md" *ngIf="meeting as m">
       <header class="md__hero" [class.md__hero--live]="status === 'live'" [class.md__hero--ended]="status === 'ended'">
-        <button type="button" class="md__close" (click)="modal.dismiss()" aria-label="Close"><i class="fa-solid fa-xmark"></i></button>
+        <button type="button" class="md__close" (click)="modal.dismiss()" aria-label="Close"><i class="ti ti-x"></i></button>
         <span class="md__status">
           <span class="md__dot"></span>{{ status === 'live' ? 'Live now' : status === 'ended' ? 'Ended' : 'Upcoming' }}
         </span>
         <h2 class="md__title" id="md-title">{{ m.title }}</h2>
         <p class="md__when">
-          <i class="fa-regular fa-clock" aria-hidden="true"></i>
+          <i class="ti ti-clock" aria-hidden="true"></i>
           {{ m.occurrenceStart | date: 'EEEE, MMMM d, y' }} · {{ m.occurrenceStart | date: 'shortTime' }} – {{ m.occurrenceEnd | date: 'shortTime' }}
           <span class="md__chip">{{ duration }}</span>
         </p>
-        <p class="md__when" *ngIf="m.recurrenceText"><i class="fa-solid fa-repeat" aria-hidden="true"></i>{{ m.recurrenceText }}</p>
+        <p class="md__when" *ngIf="m.recurrenceText"><i class="ti ti-repeat" aria-hidden="true"></i>{{ m.recurrenceText }}</p>
         <div class="md__cta">
-          <button type="button" class="btn btn-light md__join" *ngIf="canJoin" (click)="act('join')"><i class="fa-solid fa-video me-2"></i>{{ status === 'live' ? 'Join now' : 'Join' }}</button>
-          <button type="button" class="btn md__ghost" (click)="act('chat')"><i class="fa-regular fa-comment me-2"></i>Chat</button>
-          <button type="button" class="btn md__ghost" (click)="act('copy')"><i class="fa-solid fa-link me-2"></i>Copy link</button>
+          <button type="button" class="btn btn-light md__join" *ngIf="canJoin" (click)="act('join')"><i class="ti ti-video me-2"></i>{{ status === 'live' ? 'Join now' : 'Join' }}</button>
+          <button type="button" class="btn md__ghost" (click)="act('chat')"><i class="ti ti-message me-2"></i>Chat</button>
+          <button type="button" class="btn md__ghost" (click)="act('copy')"><i class="ti ti-link me-2"></i>Copy link</button>
         </div>
       </header>
 
       <div class="md__body">
         <section class="md__sec">
-          <h3><i class="fa-solid fa-user-tie"></i>Organizer</h3>
+          <h3><i class="ti ti-user-star"></i>Organizer</h3>
           <div class="md__person"><app-avatar [src]="m.organizer.avatar" [name]="m.organizer.username" [size]="32"></app-avatar><span>{{ m.organizer.username }}</span><small *ngIf="m.isOrganizer">You</small></div>
         </section>
 
         <section class="md__sec">
-          <h3><i class="fa-solid fa-user-group"></i>Participants <span class="md__count">{{ m.invitees.length + 1 }}</span></h3>
+          <h3><i class="ti ti-users"></i>Participants <span class="md__count">{{ m.invitees.length + 1 }}</span></h3>
           <div class="md__people">
             <div class="md__person" *ngFor="let p of m.invitees"><app-avatar [src]="p.avatar" [name]="p.username" [size]="32"></app-avatar><span>{{ p.username }}</span></div>
             <span class="md__muted" *ngIf="!m.invitees.length">No one else was invited.</span>
@@ -57,7 +57,7 @@ interface RecordingRow {
         </section>
 
         <section class="md__sec">
-          <h3><i class="fa-solid fa-circle-info"></i>Meeting info</h3>
+          <h3><i class="ti ti-info-circle"></i>Meeting info</h3>
           <dl class="md__info">
             <dt>Link</dt><dd><a [href]="link" target="_blank" rel="noopener">{{ link }}</a></dd>
             <dt>Meeting ID</dt><dd>{{ m.code }}</dd>
@@ -66,24 +66,24 @@ interface RecordingRow {
         </section>
 
         <section class="md__sec" *ngIf="m.description">
-          <h3><i class="fa-solid fa-align-left"></i>Details</h3>
+          <h3><i class="ti ti-align-left"></i>Details</h3>
           <p class="md__desc">{{ m.description }}</p>
         </section>
 
         <section class="md__sec" *ngIf="recordings.length">
-          <h3><i class="fa-solid fa-circle-play"></i>Recordings</h3>
+          <h3><i class="ti ti-player-play"></i>Recordings</h3>
           <a class="md__rec" *ngFor="let r of recordings" [routerLink]="['/recordings', r._id]" (click)="modal.dismiss()">
-            <i class="fa-solid fa-circle-play"></i>
+            <i class="ti ti-player-play"></i>
             <span>{{ r.startedAt | date: 'MMM d, h:mm a' }}<small> · {{ recordingLabel(r) }}</small></span>
           </a>
         </section>
       </div>
 
       <footer class="md__foot" *ngIf="m.isOrganizer">
-        <button type="button" class="btn btn-light btn-sm" (click)="act('edit')"><i class="fa-solid fa-pen me-1"></i>Edit</button>
+        <button type="button" class="btn btn-light btn-sm" (click)="act('edit')"><i class="ti ti-pencil me-1"></i>Edit</button>
         <span class="md__spacer"></span>
-        <button type="button" class="btn btn-outline-danger btn-sm" *ngIf="m.recurrence" (click)="act('cancel', true)"><i class="fa-regular fa-trash-can me-1"></i>Cancel this one</button>
-        <button type="button" class="btn btn-outline-danger btn-sm" (click)="act('cancel', false)"><i class="fa-regular fa-trash-can me-1"></i>{{ m.recurrence ? 'Cancel series' : 'Delete meeting' }}</button>
+        <button type="button" class="btn btn-outline-danger btn-sm" *ngIf="m.recurrence" (click)="act('cancel', true)"><i class="ti ti-trash me-1"></i>Cancel this one</button>
+        <button type="button" class="btn btn-outline-danger btn-sm" (click)="act('cancel', false)"><i class="ti ti-trash me-1"></i>{{ m.recurrence ? 'Cancel series' : 'Delete meeting' }}</button>
       </footer>
     </div>
   `,

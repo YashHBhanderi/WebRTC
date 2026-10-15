@@ -46,7 +46,9 @@ export interface ChatMessage {
   /** type "call": a connected call that ended (author = caller, createdAt = end time) */
   /** type "recording": a finished meeting recording; the card loads its live state */
   recording?: { recordingId: string } | null;
-  call?: { callId: string; callType: 'audio' | 'video'; mode: 'ring' | 'meetNow'; duration: number } | null;
+  call?: { callId: string; callType: 'audio' | 'video'; mode: 'ring' | 'meetNow'; duration: number; outcome?: 'missed' } | null;
+  /** Forwarded copy: the chat or person the original came from */
+  forwardedFrom?: string;
 }
 
 export interface MemberReceipt {

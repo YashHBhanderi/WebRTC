@@ -8,8 +8,8 @@
   color: #fff;
   background: linear-gradient(135deg, var(--app-brand), var(--app-brand-strong, var(--app-brand)));
 
-  &--live { background: linear-gradient(135deg, #c4314b, #8f1f35); }
-  &--ended { background: linear-gradient(135deg, #5b5f6b, #3f424c); }
+  &--live { background: linear-gradient(135deg, #c94141, #9e3434); }
+  &--ended { background: linear-gradient(135deg, #4f6477, #344452); }
 }
 
 .md__close {

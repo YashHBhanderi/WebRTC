@@ -1,5 +1,5 @@
 import { HttpClient, HttpContext } from '@angular/common/http';
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnChanges, OnDestroy } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, Input, OnChanges, OnDestroy, ViewChild } from '@angular/core';
 import { Subscription, firstValueFrom } from 'rxjs';
 import { SKIP_ERROR_TOAST } from 'src/app/core/interceptors/error.interceptor';
 import { SocketService } from 'src/app/core/services/socket.service';
@@ -17,11 +17,15 @@ interface RecordingInfo {
   expired: boolean;
   expiresAt?: string;
   downloadUrl: string | null;
+  playbackUrl?: string | null;
 }
 
+const BAR_COUNT = 40;
+const SPEEDS = [1, 1.5, 2];
+
 /**
- * Teams-style recording card shown in the chat once a meeting recording is saved. Its state
- * (processing / ready / expired) is read live from the API and refreshed when it changes.
+ * Recording card shown in the chat once a meeting recording is saved: status, inline player and
+ * transcript / download actions. State is read live from the API and refreshed when it changes.
  */
 @Component({
   selector: 'app-recording-card',
@@ -29,37 +33,80 @@ interface RecordingInfo {
   styleUrls: ['./recording-card.component.scss'],
   template: `
     <div class="rc" [class.rc--off]="state === 'expired' || state === 'failed' || state === 'missing'">
-      <span class="rc__icon" aria-hidden="true"><i class="fa-solid fa-circle-play"></i></span>
-      <div class="rc__body">
-        <strong class="rc__title">{{ info?.title || fallbackTitle || 'Meeting recording' }}</strong>
-        <span class="rc__meta" *ngIf="info">
-          {{ info.startedAt | date: 'MMM d, y, h:mm a' }}<ng-container *ngIf="info.duration"> · {{ duration(info.duration) }}</ng-container>
-        </span>
-        <span class="rc__status" [ngSwitch]="state" role="status">
-          <ng-container *ngSwitchCase="'loading'">Loading…</ng-container>
-          <ng-container *ngSwitchCase="'recording'"><span class="rc__dot" aria-hidden="true"></span>Recording in progress</ng-container>
-          <ng-container *ngSwitchCase="'processing'"><span class="rc__spin" aria-hidden="true"></span>Recording processing</ng-container>
-          <ng-container *ngSwitchCase="'ready'">
-            <i class="fa-solid fa-circle-check" aria-hidden="true"></i>Ready
-            <ng-container [ngSwitch]="info?.transcriptStatus">
-              <ng-container *ngSwitchCase="'completed'"> · {{ info?.transcriptAvailable === false ? 'No speech in transcript' : 'Transcript available' }}</ng-container>
-              <ng-container *ngSwitchCase="'pending'"> · <span class="rc__spin" aria-hidden="true"></span>Transcription processing</ng-container>
-              <ng-container *ngSwitchCase="'processing'"> · <span class="rc__spin" aria-hidden="true"></span>Transcription processing</ng-container>
-              <ng-container *ngSwitchCase="'failed'"> · Transcript unavailable</ng-container>
-            </ng-container>
-          </ng-container>
-          <ng-container *ngSwitchCase="'failed'"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>This recording couldn't be processed</ng-container>
-          <ng-container *ngSwitchCase="'expired'"><i class="fa-regular fa-clock" aria-hidden="true"></i>Expired — recordings are deleted after 30 days</ng-container>
-          <ng-container *ngSwitchCase="'missing'">This recording is no longer available</ng-container>
-        </span>
-        <ul class="rc__preview" *ngIf="preview.length" aria-label="Transcript preview">
-          <li *ngFor="let line of preview"><strong>{{ line.speaker }}</strong> <time>{{ stamp(line.startTime) }}</time> {{ line.text }}</li>
-        </ul>
+      <div class="rc__top">
+        <span class="rc__icon" aria-hidden="true"><i class="ti ti-microphone ti-fill"></i></span>
+        <div class="rc__body">
+          <div class="rc__title-row">
+            <strong class="rc__title" [title]="info?.title || fallbackTitle || 'Meeting recording'">{{ info?.title || fallbackTitle || 'Meeting recording' }}</strong>
+            <span class="rc__badge rc__badge--{{ state }}" [ngSwitch]="state">
+              <ng-container *ngSwitchCase="'ready'">Completed</ng-container>
+              <ng-container *ngSwitchCase="'recording'"><span class="rc__dot" aria-hidden="true"></span>Recording</ng-container>
+              <ng-container *ngSwitchCase="'processing'">Processing</ng-container>
+              <ng-container *ngSwitchCase="'failed'">Failed</ng-container>
+              <ng-container *ngSwitchCase="'expired'">Expired</ng-container>
+              <ng-container *ngSwitchCase="'missing'">Unavailable</ng-container>
+              <ng-container *ngSwitchDefault>Loading</ng-container>
+            </span>
+          </div>
+          <span class="rc__meta" *ngIf="info">
+            {{ info.startedAt | date: 'MMM d' }}<ng-container *ngIf="info.duration"> · {{ duration(info.duration) }}</ng-container><ng-container *ngIf="info.size"> · {{ info.size | fileSize }}</ng-container> · Meeting recording
+          </span>
+        </div>
+        <div class="rc__menu" ngbDropdown container="body" placement="bottom-end" *ngIf="state === 'ready' && info as r">
+          <button type="button" class="rc__kebab" ngbDropdownToggle aria-label="Recording options"><i class="ti ti-dots-vertical" aria-hidden="true"></i></button>
+          <div ngbDropdownMenu>
+            <a ngbDropdownItem [routerLink]="['/recordings', r._id]"><i class="ti ti-external-link me-2" aria-hidden="true"></i>Open recording</a>
+            <a ngbDropdownItem *ngIf="r.downloadUrl" [href]="r.downloadUrl" download rel="noopener"><i class="ti ti-download me-2" aria-hidden="true"></i>Download</a>
+          </div>
+        </div>
       </div>
-      <div class="rc__actions" *ngIf="(state === 'ready' || preview.length) && info as r">
-        <a class="btn btn-sm btn-primary" *ngIf="state === 'ready'" [routerLink]="['/recordings', r._id]"><i class="fa-solid fa-play me-1" aria-hidden="true"></i>Play</a>
-        <a class="btn btn-sm btn-light" *ngIf="preview.length" [routerLink]="['/recordings', r._id]"><i class="fa-regular fa-file-lines me-1" aria-hidden="true"></i>Transcript</a>
-        <a class="btn btn-sm btn-light" *ngIf="state === 'ready' && r.downloadUrl" [href]="r.downloadUrl" download rel="noopener" aria-label="Download recording"><i class="fa-solid fa-download me-1" aria-hidden="true"></i>Download</a>
+
+      <div class="rc__player" *ngIf="state === 'ready' && info?.playbackUrl">
+        <button type="button" class="rc__play" (click)="toggle()" [attr.aria-label]="playing ? 'Pause' : 'Play'">
+          <i class="ti ti-fill" [class.ti-player-pause]="playing" [class.ti-player-play]="!playing" aria-hidden="true"></i>
+        </button>
+        <div class="rc__wave" role="slider" tabindex="0" aria-label="Seek"
+             [attr.aria-valuemin]="0" [attr.aria-valuemax]="total" [attr.aria-valuenow]="current"
+             (click)="seek($event)" (keydown.arrowright)="skip(5)" (keydown.arrowleft)="skip(-5)">
+          <span *ngFor="let h of bars; let i = index" class="rc__bar" [class.rc__bar--done]="i < playedBars" [style.height.%]="h"></span>
+        </div>
+        <span class="rc__time">{{ clock(current) }} / {{ clock(total) }}</span>
+        <button type="button" class="rc__speed" (click)="cycleSpeed()" aria-label="Playback speed">{{ speed }}x</button>
+        <audio #audio class="d-none" preload="none" [src]="info?.playbackUrl"
+               (timeupdate)="onTime()" (loadedmetadata)="onTime()" (play)="setPlaying(true)" (pause)="setPlaying(false)"
+               (ended)="setPlaying(false)" (error)="onAudioError()"></audio>
+      </div>
+
+      <span class="rc__status" *ngIf="state !== 'ready'" [ngSwitch]="state" role="status">
+        <ng-container *ngSwitchCase="'loading'">Loading…</ng-container>
+        <ng-container *ngSwitchCase="'recording'">Recording in progress</ng-container>
+        <ng-container *ngSwitchCase="'processing'"><span class="rc__spin" aria-hidden="true"></span>Recording processing</ng-container>
+        <ng-container *ngSwitchCase="'failed'"><i class="ti ti-alert-triangle" aria-hidden="true"></i>This recording couldn't be processed</ng-container>
+        <ng-container *ngSwitchCase="'expired'"><i class="ti ti-clock" aria-hidden="true"></i>Expired — recordings are deleted after 30 days</ng-container>
+        <ng-container *ngSwitchCase="'missing'">This recording is no longer available</ng-container>
+      </span>
+
+      <div class="rc__foot" *ngIf="state === 'ready' && info as r">
+        <span class="rc__trans" [ngSwitch]="r.transcriptStatus" role="status">
+          <ng-container *ngSwitchCase="'completed'">
+            <i class="ti ti-shield-check" aria-hidden="true"></i>{{ r.transcriptAvailable === false ? 'No speech transcribed' : 'Transcribed' }}
+          </ng-container>
+          <ng-container *ngSwitchCase="'pending'"><span class="rc__spin" aria-hidden="true"></span>Transcribing…</ng-container>
+          <ng-container *ngSwitchCase="'processing'"><span class="rc__spin" aria-hidden="true"></span>Transcribing…</ng-container>
+          <ng-container *ngSwitchCase="'failed'"><i class="ti ti-alert-triangle" aria-hidden="true"></i>Transcript unavailable</ng-container>
+          <ng-container *ngSwitchDefault><i class="ti ti-file-off" aria-hidden="true"></i>No transcript</ng-container>
+        </span>
+        <div class="rc__actions">
+          <a class="rc__btn" *ngIf="r.transcriptStatus === 'completed' && r.transcriptAvailable !== false" [routerLink]="['/recordings', r._id]">
+            <i class="ti ti-file-text" aria-hidden="true"></i>Transcript
+          </a>
+          <a class="rc__btn" *ngIf="!r.playbackUrl" [routerLink]="['/recordings', r._id]">
+            <i class="ti ti-player-play" aria-hidden="true"></i>Play
+          </a>
+          <a class="rc__btn rc__btn--primary" *ngIf="r.downloadUrl" [href]="r.downloadUrl" download rel="noopener">
+            <i class="ti ti-download" aria-hidden="true"></i>Download
+          </a>
+        </div>
       </div>
     </div>
   `,
@@ -67,17 +114,22 @@ interface RecordingInfo {
 export class RecordingCardComponent implements OnChanges, OnDestroy {
   @Input() recordingId = '';
   @Input() fallbackTitle = '';
+  @ViewChild('audio') audioRef?: ElementRef<HTMLAudioElement>;
 
   info: RecordingInfo | null = null;
-  /** First transcript lines, shown on the card once the transcript is ready */
-  preview: { speaker: string; startTime: number; text: string }[] = [];
   state: 'loading' | 'recording' | 'processing' | 'ready' | 'failed' | 'expired' | 'missing' = 'loading';
+  bars: number[] = [];
+  playing = false;
+  current = 0;
+  speed = 1;
   private sub?: Subscription;
+  private retried = false;
 
   constructor(private http: HttpClient, private socket: SocketService, private cdr: ChangeDetectorRef) {}
 
   ngOnChanges(): void {
     this.sub?.unsubscribe();
+    this.bars = waveform(this.recordingId);
     void this.load();
     this.sub = this.socket.onRecordingUpdated().subscribe((e) => {
       if (e.recordingId === this.recordingId) void this.load();
@@ -86,6 +138,76 @@ export class RecordingCardComponent implements OnChanges, OnDestroy {
 
   ngOnDestroy(): void {
     this.sub?.unsubscribe();
+    this.audioRef?.nativeElement.pause();
+  }
+
+  get total(): number {
+    const d = this.audioRef?.nativeElement.duration;
+    return Number.isFinite(d) && d ? d : this.info?.duration || 0;
+  }
+
+  get playedBars(): number {
+    return this.total ? Math.round((this.current / this.total) * BAR_COUNT) : 0;
+  }
+
+  toggle(): void {
+    const audio = this.audioRef?.nativeElement;
+    if (!audio) return;
+    if (audio.paused) {
+      audio.playbackRate = this.speed;
+      void audio.play().catch(() => this.setPlaying(false));
+    } else {
+      audio.pause();
+    }
+  }
+
+  seek(event: MouseEvent): void {
+    const el = event.currentTarget as HTMLElement;
+    const ratio = Math.min(1, Math.max(0, (event.clientX - el.getBoundingClientRect().left) / el.clientWidth));
+    this.seekTo(ratio * this.total);
+  }
+
+  skip(seconds: number): void {
+    this.seekTo(this.current + seconds);
+  }
+
+  cycleSpeed(): void {
+    this.speed = SPEEDS[(SPEEDS.indexOf(this.speed) + 1) % SPEEDS.length];
+    if (this.audioRef) this.audioRef.nativeElement.playbackRate = this.speed;
+  }
+
+  onTime(): void {
+    this.current = this.audioRef?.nativeElement.currentTime || 0;
+    this.cdr.markForCheck();
+  }
+
+  setPlaying(value: boolean): void {
+    this.playing = value;
+    this.cdr.markForCheck();
+  }
+
+  /** Playback links are short-lived: refresh once and resume where we were. */
+  async onAudioError(): Promise<void> {
+    this.setPlaying(false);
+    if (this.retried) return;
+    this.retried = true;
+    const resumeAt = this.current;
+    await this.load();
+    setTimeout(() => {
+      const audio = this.audioRef?.nativeElement;
+      if (!audio) return;
+      audio.load();
+      audio.currentTime = resumeAt;
+      audio.playbackRate = this.speed;
+      void audio.play().catch(() => this.setPlaying(false));
+    });
+  }
+
+  private seekTo(seconds: number): void {
+    const audio = this.audioRef?.nativeElement;
+    if (!audio || !this.total) return;
+    audio.currentTime = Math.min(this.total, Math.max(0, seconds));
+    this.onTime();
   }
 
   private async load(): Promise<void> {
@@ -94,20 +216,16 @@ export class RecordingCardComponent implements OnChanges, OnDestroy {
       const res = await firstValueFrom(this.http.get<{ data: RecordingInfo }>(`${environment.apiUrl}/recordings/${this.recordingId}`, {
         context: new HttpContext().set(SKIP_ERROR_TOAST, true),
       }));
+      // Keep the current source while playing so a status refresh doesn't restart the audio
+      if (this.playing && this.info?.playbackUrl) {
+        res.data.playbackUrl = this.info.playbackUrl;
+      }
       this.info = res.data;
       this.state = res.data.expired ? 'expired'
         : res.data.status === 'completed' ? 'ready'
         : res.data.status === 'failed' ? 'failed'
         : res.data.status === 'recording' ? 'recording'
         : 'processing';
-      if (res.data.transcriptStatus === 'completed' && res.data.transcriptAvailable !== false && !this.preview.length) {
-        const t = await firstValueFrom(this.http.get<{ data: { segments: { speaker: string; startTime: number; text: string }[] } }>(
-          `${environment.apiUrl}/recordings/${this.recordingId}/transcript`, { context: new HttpContext().set(SKIP_ERROR_TOAST, true) },
-        )).catch(() => null);
-        this.preview = (t?.data.segments || []).slice(0, 2);
-      } else if (res.data.transcriptStatus !== 'completed') {
-        this.preview = [];
-      }
     } catch {
       // 404 also covers someone who isn't (or is no longer) a member
       this.state = 'missing';
@@ -115,10 +233,11 @@ export class RecordingCardComponent implements OnChanges, OnDestroy {
     this.cdr.markForCheck();
   }
 
-  stamp(sec: number): string {
+  clock(sec: number): string {
     const s = Math.max(0, Math.floor(sec));
     const pad = (v: number) => String(v).padStart(2, '0');
-    return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+    const h = Math.floor(s / 3600);
+    return h ? `${h}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}` : `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
   }
 
   duration(seconds: number): string {
@@ -127,4 +246,15 @@ export class RecordingCardComponent implements OnChanges, OnDestroy {
     const s = Math.round(seconds % 60);
     return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
   }
+}
+
+/** Decorative bar heights (%), stable per recording. */
+function waveform(seed: string): number[] {
+  let h = 2166136261;
+  for (const c of seed || 'recording') h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return Array.from({ length: BAR_COUNT }, (_, i) => {
+    h = Math.imul(h ^ (h >>> 15), 2246822507) + i;
+    const wave = 0.55 + 0.45 * Math.sin(i / 3.1);
+    return Math.round(22 + (((h >>> 0) % 100) / 100) * 78 * wave);
+  });
 }
