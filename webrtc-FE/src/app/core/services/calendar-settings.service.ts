@@ -21,7 +21,22 @@ export interface CalendarSettings {
   workDays: number[];
   workPeriods: WorkPeriod[];
   showWorkLocation: boolean;
+  showWeekends: boolean;
+  showDeclinedEvents: boolean;
+  showEventReminders: boolean;
+  /** Minutes used when New meeting has no dragged range */
+  defaultDuration: number;
+  defaultLocation: WorkLocation;
 }
+
+export const DEFAULT_DURATIONS: { value: number; label: string }[] = [
+  { value: 15, label: '15 minutes' },
+  { value: 30, label: '30 minutes' },
+  { value: 45, label: '45 minutes' },
+  { value: 60, label: '1 hour' },
+  { value: 90, label: '1.5 hours' },
+  { value: 120, label: '2 hours' },
+];
 
 export const TIME_SCALES: { value: TimeScale; label: string }[] = [
   { value: 60, label: '60 minutes' },
@@ -41,6 +56,11 @@ const DEFAULTS: CalendarSettings = {
   workDays: [1, 2, 3, 4, 5],
   workPeriods: [{ start: 9 * 60, end: 17 * 60, location: 'office' }],
   showWorkLocation: true,
+  showWeekends: true,
+  showDeclinedEvents: true,
+  showEventReminders: true,
+  defaultDuration: 60,
+  defaultLocation: 'office',
 };
 
 /** Calendar preferences (appearance, work hours and location), saved on this device. */
@@ -87,6 +107,11 @@ export class CalendarSettingsService {
       workDays: [...new Set((s.workDays || []).filter((d) => d >= 0 && d <= 6))].sort(),
       workPeriods: periods.length ? periods : DEFAULTS.workPeriods.map((p) => ({ ...p })),
       showWorkLocation: !!s.showWorkLocation,
+      showWeekends: s.showWeekends !== false,
+      showDeclinedEvents: s.showDeclinedEvents !== false,
+      showEventReminders: s.showEventReminders !== false,
+      defaultDuration: DEFAULT_DURATIONS.some((d) => d.value === s.defaultDuration) ? s.defaultDuration : DEFAULTS.defaultDuration,
+      defaultLocation: s.defaultLocation === 'remote' ? 'remote' : 'office',
     };
   }
 }

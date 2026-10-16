@@ -17,9 +17,10 @@
         </div>
         <div class="mini__dow"><span *ngFor="let n of weekdayNames">{{ n.charAt(0) }}</span></div>
         <div class="mini__cells">
-          <button type="button" class="mini__day" *ngFor="let c of mini.cells; trackBy: trackByDay"
+          <button type="button" class="mini__day" *ngFor="let c of mini.cells; trackBy: trackByDay; let i = index"
                   [class.mini__day--out]="!c.inMonth" [class.mini__day--today]="isToday(c.date)" [class.mini__day--sel]="isSelectedDay(c.date)"
-                  [attr.aria-label]="c.date | date: 'fullDate'" [attr.aria-current]="isToday(c.date) ? 'date' : null" (click)="goTo(c.date)">{{ c.date | date: 'd' }}</button>
+                  [class.mini__day--sel-start]="isSelStart(i)" [class.mini__day--sel-end]="isSelEnd(i)"
+                  [attr.aria-label]="c.date | date: 'fullDate'" [attr.aria-current]="isToday(c.date) ? 'date' : null" (click)="pickDay(c.date)">{{ c.date | date: 'd' }}</button>
         </div>
       </div>
 
@@ -63,7 +64,8 @@
 
   <!-- Day / Work week / Week: time grid -->
   <app-time-grid class="cal__timegrid" *ngIf="!error && isGridView" [class.cal__grid--loading]="loading"
-                 [days]="gridDays" [items]="items" (rangeSelect)="onRangeSelect($event)" (eventClick)="select($event)"></app-time-grid>
+                 [days]="gridDays" [items]="items" [selectedKeys]="selectedDayKeys" [slotHighlight]="slotHighlight" [confirmClick]="true"
+                 (rangeSelect)="onRangeSelect($event)" (dayActivate)="onDayActivate($event)" (headerClick)="pickDay($event)" (eventClick)="select($event)"></app-time-grid>
 
   <!-- Month grid -->
   <div class="cal__grid" *ngIf="!error && view === 'month'" [class.cal__grid--loading]="loading" role="grid" [attr.aria-label]="title">
@@ -72,16 +74,19 @@
     </div>
     <div class="cal__cells" role="row">
       <div class="cal__cell" role="gridcell" *ngFor="let day of days; trackBy: trackByDay"
-           [class.cal__cell--out]="!day.inMonth" [class.cal__cell--today]="day.isToday">
-        <button type="button" class="cal__date" (click)="newMeeting(day.date)" [attr.aria-label]="'New meeting on ' + (day.date | date: 'fullDate')" title="New meeting">
+           [class.cal__cell--out]="!day.inMonth" [class.cal__cell--today]="day.isToday" [class.cal__cell--sel]="isSelectedDay(day.date)"
+           (click)="pickDay(day.date)">
+        <button type="button" class="cal__date" (click)="pickDay(day.date); $event.stopPropagation()"
+                [attr.aria-label]="'Select ' + (day.date | date: 'fullDate')" [attr.aria-pressed]="isSelectedDay(day.date)">
           {{ day.date | date: 'd' }}
         </button>
         <button type="button" class="cal__event" *ngFor="let m of day.items.slice(0, 3); trackBy: trackByItem"
-                [class.cal__event--live]="statusOf(m) === 'live'" [class.cal__event--past]="statusOf(m) === 'ended'" (click)="select(m)">
+                [class.cal__event--live]="statusOf(m) === 'live'" [class.cal__event--past]="statusOf(m) === 'ended'"
+                (click)="select(m); $event.stopPropagation()">
           <span class="cal__event-time">{{ m.occurrenceStart | date: 'shortTime' }}</span>
           <span class="cal__event-title">{{ m.title }}</span>
         </button>
-        <button type="button" class="cal__more" *ngIf="day.items.length > 3" (click)="select(day.items[3])">+{{ day.items.length - 3 }} more</button>
+        <button type="button" class="cal__more" *ngIf="day.items.length > 3" (click)="select(day.items[3]); $event.stopPropagation()">+{{ day.items.length - 3 }} more</button>
       </div>
     </div>
   </div>

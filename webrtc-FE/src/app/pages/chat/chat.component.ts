@@ -1486,6 +1486,14 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     this.replyingTo = null;
   }
 
+  /** Empty 1:1 chat: send a waving-hand hello. */
+  sayHello(): void {
+    if (this.blockedByMe || this.messageArray.length) {
+      return;
+    }
+    void this.send({ text: '👋 Hello', file: null });
+  }
+
   private async send(draft: MessageDraft): Promise<boolean> {
     if (!this.conversationId) {
       return false;

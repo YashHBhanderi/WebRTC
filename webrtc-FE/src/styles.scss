@@ -527,3 +527,5 @@ button:disabled {
 // Calendar popups: rounded content clips the gradient header / two-pane layout
 .md-modal .modal-content,
 .me-modal .modal-content { overflow: hidden; }
+.me-modal .modal-dialog { max-width: 1040px; }
+.cs-modal .modal-dialog { max-width: 460px; }

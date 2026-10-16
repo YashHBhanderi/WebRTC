@@ -1,0 +1,119 @@
+<div class="modal-header cs-head">
+  <i class="ti ti-settings cs-head__icon" aria-hidden="true"></i>
+  <h2 class="modal-title cs-head__title" id="cal-settings-title">Calendar settings</h2>
+  <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
+</div>
+
+<div class="modal-body cs" aria-labelledby="cal-settings-title">
+  <section class="cs-sec">
+    <h3 class="cs-sec__h"><i class="ti ti-palette" aria-hidden="true"></i>Calendar appearance</h3>
+    <div class="cs-row">
+      <span class="cs-row__label">First day of week</span>
+      <label class="cs-field">
+        <i class="ti ti-calendar" aria-hidden="true"></i>
+        <select id="cs-first" [(ngModel)]="draft.firstDayOfWeek" aria-label="First day of week">
+          <option *ngFor="let d of dayNames; let i = index" [ngValue]="i">{{ d }}</option>
+        </select>
+      </label>
+    </div>
+    <div class="cs-row">
+      <span class="cs-row__label">Time scale</span>
+      <label class="cs-field">
+        <i class="ti ti-clock" aria-hidden="true"></i>
+        <select id="cs-scale" [(ngModel)]="draft.timeScale" aria-label="Time scale">
+          <option *ngFor="let t of scales" [ngValue]="t.value">{{ t.label }}</option>
+        </select>
+      </label>
+    </div>
+    <p class="cs-hint">Applies to Day, Work week and Week views.</p>
+  </section>
+
+  <section class="cs-sec">
+    <h3 class="cs-sec__h"><i class="ti ti-building" aria-hidden="true"></i>Working hours and location</h3>
+    <span class="cs-label">Working days</span>
+    <div class="cs-days" role="group" aria-label="Working days">
+      <button type="button" class="cs-day" *ngFor="let d of shortDays; let i = index"
+              [class.cs-day--on]="isWorkDay(i)" [attr.aria-pressed]="isWorkDay(i)" (click)="toggleDay(i)">{{ d }}</button>
+    </div>
+
+    <span class="cs-label">Work hours</span>
+    <div class="cs-period" *ngFor="let p of rows; let i = index">
+      <label class="cs-field cs-field--time">
+        <input type="time" [(ngModel)]="p.start" [attr.aria-label]="'Start of period ' + (i + 1)" />
+        <i class="ti ti-clock" aria-hidden="true"></i>
+      </label>
+      <span class="cs-to">to</span>
+      <label class="cs-field cs-field--time">
+        <input type="time" [(ngModel)]="p.end" [attr.aria-label]="'End of period ' + (i + 1)" />
+        <i class="ti ti-clock" aria-hidden="true"></i>
+      </label>
+      <label class="cs-field cs-field--loc">
+        <i class="ti ti-building" aria-hidden="true"></i>
+        <select [(ngModel)]="p.location" [attr.aria-label]="'Location of period ' + (i + 1)">
+          <option value="office">Office</option>
+          <option value="remote">Remote</option>
+        </select>
+      </label>
+      <button type="button" class="cs-icon" (click)="remove(i)" [disabled]="rows.length === 1" [attr.aria-label]="'Remove period ' + (i + 1)">
+        <i class="ti ti-trash"></i>
+      </button>
+    </div>
+    <button type="button" class="cs-add" (click)="add()"><i class="ti ti-plus" aria-hidden="true"></i>Add work hours</button>
+
+    <label class="cs-switch" for="cs-loc">
+      <input id="cs-loc" type="checkbox" role="switch" [(ngModel)]="draft.showWorkLocation" />
+      <span>
+        <span class="cs-switch__title">Show work location on calendar</span>
+        <span class="cs-switch__hint">Displays your work location on your calendar events.</span>
+      </span>
+    </label>
+  </section>
+
+  <section class="cs-sec">
+    <h3 class="cs-sec__h"><i class="ti ti-eye" aria-hidden="true"></i>Calendar display</h3>
+    <label class="cs-check" for="cs-weekends">
+      <input id="cs-weekends" type="checkbox" [(ngModel)]="draft.showWeekends" />
+      Show weekends
+    </label>
+    <label class="cs-check" for="cs-declined">
+      <input id="cs-declined" type="checkbox" [(ngModel)]="draft.showDeclinedEvents" />
+      Show declined events
+    </label>
+    <label class="cs-check" for="cs-reminders">
+      <input id="cs-reminders" type="checkbox" [(ngModel)]="draft.showEventReminders" />
+      Show event reminders
+    </label>
+  </section>
+
+  <section class="cs-sec">
+    <h3 class="cs-sec__h"><i class="ti ti-adjustments-horizontal" aria-hidden="true"></i>Default meeting settings</h3>
+    <div class="cs-defaults">
+      <div>
+        <span class="cs-label">Default duration</span>
+        <label class="cs-field">
+          <i class="ti ti-clock" aria-hidden="true"></i>
+          <select [(ngModel)]="draft.defaultDuration" aria-label="Default duration">
+            <option *ngFor="let d of durations" [ngValue]="d.value">{{ d.label }}</option>
+          </select>
+        </label>
+      </div>
+      <div>
+        <span class="cs-label">Default location</span>
+        <label class="cs-field">
+          <i class="ti ti-building" aria-hidden="true"></i>
+          <select [(ngModel)]="draft.defaultLocation" aria-label="Default location">
+            <option value="office">Office</option>
+            <option value="remote">Remote</option>
+          </select>
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <p class="text-danger small mb-0" *ngIf="error" role="alert">{{ error }}</p>
+</div>
+
+<div class="modal-footer cs-foot">
+  <button type="button" class="btn btn-light" (click)="modal.dismiss()">Cancel</button>
+  <button type="button" class="btn btn-primary" (click)="save()">Save</button>
+</div>

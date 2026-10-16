@@ -9,7 +9,7 @@ import { AlertService } from 'src/app/_shared/alert/alert.service';
 import { CalendarSettings, CalendarSettingsService } from 'src/app/core/services/calendar-settings.service';
 import { MeetingEditorComponent } from './meeting-editor.component';
 import { CalendarSettingsComponent } from './calendar-settings.component';
-import { GridRange } from './time-grid.component';
+import { DayActivate, GridRange } from './time-grid.component';
 import { MeetingDetailsComponent } from './meeting-details.component';
 import { HttpClient, HttpContext } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -52,6 +52,10 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
   days: DayCell[] = [];
   list: MeetingOccurrence[] = [];
   selected: MeetingOccurrence | null = null;
+  /** First click on a day highlights it; the next click on the same day opens the meeting form. */
+  private pickedOnce = false;
+  /** Time-grid: first click arms this slot; a second click on the same slot opens the form. */
+  private armed: GridRange | null = null;
   recordings: { _id: string; title: string; startedAt: string; duration: number; status: string; transcriptStatus: string }[] = [];
   loading = false;
   error = false;
@@ -152,7 +156,7 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
       const work = all.filter((d) => this.settings.workDays.includes(d.getDay()));
       return work.length ? work : all;
     }
-    return all;
+    return this.settings.showWeekends ? all : all.filter((d) => d.getDay() !== 0 && d.getDay() !== 6);
   }
 
   get weekdayNames(): string[] {
@@ -161,6 +165,8 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
   }
 
   setView(view: View): void {
+    this.pickedOnce = false;
+    this.armed = null;
     this.view = view;
     if (view !== 'upcoming' && view !== 'past') {
       try {
@@ -174,6 +180,8 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
   }
 
   move(step: number): void {
+    this.pickedOnce = false;
+    this.armed = null;
     const c = new Date(this.cursor);
     if (this.view === 'day') {
       c.setDate(c.getDate() + step);
@@ -186,18 +194,72 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
   }
 
   today(): void {
+    this.pickedOnce = false;
+    this.armed = null;
     this.goTo(new Date());
   }
 
-  /** Select a date (header arrows, Today, sidebar calendar): keeps the current view. */
+  /** Days to mark in the time-grid header: the whole week in week views, otherwise the cursor day. */
+  get selectedDayKeys(): string[] {
+    if (this.view === 'week' || this.view === 'work week') {
+      return this.gridDays.map((d) => dayKey(d));
+    }
+    return [dayKey(this.cursor)];
+  }
+
+  /** Highlighted time slot after the first click (not the whole day column). */
+  get slotHighlight(): GridRange | null {
+    return this.armed;
+  }
+
+  /** Select a date (header arrows, Today): keeps the current view. */
   goTo(date: Date): void {
-    this.cursor = startOfDay(date);
+    const next = startOfDay(date);
+    const prev = this.cursor;
+    this.cursor = next;
     if (this.view === 'upcoming' || this.view === 'past') {
       this.setView('day');
       return;
     }
     this.syncMini();
-    void this.load();
+    const needLoad = this.view === 'day'
+      ? dayKey(prev) !== dayKey(next)
+      : this.view === 'month'
+        ? prev.getMonth() !== next.getMonth() || prev.getFullYear() !== next.getFullYear()
+        : dayKey(this.weekStart(prev)) !== dayKey(this.weekStart(next));
+    if (needLoad) {
+      void this.load();
+    } else {
+      this.cdr.markForCheck();
+    }
+  }
+
+  /**
+   * Click a day in the sidebar, month grid, or time-grid header/column.
+   * First click highlights it; a second click on the same day opens a new meeting.
+   */
+  pickDay(date: Date, slot?: { start: Date; end: Date }): void {
+    this.armed = null;
+    const same = dayKey(date) === dayKey(this.cursor);
+    if (same && this.pickedOnce) {
+      this.newMeeting(slot?.start ?? date, slot?.end);
+      return;
+    }
+    this.pickedOnce = true;
+    this.goTo(date);
+  }
+
+  onDayActivate(event: DayActivate): void {
+    const same = !!this.armed
+      && this.armed.start.getTime() === event.start.getTime()
+      && this.armed.end.getTime() === event.end.getTime();
+    if (same) {
+      this.newMeeting(event.start, event.end);
+      return;
+    }
+    this.armed = { start: event.start, end: event.end };
+    this.pickedOnce = false;
+    this.goTo(event.date);
   }
 
   // ---- sidebar mini calendar
@@ -223,17 +285,39 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
     return dayKey(d) === dayKey(new Date());
   }
 
-  /** Only Day and Month mark the opened date; Week / Work week mark nothing but today. */
+  /** Sidebar / month: the cursor day, or every day of the open week / work week. */
   isSelectedDay(d: Date): boolean {
-    return (this.view === 'day' || this.view === 'month') && dayKey(d) === dayKey(this.cursor);
+    if (this.view === 'upcoming' || this.view === 'past') {
+      return false;
+    }
+    if (this.view === 'week' || this.view === 'work week') {
+      return this.gridDays.some((g) => dayKey(g) === dayKey(d));
+    }
+    return dayKey(d) === dayKey(this.cursor);
+  }
+
+  /** First day of a contiguous selected run (for the week strip). */
+  isSelStart(i: number): boolean {
+    if (!this.isSelectedDay(this.mini.cells[i].date)) return false;
+    return i % 7 === 0 || !this.isSelectedDay(this.mini.cells[i - 1].date);
+  }
+
+  /** Last day of a contiguous selected run (for the week strip). */
+  isSelEnd(i: number): boolean {
+    if (!this.isSelectedDay(this.mini.cells[i].date)) return false;
+    return i % 7 === 6 || !this.isSelectedDay(this.mini.cells[i + 1].date);
   }
 
   openSettings(): void {
-    this.modal.open(CalendarSettingsComponent, { windowClass: 'app-modal', scrollable: true });
+    this.modal.open(CalendarSettingsComponent, { windowClass: 'app-modal cs-modal', scrollable: true });
   }
 
-  /** A range picked on the grid (click / drag) starts a new meeting there. */
+  /** A drag on the time grid is a clear “new meeting here” and skips the two-click highlight. */
   onRangeSelect(range: GridRange): void {
+    this.armed = null;
+    this.pickedOnce = true;
+    this.cursor = startOfDay(range.start);
+    this.syncMini();
     this.newMeeting(range.start, range.end);
   }
 
@@ -273,6 +357,7 @@ export class CalendarPageComponent implements OnInit, OnDestroy {
   // ---------------------------------------------------------------- actions
 
   newMeeting(day?: Date, end?: Date): void {
+    this.armed = null;
     const ref = this.modal.open(MeetingEditorComponent, { size: 'xl', windowClass: 'app-modal me-modal', backdrop: 'static' });
     ref.componentInstance.defaultStart = day || null;
     ref.componentInstance.defaultEnd = end || null;

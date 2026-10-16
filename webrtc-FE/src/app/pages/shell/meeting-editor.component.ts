@@ -1,13 +1,14 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, Input, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
-import { Subscription, firstValueFrom } from 'rxjs';
+import { Subscription } from 'rxjs';
 import { normalizeError } from 'src/app/core/errors/app-error';
-import { CalendarSettingsService } from 'src/app/core/services/calendar-settings.service';
+import { CalendarSettingsService, WorkLocation } from 'src/app/core/services/calendar-settings.service';
 import { GridRange } from './time-grid.component';
 import { MeetingApiService, MeetingInput, MeetingOccurrence, MeetingSummary, RecurrenceFreq } from 'src/app/core/services/meeting.service';
 import { UserService } from 'src/app/core/services/user.service';
 
 type RepeatChoice = 'none' | RecurrenceFreq;
+type MeetingKind = 'event' | 'focus' | 'ooo' | 'location';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const toDateInput = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -31,12 +32,26 @@ export class MeetingEditorComponent implements OnInit, OnDestroy {
 
   readonly weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   readonly timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  readonly kinds: { id: MeetingKind; label: string; icon: string }[] = [
+    { id: 'event', label: 'Event', icon: 'ti-calendar-event' },
+    { id: 'focus', label: 'Focus time', icon: 'ti-clock' },
+    { id: 'ooo', label: 'Out of office', icon: 'ti-briefcase' },
+    { id: 'location', label: 'Working location', icon: 'ti-map-pin' },
+  ];
+
+  @ViewChild('desc') descEl?: ElementRef<HTMLTextAreaElement>;
 
   title = '';
   description = '';
   date = '';
   startTime = '';
   endTime = '';
+  kind: MeetingKind = 'event';
+  allDay = false;
+  place = '';
+  workLocation: WorkLocation = 'office';
+  optionalIds = new Set<string>();
+  private savedTimes: { start: string; end: string } | null = null;
   repeat: RepeatChoice = 'none';
   interval = 1;
   byWeekday = new Set<number>();
@@ -100,8 +115,12 @@ export class MeetingEditorComponent implements OnInit, OnDestroy {
           start.setMinutes(now.getMinutes() < 30 ? 30 : 60, 0, 0);
         }
       }
-      end = this.defaultEnd && this.defaultEnd.getTime() > start.getTime() ? new Date(this.defaultEnd) : new Date(start.getTime() + 30 * 60 * 1000);
+      const duration = this.calendarSettings.value.defaultDuration || 60;
+      end = this.defaultEnd && this.defaultEnd.getTime() > start.getTime()
+        ? new Date(this.defaultEnd)
+        : new Date(start.getTime() + duration * 60 * 1000);
       this.byWeekday = new Set([start.getDay()]);
+      this.workLocation = this.calendarSettings.value.defaultLocation;
     }
     this.date = toDateInput(start);
     this.startTime = toTimeInput(start);
@@ -133,7 +152,7 @@ export class MeetingEditorComponent implements OnInit, OnDestroy {
   }
 
   get gridDays(): Date[] {
-    const base = new Date();
+    const base = new Date(`${this.date}T12:00:00`);
     if (isNaN(base.getTime())) return this.gridDaysCache;
     const key = `${this.gridView}|${this.date}`;
     if (key !== this.gridKey) {
@@ -153,11 +172,13 @@ export class MeetingEditorComponent implements OnInit, OnDestroy {
 
   /** The proposed range, drawn on the grid */
   get draft(): GridRange | null {
-    const key = `${this.date}|${this.startTime}|${this.endTime}`;
+    const startT = this.allDay ? '00:00' : this.startTime;
+    const endT = this.allDay ? '23:59' : this.endTime;
+    const key = `${this.date}|${startT}|${endT}`;
     if (key !== this.draftKey) {
       this.draftKey = key;
-      const start = new Date();
-      let end = new Date();
+      const start = new Date(`${this.date}T${startT}`);
+      let end = new Date(`${this.date}T${endT}`);
       if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end <= start) end = new Date(end.getTime() + 24 * 3600 * 1000);
       this.draftCache = isNaN(start.getTime()) || isNaN(end.getTime()) ? null : { start, end };
     }
@@ -172,7 +193,95 @@ export class MeetingEditorComponent implements OnInit, OnDestroy {
 
   get dayTitle(): string {
     const d = new Date(`${this.date}T00:00`);
-    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  }
+
+  get dateLabel(): string {
+    return this.formatDate(this.date);
+  }
+
+  formatDate(value: string): string {
+    const d = new Date(`${value}T00:00`);
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  get dayDow(): string {
+    const d = new Date(`${this.date}T00:00`);
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { weekday: 'short' }).toUpperCase();
+  }
+
+  get dayNum(): string {
+    const d = new Date(`${this.date}T00:00`);
+    return isNaN(d.getTime()) ? '' : String(d.getDate());
+  }
+
+  get titlePlaceholder(): string {
+    if (this.kind === 'focus') return 'Add a title for this focus time';
+    if (this.kind === 'ooo') return 'Add a title for out of office';
+    if (this.kind === 'location') return 'Add a title for this working location';
+    return 'Add a title for this meeting';
+  }
+
+  get repeatLabel(): string {
+    switch (this.repeat) {
+      case 'daily': return 'Daily';
+      case 'weekdays': return 'Every weekday';
+      case 'weekly': return 'Weekly';
+      case 'monthly': return 'Monthly';
+      default: return 'Does not repeat';
+    }
+  }
+
+  timeLabel(t: string): string {
+    const [h, m] = (t || '00:00').split(':').map(Number);
+    const d = new Date(2000, 0, 1, h || 0, m || 0);
+    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  setAllDay(on: boolean): void {
+    if (on) {
+      this.savedTimes = { start: this.startTime, end: this.endTime };
+      this.startTime = '00:00';
+      this.endTime = '23:59';
+    } else if (this.savedTimes) {
+      this.startTime = this.savedTimes.start;
+      this.endTime = this.savedTimes.end;
+    }
+    this.allDay = on;
+    this.cdr.markForCheck();
+  }
+
+  isOptional(id: string): boolean {
+    return this.optionalIds.has(id);
+  }
+
+  setOptional(id: string, optional: boolean): void {
+    if (optional) this.optionalIds.add(id);
+    else this.optionalIds.delete(id);
+    this.cdr.markForCheck();
+  }
+
+  wrapDesc(before: string, after?: string): void {
+    const el = this.descEl?.nativeElement;
+    if (!el) return;
+    const s = el.selectionStart;
+    const e = el.selectionEnd;
+    const inner = this.description.slice(s, e) || 'text';
+    const close = after ?? before;
+    this.description = this.description.slice(0, s) + before + inner + close + this.description.slice(e);
+    this.cdr.markForCheck();
+  }
+
+  prefixDesc(prefix: string): void {
+    const el = this.descEl?.nativeElement;
+    if (!el) {
+      this.description = prefix + this.description;
+      return;
+    }
+    const s = el.selectionStart;
+    const line = this.description.lastIndexOf('\n', Math.max(0, s - 1)) + 1;
+    this.description = this.description.slice(0, line) + prefix + this.description.slice(line);
+    this.cdr.markForCheck();
   }
 
   shiftDay(step: number): void {
@@ -195,6 +304,7 @@ export class MeetingEditorComponent implements OnInit, OnDestroy {
 
   /** Click / drag on the grid sets date, start and end. */
   onGridRange(r: GridRange): void {
+    this.allDay = false;
     this.date = toDateInput(r.start);
     this.startTime = toTimeInput(r.start);
     this.endTime = toTimeInput(r.end);

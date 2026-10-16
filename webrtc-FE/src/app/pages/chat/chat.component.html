@@ -278,8 +278,18 @@
       </ng-container>
 
       <div class="messages__empty" *ngIf="!messagesLoading && !messageArray.length">
-        <i class="ti ti-hand-stop"></i>
-        <p>{{ chatState?.clearedAt ? 'This chat was cleared.' : 'No messages yet. Say hello!' }}</p>
+        <ng-container *ngIf="chatState?.clearedAt">
+          <i class="ti ti-message-off" aria-hidden="true"></i>
+          <p>This chat was cleared.</p>
+        </ng-container>
+        <button type="button" class="messages__hello" *ngIf="!chatState?.clearedAt && !isGroupChat && !blockedByMe" (click)="sayHello()">
+          <span class="messages__hello-icon" aria-hidden="true">👋</span>
+          <span>No messages yet. Say hello!</span>
+        </button>
+        <ng-container *ngIf="!chatState?.clearedAt && (isGroupChat || blockedByMe)">
+          <i class="ti ti-message" aria-hidden="true"></i>
+          <p>No messages yet.</p>
+        </ng-container>
       </div>
 
       <ng-container *ngIf="!messagesLoading">
@@ -437,10 +447,10 @@
 
   <!-- ============================================================ WELCOME -->
   <ng-template #welcome>
-    <section class="welcome">
-      <img src="assets/welcome1.png" alt="" class="welcome__image" />
-      <h2>Welcome to MeetChat</h2>
-      <p>Pick a conversation to start chatting, calling, or meeting. Calls keep running while you chat.</p>
+    <section class="welcome pane-state">
+      <i class="ti ti-message" aria-hidden="true"></i>
+      <strong>Pick a conversation</strong>
+      <span>Choose a chat from the list to start messaging.</span>
     </section>
   </ng-template>
 </div>

@@ -1,0 +1,167 @@
+:host { display: block; }
+
+.cs-head {
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+.cs-head__icon { color: var(--app-icon); font-size: 1.15rem; }
+.cs-head__title { flex: 1; font-size: 1.05rem; font-weight: 700; }
+
+.cs { padding: 8px 20px 20px; }
+
+.cs-sec { padding: 16px 0; border-bottom: 1px solid var(--app-border); &:last-of-type { border-bottom: 0; } }
+.cs-sec__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--app-text);
+  i { color: var(--app-icon); font-size: 1.05rem; }
+}
+
+.cs-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.cs-row__label { font-size: 0.88rem; color: var(--app-text); }
+.cs-label { display: block; margin: 0 0 8px; font-size: 0.82rem; font-weight: 600; color: var(--app-text-2); }
+.cs-hint { margin: -2px 0 0; font-size: 0.75rem; color: var(--app-muted); }
+
+.cs-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: var(--app-surface);
+  cursor: pointer;
+  i { flex: none; color: var(--app-icon); font-size: 1rem; }
+  select, input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--app-text);
+    font-size: 0.88rem;
+    &:focus { outline: 0; }
+  }
+  &--time {
+    flex: 1;
+    min-width: 118px;
+    i { margin-left: auto; }
+    input[type='time']::-webkit-calendar-picker-indicator { opacity: 0; position: absolute; inset: 0; width: auto; height: auto; cursor: pointer; }
+  }
+  &--loc { flex: 1 1 110px; min-width: 110px; }
+}
+
+.cs-days { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+.cs-day {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--app-border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--app-text-2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  &--on { background: var(--app-brand); border-color: var(--app-brand); color: var(--app-on-brand); }
+}
+
+.cs-period { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.cs-to { font-size: 0.82rem; color: var(--app-muted); }
+.cs-icon {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-icon);
+  &:hover:not(:disabled) { background: var(--app-hover); color: var(--app-text); }
+  &:disabled { opacity: 0.4; }
+}
+
+.cs-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 0.88rem;
+  font-weight: 600;
+  i { font-size: 1rem; }
+  &:hover { color: var(--app-brand); }
+}
+
+.cs-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 4px;
+  cursor: pointer;
+  input {
+    width: 36px;
+    height: 20px;
+    margin-top: 2px;
+    flex: none;
+    appearance: none;
+    border-radius: 999px;
+    background: var(--app-border);
+    position: relative;
+    cursor: pointer;
+    &::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.15s ease;
+    }
+    &:checked { background: var(--app-brand); }
+    &:checked::after { transform: translateX(16px); }
+  }
+}
+.cs-switch__title { display: block; font-size: 0.88rem; font-weight: 600; }
+.cs-switch__hint { display: block; margin-top: 2px; font-size: 0.75rem; color: var(--app-muted); }
+
+.cs-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--app-brand);
+    cursor: pointer;
+  }
+}
+
+.cs-defaults {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cs-foot { padding: 12px 20px 16px; gap: 8px; }

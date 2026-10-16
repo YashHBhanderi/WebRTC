@@ -13,6 +13,7 @@
 }
 
 .tg--compact { --gutter: 48px; border-radius: 8px; }
+.tg--embed { border: 0; border-radius: 0; background: transparent; }
 
 .tg__head {
   display: grid;
@@ -24,23 +25,69 @@
 .tg__day {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 4px 8px;
   padding: 6px 8px;
   border-left: 1px solid var(--app-border);
   min-width: 0;
+  cursor: pointer;
 
-  &--today .tg__dom { background: var(--app-brand); color: var(--app-on-brand); }
+  &--sel .tg__dom {
+    background: var(--app-brand-soft);
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  &--today .tg__dom {
+    background: var(--app-brand);
+    color: var(--app-on-brand);
+    border-radius: 50%;
+    font-weight: 700;
+  }
+}
+
+// Week / work week: one light strip behind every day header
+.tg--strip .tg__head {
+  padding: 4px 0;
+}
+
+.tg--strip .tg__day--sel {
+  margin: 0;
+  border-left-color: transparent;
+  background: var(--app-brand-soft);
+
+  .tg__dom {
+    background: transparent;
+    font-weight: 600;
+  }
+
+  &.tg__day--today .tg__dom {
+    background: var(--app-brand);
+    color: var(--app-on-brand);
+    font-weight: 700;
+  }
+}
+
+.tg--strip .tg__corner + .tg__day--sel {
+  margin-left: 8px;
+  border-top-left-radius: 8px;
+  border-bottom-left-radius: 8px;
+}
+
+.tg--strip .tg__day--sel:last-child {
+  margin-right: 8px;
+  border-top-right-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 
 .tg__dow { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--app-muted); }
 
 .tg__dom {
-  min-width: 26px;
-  height: 26px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 4px;
   line-height: 26px;
   text-align: center;
-  border-radius: 13px;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--app-text);
@@ -89,7 +136,11 @@
   pointer-events: none;
 }
 
-.tg__sel { background: color-mix(in srgb, var(--app-brand) 30%, transparent); border: 1px dashed var(--app-brand); }
+.tg__sel {
+  background: color-mix(in srgb, var(--app-brand) 30%, transparent);
+  border: 1px dashed var(--app-brand);
+  &--pin { border-style: solid; }
+}
 
 .tg__draft {
   background: color-mix(in srgb, var(--app-brand) 35%, transparent);

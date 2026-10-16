@@ -11,6 +11,13 @@ export interface GridRange {
   end: Date;
 }
 
+/** Click on a time slot (not a drag): parent highlights that slot on the first click, opens a meeting on the second. */
+export interface DayActivate {
+  date: Date;
+  start: Date;
+  end: Date;
+}
+
 interface PlacedEvent {
   item: MeetingOccurrence;
   top: number;
@@ -50,10 +57,12 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
   changeDetection: ChangeDetectionStrategy.OnPush,
   styleUrls: ['./time-grid.component.scss'],
   template: `
-    <div class="tg" [style.--slot-px]="slotPx + 'px'" [style.--hour-px]="hourPx + 'px'" [class.tg--compact]="compact">
-      <div class="tg__head" [style.--cols]="columns.length">
+    <div class="tg" [style.--slot-px]="slotPx + 'px'" [style.--hour-px]="hourPx + 'px'" [class.tg--compact]="compact" [class.tg--strip]="selectedKeys.length > 1" [class.tg--embed]="hideHeader">
+      <div class="tg__head" *ngIf="!hideHeader" [style.--cols]="columns.length">
         <span class="tg__corner"></span>
-        <div class="tg__day" *ngFor="let c of columns; trackBy: trackByKey" [class.tg__day--today]="c.isToday">
+        <div class="tg__day" *ngFor="let c of columns; trackBy: trackByKey"
+             [class.tg__day--today]="c.isToday" [class.tg__day--sel]="isHeaderSelected(c)"
+             (click)="onHeaderClick(c)">
           <span class="tg__dow">{{ c.date | date: 'EEE' }}</span>
           <span class="tg__dom">{{ c.date | date: 'd' }}</span>
           <span class="tg__loc" *ngIf="settings.showWorkLocation && c.location"><i class="ti" [class.ti-building]="c.location === 'Office'" [class.ti-home]="c.location === 'Remote'" aria-hidden="true"></i> {{ c.location }}</span>
@@ -64,10 +73,11 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
           <div class="tg__gutter" aria-hidden="true">
             <span class="tg__hour" *ngFor="let h of hours" [style.top.px]="h * hourPx">{{ hourLabel(h) }}</span>
           </div>
-          <div class="tg__col" *ngFor="let c of columns; trackBy: trackByKey" [class.tg__col--today]="c.isToday"
+          <div class="tg__col" *ngFor="let c of columns; trackBy: trackByKey"
+               [class.tg__col--today]="c.isToday"
                (pointerdown)="startSelect($event, c)" role="gridcell" [attr.aria-label]="c.date | date: 'fullDate'">
             <div class="tg__off" *ngFor="let o of c.off" [style.top.px]="o.top" [style.height.px]="o.height"></div>
-            <div class="tg__sel" *ngIf="selectionFor(c) as s" [style.top.px]="s.top" [style.height.px]="s.height"></div>
+            <div class="tg__sel" *ngIf="selectionFor(c) as s" [class.tg__sel--pin]="s.pinned" [style.top.px]="s.top" [style.height.px]="s.height"></div>
             <div class="tg__draft" *ngIf="c.draft as d" [style.top.px]="d.top" [style.height.px]="d.height">
               <span>{{ draftLabel }}</span>
               <span class="tg__draft-handle" (pointerdown)="startResize($event, c)" title="Drag to change the end time"></span>
@@ -89,13 +99,23 @@ const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 export class TimeGridComponent implements OnInit, OnChanges, AfterViewInit, OnDestroy {
   @Input() days: Date[] = [];
   @Input() items: MeetingOccurrence[] = [];
+  /** `year-month-date` keys of days marked in the header (the open week, or the cursor day). */
+  @Input() selectedKeys: string[] = [];
+  /** Highlighted time slot after a click (calendar page); not the whole column. */
+  @Input() slotHighlight: GridRange | null = null;
   /** Highlighted proposed range (meeting editor) */
   @Input() draft: GridRange | null = null;
   @Input() draftLabel = '';
   @Input() compact = false;
+  /** Hide the weekday header (meeting editor supplies its own). */
+  @Input() hideHeader = false;
   /** Minutes from midnight to scroll to when the grid is first shown (default: start of work) */
   @Input() scrollToMinutes: number | null = null;
+  /** Calendar page: a click highlights the slot; a drag (or second click, handled by the parent) still selects a range. */
+  @Input() confirmClick = false;
   @Output() rangeSelect = new EventEmitter<GridRange>();
+  @Output() dayActivate = new EventEmitter<DayActivate>();
+  @Output() headerClick = new EventEmitter<Date>();
   @Output() draftChange = new EventEmitter<GridRange>();
   @Output() eventClick = new EventEmitter<MeetingOccurrence>();
 
@@ -268,15 +288,24 @@ export class TimeGridComponent implements OnInit, OnChanges, AfterViewInit, OnDe
 
   // ---------------------------------------------------------------- selection
 
-  selectionFor(c: Column): { top: number; height: number } | null {
-    if (!this.sel || this.sel.col !== c) {
-      return null;
-    }
-    const s = this.settings.timeScale;
-    const lo = Math.min(this.sel.from, this.sel.to);
-    const hi = Math.max(this.sel.from, this.sel.to) + s;
+  selectionFor(c: Column): { top: number; height: number; pinned: boolean } | null {
     const px = this.hourPx / 60;
-    return { top: lo * px, height: (hi - lo) * px };
+    if (this.sel && this.sel.col === c) {
+      const s = this.settings.timeScale;
+      const lo = Math.min(this.sel.from, this.sel.to);
+      const hi = Math.max(this.sel.from, this.sel.to) + s;
+      return { top: lo * px, height: (hi - lo) * px, pinned: false };
+    }
+    const pin = this.slotHighlight;
+    if (pin && dayKey(pin.start) === c.key) {
+      const dayStart = c.date.getTime();
+      const lo = (pin.start.getTime() - dayStart) / 60000;
+      const hi = (pin.end.getTime() - dayStart) / 60000;
+      if (hi > lo) {
+        return { top: lo * px, height: Math.max((hi - lo) * px, this.slotPx), pinned: true };
+      }
+    }
+    return null;
   }
 
   private minuteAt(event: PointerEvent, col: Column): number {
@@ -335,10 +364,24 @@ export class TimeGridComponent implements OnInit, OnChanges, AfterViewInit, OnDe
     const lo = Math.min(from, to);
     const hi = Math.max(from, to) + s;
     const base = col.date.getTime();
+    const dragged = from !== to;
     // a plain click proposes a 30 minute block (one slot when slots are longer)
-    const length = from === to ? Math.max(30, s) : hi - lo;
-    this.rangeSelect.emit({ start: new Date(base + lo * 60000), end: new Date(base + (lo + length) * 60000) });
+    const length = dragged ? hi - lo : Math.max(30, s);
+    const range: GridRange = { start: new Date(base + lo * 60000), end: new Date(base + (lo + length) * 60000) };
+    if (dragged || !this.confirmClick) {
+      this.rangeSelect.emit(range);
+    } else {
+      this.dayActivate.emit({ date: col.date, start: range.start, end: range.end });
+    }
     this.cdr.markForCheck();
+  }
+
+  onHeaderClick(col: Column): void {
+    this.headerClick.emit(col.date);
+  }
+
+  isHeaderSelected(c: Column): boolean {
+    return this.selectedKeys.includes(c.key);
   }
 
   // ---------------------------------------------------------------- template helpers
