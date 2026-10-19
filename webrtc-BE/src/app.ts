@@ -20,11 +20,18 @@ export function createApp(corsOrigin: string[] | "*") {
     app.use(cors({ origin: corsOrigin }));
     // Reads the Clerk session token (Authorization: Bearer …); routes opt in via verifyToken
     if (isAuthConfigured()) {
-        app.use(clerkMiddleware({
+        const base = { jwtKey: authConfig.jwtKey, clockSkewInMs: authConfig.clockSkewMs };
+        // Website (browser): the token must come from one of our origins (azp check).
+        const webAuth = clerkMiddleware({
+            ...base,
             authorizedParties: authConfig.authorizedParties.length ? authConfig.authorizedParties : undefined,
-            jwtKey: authConfig.jwtKey,
-            clockSkewInMs: authConfig.clockSkewMs,
-        }));
+        });
+        // Mobile app: native tokens carry no azp, and Clerk forbids Origin + Authorization together.
+        const appAuth = clerkMiddleware(base);
+        app.use((req, res, next) => {
+            const isApp = !req.headers.origin && !!req.headers.authorization?.startsWith("Bearer ");
+            return (isApp ? appAuth : webAuth)(req, res, next);
+        });
     }
 
     const api = express.Router();

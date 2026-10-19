@@ -46,7 +46,8 @@ export function startRealtime(server: http.Server, corsOrigin: string[] | "*") {
             const payload = await verifyToken(token, {
                 secretKey: authConfig.secretKey,
                 jwtKey: authConfig.jwtKey,
-                authorizedParties: authConfig.authorizedParties.length ? authConfig.authorizedParties : undefined,
+                // Browsers always send Origin (keep the azp check); the native app doesn't (no azp in its tokens)
+                authorizedParties: authConfig.authorizedParties.length && socket.handshake.headers.origin ? authConfig.authorizedParties : undefined,
                 clockSkewInMs: authConfig.clockSkewMs,
             });
             socket.data.userId = await resolveLocalUserId(payload.sub);
