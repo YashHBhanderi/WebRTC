@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
-import { E2ee, EncryptedPayload, HttpError, SecureContent } from './e2ee';
-import { decryptFile, encryptFile } from './attachment-crypto';
-import { CallMedia, CallMediaOptions } from './calls-media';
+import { E2ee, EncryptedPayload, HttpError, SecureContent } from './e2ee.js';
+import { decryptFile, encryptFile } from './attachment-crypto.js';
+import { CallMedia, CallMediaOptions } from './calls-media.js';
 
 /**
  * SpreeWe client SDK (prototype), user-session mode.
@@ -170,6 +170,10 @@ const PASS_THROUGH: Record<string, SpreeWeEventName> = {
 const mediaKind = (mime: string): 'image' | 'video' | 'audio' | 'pdf' | 'file' =>
   /^image\/(jpeg|png|gif|webp)$/.test(mime) ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : mime === 'application/pdf' ? 'pdf' : 'file';
 
+/** Last activity of a conversation row (for ordering a merged list) */
+const activity = (raw: any): number =>
+  new Date(raw?.timestamp || raw?.lastMessage?.createdAt || raw?.updatedAt || raw?.createdAt || 0).getTime() || 0;
+
 const callInfo = (p: any): CallInfo => ({
   callId: String(p?.callId ?? p?._id ?? ''),
   conversationId: String(p?.groupId ?? p?.conversationId ?? ''),
@@ -250,12 +254,24 @@ export class SpreeWeClient {
   // ================================================================== conversations
 
   readonly conversations = {
-    /** Conversations of the signed-in user in the active workspace (direct + groups with messages) */
+    /**
+     * Conversations of the signed-in user in the active workspace: direct chats that have a message
+     * (GET /conversations) and groups (GET /groupConversations), newest activity first.
+     */
     list: async (): Promise<Conversation[]> => {
-      const list = await this.rest<any[]>('GET', '/conversations');
-      const out = (list || []).map((c) => this.toConversation(c));
-      out.forEach((c) => this.join(c.id));
-      return out;
+      const [direct, groups] = await Promise.all([
+        this.rest<any[]>('GET', '/conversations'),
+        this.rest<any[]>('GET', '/groupConversations'),
+      ]);
+      const out = [
+        ...(direct || []).map((c) => this.toConversation(c, false)),
+        ...(groups || []).map((c) => this.toConversation(c, true)),
+      ];
+      const seen = new Set<string>();
+      const unique = out.filter((c) => !seen.has(c.id) && !!seen.add(c.id));
+      unique.sort((a, b) => activity(b.raw) - activity(a.raw));
+      unique.forEach((c) => this.join(c.id));
+      return unique;
     },
     /** Open (or create) a direct conversation; the server decides who you may contact */
     openDirect: async (userId: string): Promise<string> => {
@@ -266,11 +282,11 @@ export class SpreeWeClient {
     },
     createGroup: async (input: { name: string; memberIds: string[]; description?: string }): Promise<Conversation> => {
       const group = await this.rest<any>('POST', '/conversations/group', { groupName: input.name, groupDescription: input.description || '', groupMembers: JSON.stringify(input.memberIds) });
-      const c = this.toConversation(group);
+      const c = this.toConversation(group, true);
       this.join(c.id);
       return c;
     },
-    info: async (conversationId: string) => this.toConversation(await this.rest<any>('GET', `/conversations/${encodeURIComponent(conversationId)}/group`)),
+    info: async (conversationId: string) => this.toConversation(await this.rest<any>('GET', `/conversations/${encodeURIComponent(conversationId)}/group`), true),
     addMembers: (conversationId: string, userIds: string[]) => this.rest<any>('PUT', `/conversations/group/${encodeURIComponent(conversationId)}/add-member`, { userIds }),
     removeMember: (conversationId: string, userId: string) => this.rest<any>('PUT', `/conversations/group/${encodeURIComponent(conversationId)}/remove-member`, { userId }),
     delete: (conversationId: string) => this.rest<any>('DELETE', `/conversations/${encodeURIComponent(conversationId)}`),
@@ -560,11 +576,21 @@ export class SpreeWeClient {
     };
   }
 
-  private toConversation(c: any): Conversation {
-    const members: ChatUser[] = (c?.members || []).map((u: any) => (typeof u === 'object' ? u : { _id: String(u) }));
-    const others = members.filter((u) => String(u._id) !== String(this.me_?._id));
-    const name = c?.isGroup ? c.groupName || c.name || 'Group' : others.map((u) => u.name || u.username || u.email || 'User').join(', ') || 'Conversation';
-    return { id: String(c?._id), isGroup: !!c?.isGroup, name, members, raw: c };
+  /**
+   * Server rows differ by route: direct chats (GET /conversations) carry `sender` (me) and `receiver`
+   * (the other person) instead of `members`; group rows carry `members` and `groupName` but not
+   * always `isGroup`. `isGroup` is passed when the route already tells.
+   */
+  private toConversation(c: any, isGroup?: boolean): Conversation {
+    const group = isGroup ?? !!c?.isGroup;
+    const toUser = (u: any): ChatUser => (typeof u === 'object' && u ? { ...u, _id: String(u._id) } : { _id: String(u) });
+    let members: ChatUser[] = (c?.members || []).map(toUser);
+    if (!members.length && !group) members = [c?.sender, c?.receiver].filter(Boolean).map(toUser);
+    const others = members.filter((u) => u._id !== String(this.me_?._id));
+    const name = group
+      ? c?.groupName || c?.name || 'Group'
+      : others.map((u) => u.name || u.username || u.email || 'User').join(', ') || 'Conversation';
+    return { id: String(c?._id), isGroup: group, name, members, raw: c };
   }
 
   private v1<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {

@@ -1,4 +1,4 @@
-import { deviceFor, forgetDevice, saveAck } from './key-vault';
+import { deviceFor, forgetDevice, saveAck } from './key-vault.js';
 import type * as SdkTypes from '@matrix-org/matrix-sdk-crypto-wasm';
 
 /**

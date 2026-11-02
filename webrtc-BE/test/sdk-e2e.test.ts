@@ -81,7 +81,13 @@ describe("SDK: chat, calls signaling, organizations", () => {
         const stored: any = await runAsSystem(() => Message.findById(m.id).lean());
         expect(stored.e2ee?.ciphertext).toBeTruthy();
         expect(JSON.stringify(stored)).not.toContain(marker);
-        expect((await bob.conversations.list()).map((c) => c.id)).toContain(id);
+        // Listed with both participants and the OTHER person's name (was: empty members, "Conversation")
+        const listed = (await bob.conversations.list()).find((c) => c.id === id);
+        expect(listed).toBeTruthy();
+        expect(listed!.isGroup).toBe(false);
+        expect(listed!.members.map((x) => x._id).sort()).toEqual([String(u._id), String(v._id)].sort());
+        expect(listed!.name).not.toBe("Conversation");
+        expect([u.name, u.username, u.email]).toContain(listed!.name);
 
         await sendAndReceive(bob, alice, id, "hi back");
         const history = (await alice.messages.history(id)).filter((x) => x.state === "ok").map((x) => x.text);
@@ -144,6 +150,14 @@ describe("SDK: chat, calls signaling, organizations", () => {
         const carol = await connect({ user: w });
         const group = await alice.conversations.createGroup({ name: "SDK group", memberIds: [String(v._id), String(w._id)] });
         expect(group.isGroup).toBe(true);
+        // Every member lists the group (was: list() returned direct conversations only)
+        for (const c of [alice, bob, carol]) {
+            const g = (await c.conversations.list()).find((x) => x.id === group.id);
+            expect(g, "group missing from list()").toBeTruthy();
+            expect(g!.isGroup).toBe(true);
+            expect(g!.name).toBe("SDK group");
+            expect(g!.members.length).toBe(3);
+        }
         await sleep(200);
         bob.conversations.join(group.id);
         carol.conversations.join(group.id);
