@@ -11,7 +11,8 @@ import { orgClaimsFromPayload, resolveContext } from "../tenancy/tenant.service"
 import { runWithContext } from "../tenancy/context";
 import { sharedSocketLimiter } from "./rate-limit";
 import { startSocketRevalidation } from "./revalidate";
-import { registerPresenceEvents, registerPresenceGateway } from "./gateways/presence.gateway";
+import { cleanUpCallPeerLater, registerPresenceEvents, registerPresenceGateway } from "./gateways/presence.gateway";
+import { releaseScreenSharesOfSocket } from "../services/call-session.service";
 import { registerChatGateway } from "./gateways/chat.gateway";
 import { registerMessageGateway } from "./gateways/message.gateway";
 import { registerGroupGateway } from "./gateways/group.gateway";
@@ -176,6 +177,9 @@ function setUpAppSocket(socket: AuthedSocket, ctx: AuthedSocket["data"]["ctx"]):
     socket.on("disconnect", () => {
         clearTimeout(expiry);
         removeAppSocket(ctx.userId, socket.id);
+        // A call this socket took part in: same cleanup as for SpreeWe clients (after the reconnect grace)
+        releaseScreenSharesOfSocket(socket.id, ctx.userId);
+        cleanUpCallPeerLater(ctx.userId, socket.id);
         appConnections.set(app.appId, Math.max(0, (appConnections.get(app.appId) || 1) - 1));
         appConnections.set(userKey, Math.max(0, (appConnections.get(userKey) || 1) - 1));
     });
@@ -209,5 +213,9 @@ function setUpAppSocket(socket: AuthedSocket, ctx: AuthedSocket["data"]["ctx"]):
         registerChatGateway(socket);
         registerMessageGateway(socket);
         registerGroupGateway(socket);
+        // Calls: the same gateways as SpreeWe clients; the app joins as another device of the user
+        // (one media session per user; mediasoup:joinCall checks participation and the lobby)
+        registerCallGateway(socket);
+        registerMediaGateway(socket);
     });
 }

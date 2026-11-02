@@ -60,35 +60,7 @@ export function registerPresenceGateway(socket: AuthedSocket): void {
             );
         }
 
-        setTimeout(async () => {
-            // Decide on the peer, not on "does the user have any socket": another device of the
-            // same user being online does not mean this device's call session came back.
-            const peer = mediasoupService.getPeerByUserId(userId);
-            if (!peer || peer.socketId !== disconnectedSocketId) {
-                // Same device reconnected (peer rebound to its new socket) or already cleaned
-                if (peer) {
-                    console.log(`User ${userId} reconnected; keeping mediasoup peer`);
-                }
-                return;
-            }
-
-            console.log(`User ${userId} did not reconnect — cleaning mediasoup peer`);
-            const callId = peer.callId;
-
-            mediasoupService.leaveCall(disconnectedSocketId);
-            mediasoupService.removePeer(disconnectedSocketId);
-
-            if (callId) {
-                try {
-                    const call = await callService.leaveCall(callId as any, userId as any);
-                    callRoom.clearUser(callId.toString(), userId);
-                    io().to(callId.toString()).emit("call:participant-left", { callId, userId });
-                    await endIfEmpty(call);
-                } catch (error) {
-                    console.error("Error leaving call after disconnect:", safeError(error));
-                }
-            }
-        }, CALL_RECONNECT_GRACE_MS);
+        cleanUpCallPeerLater(userId, disconnectedSocketId);
     });
 }
 
@@ -116,4 +88,41 @@ export function registerPresenceEvents(socket: AuthedSocket): void {
             console.error(`Failed to update idle state for ${userId}:`, safeError(error))
         );
     });
+}
+
+/**
+ * After a socket goes away: if it still holds the user's media peer once the reconnect grace period has
+ * passed, release media and leave the call (ending it when empty). Used for SpreeWe and developer-app
+ * sockets alike.
+ */
+export function cleanUpCallPeerLater(userId: string, disconnectedSocketId: string): void {
+    setTimeout(async () => {
+        // Decide on the peer, not on "does the user have any socket": another device of the
+        // same user being online does not mean this device's call session came back.
+        const peer = mediasoupService.getPeerByUserId(userId);
+        if (!peer || peer.socketId !== disconnectedSocketId) {
+            // Same device reconnected (peer rebound to its new socket) or already cleaned
+            if (peer) {
+                console.log(`User ${userId} reconnected; keeping mediasoup peer`);
+            }
+            return;
+        }
+
+        console.log(`User ${userId} did not reconnect — cleaning mediasoup peer`);
+        const callId = peer.callId;
+
+        mediasoupService.leaveCall(disconnectedSocketId);
+        mediasoupService.removePeer(disconnectedSocketId);
+
+        if (callId) {
+            try {
+                const call = await callService.leaveCall(callId as any, userId as any);
+                callRoom.clearUser(callId.toString(), userId);
+                io().to(callId.toString()).emit("call:participant-left", { callId, userId });
+                await endIfEmpty(call);
+            } catch (error) {
+                console.error("Error leaving call after disconnect:", safeError(error));
+            }
+        }
+    }, CALL_RECONNECT_GRACE_MS);
 }

@@ -58,7 +58,6 @@ export const ALL_SCOPES = Object.keys(APP_SCOPES) as AppScope[];
 /** Listed, but grant nothing yet (their functionality ships in a later phase) and can't be added to apps */
 export const UNAVAILABLE_SCOPES: ReadonlySet<string> = new Set<AppScope>([
     "messages:write", "messages:edit", "e2ee:device",
-    "calls:write", "calls:manage", "recordings:write",
 ]);
 
 export function isScope(value: unknown): value is AppScope {
@@ -98,6 +97,49 @@ export const SOCKET_EVENT_SCOPES: Record<string, AppScope> = {
     "group:promote-admin": "groups:manage",
     "group:remove-admin": "groups:manage",
     "group:leave": "groups:manage",
+    // calls: state
+    "call:getState": "calls:read",
+    "call:getActive": "calls:read",
+    "call:session": "calls:read",
+    // calls: taking part (signaling, media, screen sharing)
+    "call:start": "calls:write",
+    "call:accept": "calls:write",
+    "call:reject": "calls:write",
+    "call:leave": "calls:write",
+    "call:end": "calls:write",
+    "call:upgrade": "calls:write",
+    "call:media-state": "calls:write",
+    "call:hand": "calls:write",
+    "call:reaction": "calls:write",
+    "call:takeover": "calls:write",
+    "ice:getServers": "calls:write",
+    "mediasoup:getRouterRtpCapabilities": "calls:write",
+    "mediasoup:joinCall": "calls:write",
+    "mediasoup:createSendTransport": "calls:write",
+    "mediasoup:createRecvTransport": "calls:write",
+    "mediasoup:connectTransport": "calls:write",
+    "mediasoup:restartIce": "calls:write",
+    "mediasoup:produce": "calls:write",
+    "mediasoup:closeProducer": "calls:write",
+    "mediasoup:consume": "calls:write",
+    "mediasoup:resumeConsumer": "calls:write",
+    "mediasoup:setPreferredLayers": "calls:write",
+    "mediasoup:syncProducers": "calls:write",
+    "screen:join": "calls:write",
+    "screen:start": "calls:write",
+    "screen:stop": "calls:write",
+    "screen:getState": "calls:write",
+    // calls: host controls (the server checks that the user hosts / co-hosts the call)
+    "call:mute-participant": "calls:manage",
+    "call:mute-all": "calls:manage",
+    "call:remove-participant": "calls:manage",
+    "call:admit": "calls:manage",
+    "call:deny": "calls:manage",
+    "call:set-cohost": "calls:manage",
+    "call:settings": "calls:manage",
+    // recording control (the server checks who may record)
+    "call:record-start": "recordings:write",
+    "call:record-stop": "recordings:write",
 };
 
 /**
@@ -128,4 +170,32 @@ export const DELIVERED_EVENT_SCOPES: Record<string, AppScope> = {
     // meetings & recordings
     "meeting:updated": "meetings:read",
     "recording:updated": "recordings:read",
+    "call:recording": "recordings:read",
+    // calls: invitations and lifecycle
+    "call:incoming": "calls:read",
+    "call:pending-rings": "calls:read",
+    "call:meeting-active": "calls:read",
+    "call:started": "calls:read",
+    "call:ended": "calls:read",
+    "call:participant-joined": "calls:read",
+    "call:participant-left": "calls:read",
+    "call:participant-rejected": "calls:read",
+    "call:error": "calls:read",
+    // calls: in-call (media and controls)
+    "call:media-updated": "calls:write",
+    "call:settings": "calls:write",
+    "call:lobby": "calls:write",
+    "call:admitted": "calls:write",
+    "call:denied": "calls:write",
+    "call:removed": "calls:write",
+    "call:force-muted": "calls:write",
+    "call:force-leave": "calls:write",
+    "call:audio-levels": "calls:write",
+    "call:hand": "calls:write",
+    "call:reaction": "calls:write",
+    "call:share-stopped": "calls:write",
+    "mediasoup:newProducer": "calls:write",
+    "mediasoup:producerClosed": "calls:write",
+    "screen:started": "calls:write",
+    "screen:stopped": "calls:write",
 };
