@@ -1,26 +1,25 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SpreeWeClient } from '@spreewe/chat-sdk';
+import { SpwChatAppComponent } from '@spreewe/chat-angular';
 import { AuthService } from '../core/services/auth.service';
-import { SpwChatComponent } from './spw-chat.component';
 
 /**
- * SDK demo (prototype): the host app provides the signed-in user's Clerk session token; the SDK does
- * the rest (its own E2EE device, conversations, encrypted send / receive). No app secret in the browser.
+ * Embedded integration inside the SpreeWe app (same origin): the host provides the signed-in user's
+ * Clerk session token; @spreewe/chat-sdk does E2EE, conversations, calls; @spreewe/chat-angular is the UI.
+ * The standalone third-party example is examples/angular-app.
  */
 @Component({
   selector: 'app-sdk-demo',
   standalone: true,
-  imports: [CommonModule, SpwChatComponent],
+  imports: [CommonModule, SpwChatAppComponent],
   template: `
     <div class="demo">
-      <h2>SpreeWe SDK demo</h2>
       <p *ngIf="status">{{ status }}</p>
-      <p *ngIf="client?.me">Signed in as <b>{{ client?.me?.name || client?.me?.username || client?.me?.email }}</b> · SDK device <code>{{ client?.deviceId }}</code></p>
-      <spw-chat *ngIf="ready && client" [client]="client"></spw-chat>
+      <spw-chat-app *ngIf="ready && client" [client]="client"></spw-chat-app>
     </div>
   `,
-  styles: [`.demo { padding: 16px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; } spw-chat { flex: 1; }`],
+  styles: [`.demo { padding: 16px; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; } spw-chat-app { flex: 1; min-height: 0; }`],
 })
 export class SdkDemoComponent implements OnInit, OnDestroy {
   client: SpreeWeClient | null = null;

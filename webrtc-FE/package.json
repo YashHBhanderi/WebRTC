@@ -24,6 +24,7 @@
     "@ctrl/ngx-emoji-mart": "^9.2.0",
     "@matrix-org/matrix-sdk-crypto-wasm": "18.9.0",
     "@ng-bootstrap/ng-bootstrap": "^15.0.0",
+    "@spreewe/chat-angular": "file:../packages/chat-angular/dist",
     "@spreewe/chat-sdk": "file:../packages/chat-sdk",
     "@tabler/icons-webfont": "^3.49.0",
     "bootstrap": "^5.3.3",

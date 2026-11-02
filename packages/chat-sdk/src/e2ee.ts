@@ -13,8 +13,11 @@ export const E2EE_SERVER = 'spreewe.local';
 export const matrixUser = (id: string) => `@${id}:${E2EE_SERVER}`;
 export const matrixRoom = (conversationId: string) => `!${conversationId}:${E2EE_SERVER}`;
 
+/** What travels inside the ciphertext (same shape as the web app's SecureContent). */
 export interface SecureContent {
   text?: string;
+  file?: { storageKey: string; key: string; iv: string; sha256: string; mimeType: string; name: string; size: number };
+  forwardedFrom?: string;
 }
 
 export interface EncryptedPayload {
@@ -281,7 +284,7 @@ export class E2ee {
       }
       const shield = result.shieldState(false);
       const warning = shield.color === sdk.ShieldColor.Red ? (shield.message || 'Sent from an unverified device') : undefined;
-      const out: Decrypted = { state: 'ok', content: { text: content.text }, warning };
+      const out: Decrypted = { state: 'ok', content: { text: content.text, file: content.file, forwardedFrom: content.forwardedFrom }, warning };
       this.cache.set(cacheKey, out);
       return out;
     } catch (e: any) {
@@ -299,6 +302,23 @@ export class E2ee {
     await this.machine!.updateTrackedUsers([new sdk.UserId(matrixUser(userId))]);
     await this.processRequests();
     return has();
+  }
+
+  // ------------------------------------------------------------------ devices
+
+  /** The user's encryption devices (public fingerprints only); `current` marks this one. */
+  async devices(): Promise<{ deviceId: string; displayName: string; ed25519: string | null; revoked: boolean; current: boolean }[]> {
+    const list = await this.api<any[]>('get', '/devices');
+    return list.map((d) => ({ ...d, current: d.deviceId === this.deviceId }));
+  }
+
+  /** Revoke a device (server-side; peers are told). Revoking this one also wipes its local keys. */
+  async revokeDevice(deviceId: string): Promise<void> {
+    await this.api('post', `/devices/${encodeURIComponent(deviceId)}/revoke`);
+    if (deviceId === this.deviceId) {
+      await forgetDevice(this.userId, this.storeName);
+      this.stop();
+    }
   }
 
   private retryPending(): void {

@@ -8,6 +8,8 @@ process.env.CLERK_PUBLISHABLE_KEY = "pk_test_dGVzdA";
 process.env.CLERK_SECRET_KEY = "sk_test_test";
 process.env.RATE_LIMIT_MAX = process.env.RATE_LIMIT_MAX || "100000";
 process.env.RATE_LIMIT_SENSITIVE_MAX = process.env.RATE_LIMIT_SENSITIVE_MAX || "100000";
+// Tests that start a mediasoup worker must not collide with a dev backend on the default 40000 (or each other)
+process.env.MEDIASOUP_RTC_PORT = String(45000 + (process.pid % 4000));
 // Test-only Svix secret (base64 of a fixed string); real secrets come from the Clerk dashboard
 // Test-only platform secrets (never real values)
 process.env.PLATFORM_TOKEN_SECRET = "test-platform-token-secret-0123456789abcdef";

@@ -1,79 +1,132 @@
-# @spreewe/chat-sdk (prototype)
+# SpreeWe SDK and UI (prototype)
 
-A TypeScript client for SpreeWe chat with **on-device end-to-end encryption**. It runs in the end user's browser under that user's own SpreeWe (Clerk) session.
+| Package | What it is |
+|---|---|
+| `@spreewe/chat-sdk` (`packages/chat-sdk`) | Headless TypeScript client: auth, users, conversations, messages, files, calls, recordings, organizations, events. End-to-end encryption on the user's device. |
+| `@spreewe/chat-angular` (`packages/chat-angular`) | Angular 16 standalone components built on the SDK: the complete chat app, or the individual pieces. |
+| `examples/angular-app` | A separate Angular app ("Acme Support") that embeds SpreeWe chat and calling with Clerk sign-in. |
 
-> Status: **prototype, `0.1.0-prototype`**. Not published. Not production-ready. See "Not supported" below.
+> **Status: prototype `0.1.0-prototype`.** Not published, not production-ready. See "Support matrix".
 
-## How it works (security model)
+## Security model
+- **The browser uses the signed-in user's own SpreeWe (Clerk) session token.** The host app supplies it through `getToken()`. Developer-app secrets never go in the browser. Server-to-server integrations use `/api/v1` with app credentials (see `docs/integrations`).
+- **The SDK is its own E2EE device.** It uses Olm/Megolm through `@matrix-org/matrix-sdk-crypto-wasm`, the same crypto and server API as the SpreeWe web app. Private keys stay in this browser's IndexedDB.
+- **The server only ever receives ciphertext.** Message text, edits, reply quotes and attachment keys travel encrypted. Attachments are AES-GCM encrypted before upload.
+- **The workspace comes from the session.** Personal vs organization is the Clerk session's active organization. The server enforces membership and tenant isolation on every call. The SDK never sends an organization id.
 
-- **Signed-in user only.** The host app passes a `getToken()` that returns the signed-in user's Clerk session token. The SDK never accepts a developer-app secret. Developer-app tokens (`/api/v1`, server to server) are a separate integration and can't send messages.
-- **The SDK is its own encryption device.** On first `connect()` it creates its own Olm/Megolm device for the user and keeps it in the browser's IndexedDB (`spreewe-sdk-e2ee-vault`, separate from the SpreeWe web app's store). Private keys never leave the device. The server stores public keys and ciphertext only.
-- **Same crypto as the web app.** The crypto is a framework-free port of `webrtc-FE/src/app/core/crypto/e2ee.service.ts`: the same `@matrix-org/matrix-sdk-crypto-wasm`, the same `/v1/e2ee` server API, and the same sender-device check on decrypt.
-- **Workspace comes from the session.** Personal vs organization context is the Clerk session's active organization. The server enforces membership and tenant isolation. The SDK never sends an organization id.
-
-## Install (local)
-
+## Build and install (local)
 ```bash
 cd packages/chat-sdk && npm install && npm run build
-cd ../../your-app && npm install ../packages/chat-sdk   # add --legacy-peer-deps if your tree needs it
+cd ../chat-angular && npm install --legacy-peer-deps && npm run build      # → packages/chat-angular/dist
+cd your-angular-app
+npm install ../packages/chat-sdk ../packages/chat-angular/dist --legacy-peer-deps
 ```
 
-Peer dependencies are `socket.io-client@^4.8.1` and `@matrix-org/matrix-sdk-crypto-wasm@18.9.0`. Serve `node_modules/@matrix-org/matrix-sdk-crypto-wasm/pkg/matrix_sdk_crypto_wasm_bg.wasm` as a static asset. `webrtc-FE/angular.json` shows how.
+Then do two things in the host app's `angular.json`:
+- Set `"preserveSymlinks": true` in the build options, so the linked packages use the app's Angular.
+- Add the crypto asset:
 
-## Use
+```json
+{ "glob": "matrix_sdk_crypto_wasm_bg.wasm", "input": "node_modules/@matrix-org/matrix-sdk-crypto-wasm/pkg", "output": "assets/crypto" }
+```
 
+Peer dependencies: `socket.io-client@^4.8.1`, `@matrix-org/matrix-sdk-crypto-wasm@18.9.0`, `mediasoup-client@^3.23.1`, Angular `16.2.x`.
+
+## Use: ready-made UI
 ```ts
-import { SpreeWeClient } from '@spreewe/chat-sdk';
-
 const client = new SpreeWeClient({
-  apiUrl: 'https://your-spreewe-backend',          // REST + /v1/e2ee
-  socketUrl: 'https://your-spreewe-backend',       // Socket.IO (defaults to apiUrl)
-  getToken: () => clerk.session!.getToken(),       // the signed-in user's session token
+  apiUrl: 'https://your-host/api',            // SpreeWe REST (directly, or through your proxy)
+  socketUrl: 'https://your-host',             // Socket.IO
+  getToken: () => clerk.session!.getToken(),  // signed-in user's session token
   wasmUrl: new URL('assets/crypto/matrix_sdk_crypto_wasm_bg.wasm', document.baseURI),
-  deviceLabel: 'My App',                           // shown in the user's device list
 });
-
-const me = await client.connect();                 // user + E2EE device + realtime
-const conversations = await client.listConversations();
-const id = await client.openDirect(otherUserId);   // the server decides who you may contact
-client.onMessage((m) => console.log(m.senderId, m.state, m.text)); // decrypted on this device
-client.onError((e) => console.warn(e.code, e.message));
-await client.send(id, 'hello');                    // encrypted before it leaves the browser
-const history = await client.history(id);          // oldest first, decrypted
-client.disconnect();
+await client.connect();
+```
+```html
+<spw-chat-app [client]="client"></spw-chat-app>
 ```
 
-The message `state` is one of:
+The individual components are:
 
-- `ok`: decrypted.
-- `pending`: the room key hasn't arrived yet. Call `history()` again on `onKeysChanged`.
-- `failed`: can't be decrypted on this device, or the sender's device couldn't be confirmed.
-- `plain`: a system or call notice that isn't encrypted.
+- `spw-conversation-list`
+- `spw-chat-window`
+- `spw-composer`
+- `spw-attachment`
+- `spw-presence-badge`
+- `spw-call`
 
-## Backend requirements
+To theme them, set the `--spw-*` CSS variables (for example `--spw-brand`, `--spw-accent`, `--spw-radius`, `--spw-font`) on **each** component element, with a selector specific enough to beat the component's own defaults. Each component declares its defaults on its own host, so values set only on an ancestor don't reach nested components. See `docs/developer/angular-ui.md`. The components don't add any global CSS.
 
-The host app's origin must be in the backend's `CORS_ORIGINS` and, in production, in `CLERK_AUTHORIZED_PARTIES`. The user signs in through Clerk on that origin.
+## Use: headless
+```ts
+await client.connect();
+const convs = await client.conversations.list();
+const id = await client.conversations.openDirect(userId);
+client.events.on('message', (m) => console.log(m.text, m.state));  // decrypted on this device
+await client.messages.send(id, 'hello', { replyTo });
+await client.messages.edit(id, messageId, 'fixed');
+client.messages.react(id, messageId, '👍');
+await client.files.sendAttachment(id, file);
+const call = await client.calls.start(id, 'video');               // ring
+const media = await client.calls.join(call.callId, 'video', { onRemoteStream: (userId, stream) => {} });
+```
 
-## Demo and tests
+| Namespace | Methods |
+|---|---|
+| `auth` | `connect`, `disconnect`, `devices`, `revokeDevice` |
+| `users` | `me`, `directory`, `get`, `updateProfile`, `setPresence`, `setIdle` |
+| `conversations` | `list`, `openDirect`, `createGroup`, `info`, `addMembers`, `removeMember`, `delete`, `join` |
+| `messages` | `send`, `history`, `edit`, `delete`, `react`, `pin`, `markRead`, `markDelivered` |
+| `chat` | `typing`, `notifications.list`, `notifications.unreadCount`, `notifications.markRead` |
+| `files` | `sendAttachment`, `shared`. Received attachments have `attachment.download()`, which decrypts locally. |
+| `calls` | `start`, `accept`, `reject`, `leave`, `end`, `state`, `active`, `history`, `join` (browser media), and `controls.*` (mute or remove a participant, admit, deny, set co-host, start or stop recording, media state) |
+| `recordings` | `list`, `get`, `transcript` |
+| `organizations` | `mine`, `members` |
+| `events` | `on(name, handler)`. Events: `message`, `message.updated`, `message.deleted`, `reaction.updated`, `typing`, `presence`, `messages.read`, `notification`, `call.*`, `recording.updated`, `keys`, `error`, … |
 
-- **Angular demo:** `webrtc-FE` route `/sdk-demo`. Sign in, then open `https://<dev-host>/sdk-demo` in two browsers as two different users. Source: `webrtc-FE/src/app/sdk-demo/`.
-  - `spw-chat.component.ts` is the reusable standalone chat component. It depends only on the SDK.
-  - `sdk-demo.component.ts` is the host page. It supplies the token.
-- **End-to-end test:** `webrtc-BE/test/sdk-e2e.test.ts`. It runs this SDK's code for two users against the real backend routes, Socket.IO and the database, with the real crypto library. Clerk is the test double, as in all backend tests. Run it with:
+Errors are `SpreeWeError` objects with a `code`: `NOT_SIGNED_IN`, `HTTP`, `REJECTED`, `E2EE`, `NOT_CONNECTED`, `TIMEOUT` or `UNSUPPORTED`.
 
-  ```bash
-  cd webrtc-BE && npx vitest run test/sdk-e2e.test.ts
-  ```
+## Support matrix
+**Tested end to end:** `webrtc-BE/test/sdk-e2e.test.ts`. It runs the real SDK code for two or three users against the real REST, Socket.IO and database, with the real crypto library. Clerk is simulated, as in all backend tests.
 
-  It covers personal and organization conversations, encrypted send, live receive, decrypt, history, ciphertext-only storage, and workspace isolation.
+| Feature | Status |
+|---|---|
+| Connect, E2EE device, devices list | Tested |
+| Direct chat: send, live receive, decrypt, history; ciphertext-only storage | Tested |
+| Reply, edit (re-encrypted), react, pin, delete, typing, read receipts | Tested |
+| Groups: create, encrypted group messages, removed member stops receiving | Tested |
+| Calls signaling: start (ring), incoming, accept, participant joined, state, active, end | Tested |
+| Presence (own echo), notifications, recordings list | Tested |
+| Organization workspace chat; personal context can't list or read it | Tested |
+| **Call media** (`calls.join`: mic/camera, remote streams) | **Built, not tested.** It needs a real browser (WebRTC). It follows the web app's mediasoup flow. |
+| **Attachments** (encrypt, upload, send, download, decrypt) | **Built, not tested.** It needs S3. Same crypto as the web app. |
+| Recording start/stop, transcripts in the UI | Built. Recording needs live call media, so not tested. |
+| Angular components, example app | **Build passes** with strict templates. **Not yet used in a real browser.** |
 
-## Not supported in this prototype
+**Not supported:**
 
-- Group creation from the SDK. Existing groups are listed and work for send and receive.
-- Attachments, edits, deletes, reactions, replies, read receipts and typing indicators.
-- Calls.
-- Device verification UI, key backup and recovery. A new browser can't read older history.
-- Sending messages with developer-app tokens. Blocked by design until the delegated-device design is approved.
-- Pagination beyond the latest page in `history()`.
+- message search (the server can't search encrypted text)
+- screen sharing
+- device switching
+- simulcast layer control
+- organization admin actions (invite, roles)
+- key backup and recovery (a new browser can't read older history)
+- sending with developer-app tokens (blocked by design)
+- a React or Vue UI
 
-Known limitation (SEC-008): the server delivers direct-message events to the user's most recent socket. While the SDK is connected, a SpreeWe web-app tab of the same user in the same browser may miss live events until it reconnects. Conversation-room delivery, which the SDK uses, is unaffected.
+**Known limitations:**
+
+- A brand-new contact's presence can lag up to 60 s, because the server caches it.
+- If the SDK and the SpreeWe web app are open as the same user in the same browser, direct-message events go to the most recent socket only (SEC-008).
+- A conversation with no messages yet doesn't appear in `list()`.
+
+## Run the separate example app
+1. **Backend:** `cd webrtc-BE && npm run dev`. Add the example's origin to `.env` and restart:
+   - `CLERK_AUTHORIZED_PARTIES=…,https://localhost:4300`
+   - `CORS_ORIGINS`, if you set it.
+
+   The example reaches the backend through its own dev proxy, so the browser only ever talks to `https://localhost:4300`.
+2. **Build the packages:** see "Build and install" above.
+3. **Example:** `cd examples/angular-app && npm install --legacy-peer-deps && npm start`. Open `https://localhost:4300`, accept the dev certificate and sign in with a SpreeWe account.
+4. **Second user:** in a second browser profile, sign in as another user. Start a chat or a call from the sidebar or the header.
+5. **Organization context:** switch the workspace in the header. Workspace conversations only appear in that organization.
