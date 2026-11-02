@@ -204,14 +204,14 @@ const people = await client.users.directory();
 | `join(conversationId: string): void` | Socket `joinConversation` (id) | — | Tested |
 
 Notes:
-- `list()` returns the **direct** conversations of the active workspace. **Conversations without messages are not listed** (server behaviour; a new direct conversation from `openDirect` appears only after its first message).
-- **Known defect: group conversations are not returned.** `GET /conversations` filters `isGroup: false`, and the SDK doesn't call the groups route (`GET /groupConversations`). Keep the `Conversation` returned by `createGroup()`, listen for `conversation.added`, and use `conversations.info(id)`. (The SDK's own code comment "direct + groups" is wrong.)
+- `list()` returns the direct conversations and the groups of the active workspace. **Conversations without messages are not listed** (server behaviour; a new direct conversation from `openDirect` appears only after its first message).
+- Groups come from `GET /groupConversations` and are always returned (with `isGroup: true`, `name` = group name, `members`). Direct chats come from `GET /conversations`; the SDK builds `members` from the server's `sender`/`receiver` fields and names the chat after the other person. The merged list is ordered by latest activity. *Tested.*
 - `openDirect` reads the raw response body (not just `data`) and takes `conversationId`, else `data._id`, else `_id`. The server decides whether you may contact the user (`HTTP` error otherwise).
 - `join()` is idempotent per client session and fire-and-forget; the server checks membership. Rooms are joined automatically by `list`, `openDirect`, `createGroup` and on receiving a message. Joining is needed for typing and other room events (the group test calls `join` explicitly for members who did not create the group).
 - `info()` calls a group endpoint; behaviour for direct conversations is not verified.
 - Removing a member: the removed member stops receiving messages and `messages.history` for that conversation fails with `HTTP` (tested). The sender's next encryption rotates the room key because membership shrank.
 
-`Conversation` normalization: `id = String(_id)`, `isGroup = !!isGroup`, `members` (ids are wrapped as `{ _id }`), `name` = `groupName || name || 'Group'` for groups, else the other members' `name || username || email || 'User'` joined with `, ` (or `'Conversation'`), `raw` = the server object.
+`Conversation` normalization: `id = String(_id)`; `isGroup` = true for rows from the groups route, `createGroup()` and `info()`, otherwise the row's `isGroup`; `members` (ids are wrapped as `{ _id }`; for direct rows without `members`, built from the server's `sender` and `receiver`), `name` = `groupName || name || 'Group'` for groups, else the other members' `name || username || email || 'User'` joined with `, ` (or `'Conversation'`), `raw` = the server object.
 
 ```ts
 const id = await client.conversations.openDirect(otherUserId);

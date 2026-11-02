@@ -12,24 +12,15 @@ The ready-made UI components ([Angular UI library](./angular-ui.md)) exist **for
 
 ## Bundler requirements
 
-The SDK is shipped as ES modules. **Its relative imports have no file extension** (e.g. `from './client'`). We checked how bundlers handle this:
+The SDK is shipped as ES modules with fully specified relative imports (`from './client.js'`). We checked how bundlers handle it:
 
 | Bundler | Result |
 |---|---|
 | Angular CLI 16 (webpack) | Works (the SpreeWe app and `examples/angular-app` build) |
 | esbuild 0.21 (also what Vite uses for dependencies) | Bundles without changes |
-| webpack 5 default (CRA, Vue CLI, custom) | **Fails** with `Can't resolve './client' … Did you mean 'client.js'?`. Fix: add the rule below. |
+| webpack 5.94 with default settings (CRA, Vue CLI, custom) | Bundles without changes |
 
-```js
-// webpack.config.js: SpreeWe SDK ships extension-less ESM imports
-module.exports = {
-  // ...
-  module: { rules: [{ test: /\.m?js$/, resolve: { fullySpecified: false } }] },
-  experiments: { asyncWebAssembly: true },
-};
-```
-
-The rule above was verified to bundle the SDK with webpack 5.94. A future SDK release should add the `.js` extensions so no rule is needed.
+SDK builds from checkpoint `1dc6d13` or earlier used extension-less imports, which webpack 5 rejects (`Can't resolve './client' … Did you mean 'client.js'?`). Rebuild the SDK from current source. A test (`webrtc-BE/test/sdk-packaging.test.ts`) keeps the imports fully specified.
 
 **For every bundler:**
 - Serve `node_modules/@matrix-org/matrix-sdk-crypto-wasm/pkg/matrix_sdk_crypto_wasm_bg.wasm` as a static file and pass its URL as `wasmUrl`. In Vite you can copy it into `public/crypto/` and use `wasmUrl: '/crypto/matrix_sdk_crypto_wasm_bg.wasm'`.

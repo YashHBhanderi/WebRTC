@@ -32,7 +32,6 @@ Find the symptom, check the cause, apply the fix. Errors from the SDK are `Spree
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | A new conversation isn't in `conversations.list()` | Direct conversations are listed only once they have a message | Keep the id from `openDirect()` and send a first message |
-| **Group conversations never appear in `list()`** | Known defect: the route used returns direct conversations only | Keep `createGroup()`'s result, listen for `conversation.added`, use `conversations.info(id)` |
 | `openDirect` fails with 403 or 404 | You may not contact that person in this workspace: blocked, outside the organization, or an external-communication policy | Use `users.directory()` for people you may contact. See [Organizations](./organizations.md). |
 | `users.get(id)` returns "User not found" | That person isn't visible in your current context (no shared conversation or workspace) | Expected. The server answers 404 rather than revealing other users. |
 | No typing events for a conversation | Typing goes to the conversation room only. You haven't joined it. | The SDK joins on `list`, `openDirect`, `createGroup` and on the first received message. Call `conversations.join(id)` for others. |
@@ -64,7 +63,7 @@ Find the symptom, check the cause, apply the fix. Errors from the SDK are `Spree
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| webpack: `Can't resolve './client' … Did you mean 'client.js'?` | The SDK ships extension-less ESM imports | Add `resolve: { fullySpecified: false }` for `.m?js` ([Other frameworks](./other-frameworks.md#bundler-requirements)) |
+| webpack: `Can't resolve './client' … Did you mean 'client.js'?` | An SDK built from checkpoint `1dc6d13` or earlier | Rebuild the SDK from the current source (`npm run build` in `packages/chat-sdk`). Current builds use fully specified imports and bundle with webpack 5 defaults. |
 | Angular runtime errors such as `NG0203` or "inject() must be called from an injection context" | Two copies of Angular: the linked package resolved its own `node_modules` | Set `"preserveSymlinks": true` in `angular.json` and install from `packages/chat-angular/dist` |
 | `npm install` fails with `ERESOLVE` | Pre-existing peer-dependency conflicts in your app | `npm install … --legacy-peer-deps` |
 | Theme colours don't change inside the chat | Variables set on `spw-chat-app` don't reach the nested components | Set them on each component with enough specificity ([Angular UI](./angular-ui.md)) |

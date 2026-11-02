@@ -207,7 +207,7 @@ Sidebar of the active workspace's direct and group conversations, with unread ma
 
 SDK events: `message` (marks the conversation unread unless it is `selectedId`; refreshes the list if the conversation is not listed yet), `conversation.added`, `conversation.removed`, `conversation.updated` (refresh).
 
-SDK calls: `conversations.list()` and `users.directory()` on init and on each refresh (**known defect:** `list()` returns direct conversations only, so groups you are in don't appear after a reload; a group you create in this panel is selected directly); `conversations.openDirect(userId)`; `conversations.createGroup({ name, memberIds })`.
+SDK calls: `conversations.list()` (direct chats and groups) and `users.directory()` on init and on each refresh; `conversations.openDirect(userId)`; `conversations.createGroup({ name, memberIds })`.
 
 Renders: header with title and "＋" button; when open, a panel with "Chat" / "Group" tabs, a people search field (filters the directory by display name, excludes yourself), clickable names (direct) or checkboxes plus group name and "Create group" (group); the conversation list (groups prefixed with `# `, unread dot); "Loading…", "No conversations yet", errors.
 

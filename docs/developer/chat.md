@@ -46,8 +46,8 @@ Behaviour, from the server (`ConversationService.getUserConversations`):
 
 - **A conversation appears only once it has at least one message.** A direct chat created with `openDirect()` and never written to is not listed. (Exception: a chat the user cleared stays listed, empty.)
 - Archived chats are excluded.
-- **Only direct (1:1) chats are returned.** `GET /conversations` filters `isGroup: false`. Groups are served by a different route (`GET /groupConversations`) that the SDK does not call. The SDK comment "direct + groups with messages" does not match the server. To track groups, keep the `Conversation` returned by `createGroup()`, listen for `conversation.added`, and call `client.conversations.info(id)`.
-- The direct-chat rows carry `sender` / `receiver` objects, not `members`. `toConversation()` reads `members`, so for listed direct chats `members` is `[]` and `name` falls back to `'Conversation'`. Use `conversation.raw.receiver` for the other person until this is fixed.
+- **Direct chats and groups are both returned.** The SDK merges `GET /conversations` (direct chats only) and `GET /groupConversations` (groups), and orders them by latest activity. Groups have `isGroup: true` and the group name.
+- For direct chats the server returns `sender` (you) and `receiver` (the other person) instead of `members`. The SDK builds `members` from them and names the chat after the other person.
 - `list()` also joins the real-time room of each listed conversation.
 
 ### Opening a direct chat

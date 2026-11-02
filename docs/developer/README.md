@@ -85,9 +85,8 @@ The status labels used throughout these docs:
 | Direct chat: send, receive live, decrypt, history; server stores ciphertext only | Implemented and tested |
 | Replies, edits (re-encrypted), deletes, reactions, pins, typing, read receipts | Implemented and tested |
 | Group chat: create, encrypted group messages, removing a member stops delivery to their connection | Implemented and tested (single connection per user; see the two rows below) |
-| **Names and members of listed direct conversations** | **Known defect:** `conversations.list()` returns direct conversations with empty `members` and the name `"Conversation"`. The server returns `sender`/`receiver` rather than `members`. The ready-made sidebar shows that name. The raw server row is in `Conversation.raw`. |
-| **Listing group conversations** (`conversations.list()`, `spw-conversation-list`) | **Not implemented, known defect:** `list()` returns direct conversations only, because the server's `GET /conversations` excludes groups. Groups you create or are added to reach you through `createGroup()`'s result and `conversation.added`, but don't appear in later `list()` calls. |
-| **Removed group member with several open tabs/devices** | **Known security issue:** the server removes only the member's most recent connection from the group's realtime room. Their other open connections keep receiving the group's room events (new messages as ciphertext, typing, reactions) until they reconnect. Fix pending (backend). |
+| Listing conversations (`conversations.list()`): direct chats with participants and names, and groups | Implemented and tested (fixed after checkpoint `1dc6d13`, where groups were missing and direct chats had no members or name) |
+| Removing a group member, a member leaving, or deleting a group revokes the group's realtime room on **every** connection of the user (all tabs/devices) | Implemented and tested (server tests with two simultaneous connections; fixed in `3214f33`) |
 | Call signaling: start (ring), incoming, accept, participant joined, state, active, end | Implemented and tested |
 | Presence (own updates), notifications, recordings list | Implemented and tested |
 | Organization workspace chat and isolation from the personal context | Implemented and tested |
@@ -97,7 +96,7 @@ The status labels used throughout these docs:
 | **Recording start/stop, transcripts from the SDK/UI** | Implemented, not tested in a real browser (needs live call media) |
 | **Angular UI components and the example app** | Build passes (strict templates); not tested in a real browser |
 | Contacts' presence | Partially supported: a new contact's presence can take up to 60 s to appear (server cache) |
-| Bundling the SDK with webpack 5 (React, Vue CLI…) | Partially supported: needs one config line, see [Other frameworks](./other-frameworks.md#bundler-requirements) |
+| Bundling the SDK with webpack 5 default settings (React, Vue CLI…) | Implemented and tested (bundled with webpack 5.94 defaults and esbuild; a test guards the fully specified imports) |
 | Same user in the SDK and in the SpreeWe web app in one browser | Partially supported: direct per-user events reach only the most recent connection (SEC-008) |
 | Message search over encrypted text | Not implemented (the server can't read message text) |
 | Screen sharing through the SDK | Not implemented in the SDK (the server has `screen:*` events) |

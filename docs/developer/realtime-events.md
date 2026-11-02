@@ -273,7 +273,7 @@ Media flow has **not** been tested in a real browser through the SDK. The SDK's 
 | `mediasoup:consume` | `{ producerId; rtpCapabilities }` | `{ id, producerId, kind, rtpParameters, type, source }` | `Peer not found`, `Receive transport not found`, `Cannot consume this producer`, `Producer not found in this call` | Server tests |
 | `mediasoup:resumeConsumer` | `{ consumerId }` | `{ success: true }` | `Peer not found`, `Consumer not found` | Not covered by tests |
 | `mediasoup:setPreferredLayers` | `{ consumerId; spatialLayer; temporalLayer }` | `{ success: true, ignored? }` | `Consumer not found`, `Invalid layers` | Not covered by tests |
-| `mediasoup:syncProducers` | `{ callId }` | `{ producers: ProducerInfo[] }` | Returns `{ producers: [] }` with no `callId`. **Does not check participation.** | Not covered by tests |
+| `mediasoup:syncProducers` | `{ callId }` | `{ producers: ProducerInfo[] }` | Returns `{ producers: [] }` with no `callId`. Requires that this socket was admitted to **that** call (`mediasoup:joinCall`) and is still an active participant, re-checked on every request; otherwise `{ producers: [], error, code: "NOT_JOINED" }`. | Server tests (`media-admission.test.ts`) |
 | `ice:getServers` | none | ICE config (STUN/TURN, per-user credentials) | none | Server tests |
 
 `ProducerInfo = { producerId: string; userId: string; kind: 'audio' | 'video'; source: 'camera' | 'screen' }`.
@@ -507,10 +507,10 @@ socket.disconnect();
 These are recorded for the backend and SDK maintainers. They have not been fixed.
 
 1. `developer/scopes.ts` describes `messages:write` as "Send text messages over Socket.IO", but `realtime/index.ts` always refuses `sendMessage` from app sockets. The scope has no effect today.
-2. `removeUserFromRoom` (`realtime/io.ts`) removes only the user's **latest** first-party socket from the conversation room. When a member is removed from or leaves a group, their other tabs stay in the room and keep receiving room broadcasts (`receiveMessage`, `userTyping`, reactions) until they reconnect. This is related to SEC-008.
+2. *(Fixed in `3214f33`.)* `removeUserFromRoom` now removes **every** first-party socket of the user from the conversation room (via the per-user room, cluster-wide), and `group:removed` reaches every connection. Deleting a group empties its room. Covered by `group-revocation.test.ts` with two simultaneous connections.
 3. The SDK does not handle `call:pending-rings`, so SDK users can miss rings that arrive during a reconnect. The SDK also does not map `call:force-leave`, `call:settings`, `call:recording`, `call:media-state`, `call:hand`, `call:reaction`, `call:audio-levels`, `call:share-stopped`, `screen:*`, `user:updated`, `notification:read`, `meeting:updated`, `conversation:removed`, `rate-limited`, `org:*`, `team:*` or `channel:*`.
 4. `group:added` has two payload shapes: `{ groupId, group }` from `group.events.ts` and `{ groupId }` from `meeting.service.ts`.
 5. Ack formats are inconsistent. Some events use `{ success, ... }` / `{ error }`, while `call:getActive`, `call:session`, `screen:getState`, `call:getState` and most `mediasoup:*` events reply with raw objects. `call:start`, `call:reject`, `call:leave`, `sendMessage`, `reactToMessage` and `markMessagesRead` have no ack at all.
-6. `mediasoup:syncProducers` does not check that the caller is a participant of `callId`. It returns the producer list (ids, user ids, kinds) of any call id it is given. (This is inferred from the handler code; there is no test either way.)
+6. *(Fixed in `3214f33`.)* `mediasoup:syncProducers` now requires admission to that call and active participation (see the table above).
 7. The `receipts:updated` "read" variant includes the reader (it is not skipped), while the "delivered" variant skips the user who marked it.
 8. Some `sendMessage` failures (sender mismatch, unknown type, not a member) are dropped silently, with no `message:rejected`.

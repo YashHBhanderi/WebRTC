@@ -2,7 +2,7 @@
  * Headless SpreeWe integration (no UI framework). Type-checked against @spreewe/chat-sdk by
  * `npx tsc -p docs/developer/examples` (see tsconfig.json next to this file).
  *
- * Runs in a browser bundle (Vite / esbuild / Angular CLI / webpack with fullySpecified: false).
+ * Runs in a browser bundle (Vite / esbuild / Angular CLI / webpack 5).
  * `getToken` must return the signed-in user's SpreeWe (Clerk) session token: never an app secret.
  */
 import { SpreeWeClient, SpreeWeError, ChatMessage, CallInfo } from '@spreewe/chat-sdk';
@@ -33,8 +33,7 @@ export async function startSpreeWe(getToken: () => Promise<string | null>, log: 
     client.events.on('error', (e: SpreeWeError) => log(`error ${e.code}: ${e.message}`)),
   ];
 
-  // 3. Direct conversations of the active workspace (one appears once it has a message).
-  //    Known defect: group conversations are not returned by list(); keep createGroup()'s result.
+  // 3. Direct chats (listed once they have a message) and groups of the active workspace
   const conversations = await client.conversations.list();
   log(`${conversations.length} conversations`);
 

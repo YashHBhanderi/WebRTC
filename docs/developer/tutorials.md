@@ -76,7 +76,7 @@ It rejects with a `SpreeWeError` (`NOT_SIGNED_IN`, `E2EE`, `NOT_CONNECTED`, `TIM
 ## Step 5: Load conversations
 
 ```ts
-const conversations = await client.conversations.list();   // DIRECT conversations of the active workspace (see note)
+const conversations = await client.conversations.list();   // direct chats + groups of the active workspace
 const people = await client.users.directory();              // who you may start a conversation with
 
 const directId = await client.conversations.openDirect(people[0]._id);
@@ -85,7 +85,7 @@ const group = await client.conversations.createGroup({ name: 'Project', memberId
 
 A direct conversation shows up in `list()` once it has at least one message.
 
-**Known defect: `list()` does not return group conversations.** The server route it uses excludes groups. Keep the `Conversation` returned by `createGroup()`, and listen for `conversation.added` (you were added to a group). The ready-made sidebar has the same limitation.
+`list()` returns direct chats (with participants and the other person's name) and the groups you are a member of.
 
 *Tested: direct listing, direct and group creation, group messaging.*
 
