@@ -7,7 +7,7 @@ import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 import {
     AppAuditEvent, AppCredential, AppEnvironment, AppGrant, AppUsage, ConsentRequest, DeveloperApp, IAppCredential, IDeveloperApp, RevokedToken,
 } from "./models";
-import { ALL_SCOPES, APP_SCOPES, isScope } from "./scopes";
+import { ALL_SCOPES, APP_SCOPES, UNAVAILABLE_SCOPES, isScope } from "./scopes";
 import { forgetAppOrigins } from "./origins";
 import { AppTokenClaims, AppTokenError, defaultTtlSeconds, maxTtlSeconds, signAppToken, verifyAppTokenSignature } from "./tokens";
 
@@ -47,7 +47,7 @@ async function audit(appId: unknown, ctx: RequestContext | null, actorKind: "own
 }
 
 /** Usage counters live in MongoDB (shared by all instances); best effort, never blocks a request. */
-export function recordUsage(appId: string, field: "apiRequests" | "tokensIssued" | "socketConnections", n = 1): void {
+export function recordUsage(appId: string, field: "apiRequests" | "tokensIssued" | "socketConnections" | "apiErrors", n = 1): void {
     void sys(() => AppUsage.updateOne({ appId: oid(appId), day: day() }, { $inc: { [field]: n } }, { upsert: true }), "app-usage")
         .catch(() => undefined);
 }
@@ -124,9 +124,20 @@ export function requireConfirmation(app: IDeveloperApp, ctx: RequestContext, con
     }
 }
 
+/** Optional website: empty, or an absolute http(s) URL without credentials */
+function websiteUrlFrom(value: unknown): string {
+    const raw = typeof value === "string" ? value.trim() : "";
+    if (!raw) return "";
+    let url: URL;
+    try { url = new URL(raw); } catch { throw new AppError("websiteUrl must be an absolute http(s) URL"); }
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) throw new AppError("websiteUrl must be an absolute http(s) URL");
+    return url.toString();
+}
+
 function publicApp(app: IDeveloperApp) {
     return {
-        _id: String(app._id), name: app.name, environment: app.environment, status: app.status,
+        _id: String(app._id), name: app.name, description: app.description || "", websiteUrl: app.websiteUrl || "",
+        environment: app.environment, status: app.status,
         tenantId: app.tenantId ? String(app.tenantId) : null, scopes: app.scopes, allowedOrigins: app.allowedOrigins,
         callbackUrls: app.callbackUrls, quotas: app.quotas, createdAt: app.createdAt, updatedAt: app.updatedAt,
     };
@@ -177,6 +188,8 @@ export async function createApp(ctx: RequestContext, input: any) {
     if (owned >= LIMITS.appsPerOwner) throw new AppError(`You can have at most ${LIMITS.appsPerOwner} apps`, 409);
     const app = await sys(() => DeveloperApp.create({
         name: input.name,
+        description: typeof input.description === "string" ? input.description.trim() : "",
+        websiteUrl: websiteUrlFrom(input.websiteUrl),
         ownerUserId: oid(ctx.userId),
         tenantId: input.tenantBound ? oid(ctx.tenantId!) : null,
         environment,
@@ -207,6 +220,8 @@ export async function updateApp(ctx: RequestContext, appId: string, patch: any) 
     if (app.status === "revoked") throw new AppError("A revoked app can't be changed", 409);
     const set: Record<string, unknown> = {};
     if (patch.name !== undefined) set.name = patch.name;
+    if (patch.description !== undefined) set.description = String(patch.description).trim();
+    if (patch.websiteUrl !== undefined) set.websiteUrl = websiteUrlFrom(patch.websiteUrl);
     if (patch.scopes !== undefined) set.scopes = scopesFrom(patch.scopes);
     if (patch.allowedOrigins !== undefined) set.allowedOrigins = patch.allowedOrigins.map((o: unknown) => origin(o, app.environment, "origin"));
     if (patch.callbackUrls !== undefined) set.callbackUrls = patch.callbackUrls.map((o: unknown) => origin(o, app.environment, "callback"));
@@ -246,7 +261,7 @@ export async function appUsage(ctx: RequestContext, appId: string, days: number)
     const { app } = await managedApp(ctx, appId, { platformAdmin: true });
     const since = day(new Date(Date.now() - (days - 1) * 86_400_000));
     const rows = await sys(() => AppUsage.find({ appId: app._id, day: { $gte: since } }).sort({ day: 1 }).lean(), "app-usage");
-    return rows.map((r) => ({ day: r.day, apiRequests: r.apiRequests, tokensIssued: r.tokensIssued, messagesSent: r.messagesSent, socketConnections: r.socketConnections }));
+    return rows.map((r) => ({ day: r.day, apiRequests: r.apiRequests, apiErrors: r.apiErrors || 0, tokensIssued: r.tokensIssued, messagesSent: r.messagesSent, socketConnections: r.socketConnections }));
 }
 
 export async function appAudit(ctx: RequestContext, appId: string) {
@@ -393,6 +408,13 @@ export async function grantApp(ctx: RequestContext, appId: string, input: { scop
 const CONSENT_TTL_MS = 10 * 60_000;
 const SENSITIVE_SCOPES = new Set(["messages:read", "messages:write", "recordings:read", "directory:read"]);
 
+/** Scope catalogue for developers: description, whether consent highlights it, whether it grants anything today */
+export function scopeCatalog() {
+    return (Object.entries(APP_SCOPES) as [string, string][]).map(([scope, description]) => ({
+        scope, description, sensitive: SENSITIVE_SCOPES.has(scope), available: !UNAVAILABLE_SCOPES.has(scope),
+    }));
+}
+
 /** App server: start a consent flow for one of its users. Returns the URL to send the user to. */
 export async function createConsentRequest(auth: { app: IDeveloperApp }, input: { redirectUri: string; scopes: string[]; state: string; externalUserRef?: string }) {
     const { app } = auth;
@@ -433,9 +455,9 @@ export async function viewConsentRequest(ctx: RequestContext, requestId: string)
     const appTenant = app.tenantId ? String(app.tenantId) : null;
     return {
         requestId: req._id,
-        app: { _id: String(app._id), name: app.name, environment: app.environment, ownerName: owner?.username || "", tenantBound: !!appTenant, tenantId: appTenant },
+        app: { _id: String(app._id), name: app.name, description: app.description || "", websiteUrl: app.websiteUrl || "", environment: app.environment, ownerName: owner?.username || "", tenantBound: !!appTenant, tenantId: appTenant },
         // Shown individually; nothing is pre-selected
-        scopes: req.scopes.map((s) => ({ scope: s, description: (APP_SCOPES as Record<string, string>)[s], sensitive: SENSITIVE_SCOPES.has(s) })),
+        scopes: req.scopes.map((s) => ({ scope: s, description: (APP_SCOPES as Record<string, string>)[s], sensitive: SENSITIVE_SCOPES.has(s), available: !UNAVAILABLE_SCOPES.has(s) })),
         redirectHost: new URL(req.redirectUri).host,
         expiresAt: req.expiresAt,
         // The decision must be made in the app's own context (its workspace, or personal for global apps)

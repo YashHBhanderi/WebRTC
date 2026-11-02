@@ -8,13 +8,16 @@ export const APP_SCOPES = {
     "directory:read": "List people the user can contact in the app's context (GET /v1/directory)",
     "conversations:read": "List the user's conversations (GET /v1/conversations)",
     "messages:read": "Read messages (GET /v1/conversations/{id}/messages) and receive new / edited / deleted message events over Socket.IO",
-    "messages:write": "Send text messages over Socket.IO (no attachments)",
+    "messages:write": "Not available: messages are end-to-end encrypted on the user's own devices, so apps cannot send them (every app sendMessage is refused). Reserved.",
     "calls:read": "Read the user's call history (GET /v1/calls)",
     "recordings:read": "Read recording details and short-lived download links (GET /v1/recordings/{id})",
     "realtime:connect": "Open a Socket.IO connection; receive presence of people visible in the app's context",
 } as const;
 
 export type AppScope = keyof typeof APP_SCOPES;
+
+/** Scopes that exist but grant nothing today (shown as unavailable in the portal and consent) */
+export const UNAVAILABLE_SCOPES: ReadonlySet<string> = new Set(["messages:write"]);
 
 export const ALL_SCOPES = Object.keys(APP_SCOPES) as AppScope[];
 

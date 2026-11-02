@@ -1,6 +1,6 @@
 import {
     adminListApps, appAudit, appUsage, createApp, createConsentRequest, createCredential, decideConsentRequest, getApp, grantApp, issueToken, listCredentials,
-    listMyApps, listMyGrants, revokeAllTokens, revokeCredential, revokeMyGrant, revokeToken, rotateCredential, setAppStatus, updateApp, viewConsentRequest,
+    listMyApps, listMyGrants, revokeAllTokens, revokeCredential, revokeMyGrant, revokeToken, rotateCredential, scopeCatalog, setAppStatus, updateApp, viewConsentRequest,
 } from "../../developer/app.service";
 import { ALL_SCOPES } from "../../developer/scopes";
 import { defineRoute } from "./registry";
@@ -27,7 +27,7 @@ const quotas = S.object({
 const appDoc = S.doc({
     type: "object",
     properties: {
-        _id: { type: "string" }, name: { type: "string" }, environment: { type: "string", enum: ["development", "production"] },
+        _id: { type: "string" }, name: { type: "string" }, description: { type: "string" }, websiteUrl: { type: "string" }, environment: { type: "string", enum: ["development", "production"] },
         status: { type: "string", enum: ["active", "suspended", "revoked"] }, tenantId: { type: "string", nullable: true },
         scopes: { type: "array", items: { type: "string", enum: [...ALL_SCOPES] } },
         allowedOrigins: { type: "array", items: { type: "string" } }, callbackUrls: { type: "array", items: { type: "string" } },
@@ -39,11 +39,22 @@ const credentialDoc = { type: "object", properties: { _id: { type: "string" }, k
 // ------------------------------------------------------------------ apps
 
 defineRoute({
+    method: "get", path: "/scopes", tag: "Developer apps", auth: "firstParty",
+    summary: "Permissions (scopes) an app can request, with descriptions",
+    description: "`sensitive` scopes are highlighted on the consent screen; `available: false` scopes exist but currently grant nothing.",
+    response: S.doc({ type: "array", items: { type: "object", properties: { scope: { type: "string" }, description: { type: "string" }, sensitive: { type: "boolean" }, available: { type: "boolean" } } } }),
+    handler: async () => scopeCatalog(),
+});
+
+
+defineRoute({
     method: "post", path: "/apps", tag: "Developer apps", auth: "firstParty", sensitive: true,
     summary: "Register an app (global from the personal context, or bound to the active workspace)",
     description: "tenantBound apps need the workspace owner/admin role and act only in that workspace. Scopes default to none.",
     body: S.object({
         name: S.string({ min: 2, max: 80 }),
+        description: S.string({ optional: true, max: 500 }),
+        websiteUrl: S.string({ optional: true, max: 300, description: "Absolute http(s) URL, or empty" }),
         environment: S.enum(["development", "production"] as const),
         tenantBound: S.bool({ optional: true }),
         scopes: S.array(S.enum(ALL_SCOPES), { optional: true, max: ALL_SCOPES.length }),
@@ -69,10 +80,12 @@ defineRoute({
 
 defineRoute({
     method: "patch", path: "/apps/:appId", tag: "Developer apps", auth: "firstParty", sensitive: true, errors: [404, 409],
-    summary: "Update name, scopes, origins, callback URLs or quotas (owner)",
+    summary: "Update name, description, website, scopes, origins, callback URLs or quotas (owner)",
     params: appIdParams,
     body: S.object({
         name: S.string({ optional: true, min: 2, max: 80 }),
+        description: S.string({ optional: true, max: 500 }),
+        websiteUrl: S.string({ optional: true, max: 300, description: "Absolute http(s) URL, or empty to clear" }),
         scopes: S.array(S.enum(ALL_SCOPES), { optional: true, max: ALL_SCOPES.length }),
         allowedOrigins: S.array(S.string({ max: 300 }), { optional: true, max: 20 }),
         callbackUrls: S.array(S.string({ max: 300 }), { optional: true, max: 20 }),
@@ -109,7 +122,7 @@ defineRoute({
     method: "get", path: "/apps/:appId/usage", tag: "Developer apps", auth: "firstParty", errors: [404],
     summary: "Daily usage counters (owner, or platform admin)", params: appIdParams,
     query: S.object({ days: S.int({ optional: true, min: 1, max: 90, default: 30 }) }),
-    response: S.doc({ type: "array", items: { type: "object", properties: { day: { type: "string" }, apiRequests: { type: "integer" }, tokensIssued: { type: "integer" }, messagesSent: { type: "integer" }, socketConnections: { type: "integer" } } } }),
+    response: S.doc({ type: "array", items: { type: "object", properties: { day: { type: "string" }, apiRequests: { type: "integer" }, apiErrors: { type: "integer", description: "Authenticated requests answered with status >= 400" }, tokensIssued: { type: "integer" }, messagesSent: { type: "integer" }, socketConnections: { type: "integer" } } } }),
     handler: ({ ctx, params, query }) => appUsage(ctx, params.appId, query.days),
 });
 

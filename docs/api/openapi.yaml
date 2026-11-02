@@ -890,6 +890,70 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
       x-rate-limit: default
+  /v1/scopes:
+    get:
+      tags:
+        - Developer apps
+      summary: "Permissions (scopes) an app can request, with descriptions"
+      description: "`sensitive` scopes are highlighted on the consent screen; `available: false` scopes exist but currently grant nothing."
+      operationId: getScopes
+      security:
+        - clerkSession: []
+      x-auth: firstParty
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        scope:
+                          type: string
+                        description:
+                          type: string
+                        sensitive:
+                          type: boolean
+                        available:
+                          type: boolean
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
   /v1/apps:
     post:
       tags:
@@ -912,6 +976,13 @@ paths:
                   type: string
                   minLength: 2
                   maxLength: 80
+                description:
+                  type: string
+                  maxLength: 500
+                websiteUrl:
+                  type: string
+                  maxLength: 300
+                  description: "Absolute http(s) URL, or empty"
                 environment:
                   type: string
                   enum:
@@ -981,6 +1052,10 @@ paths:
                       _id:
                         type: string
                       name:
+                        type: string
+                      description:
+                        type: string
+                      websiteUrl:
                         type: string
                       environment:
                         type: string
@@ -1084,6 +1159,10 @@ paths:
                         _id:
                           type: string
                         name:
+                          type: string
+                        description:
+                          type: string
+                        websiteUrl:
                           type: string
                         environment:
                           type: string
@@ -1194,6 +1273,10 @@ paths:
                         type: string
                       name:
                         type: string
+                      description:
+                        type: string
+                      websiteUrl:
+                        type: string
                       environment:
                         type: string
                         enum:
@@ -1278,8 +1361,8 @@ paths:
     patch:
       tags:
         - Developer apps
-      summary: "Update name, scopes, origins, callback URLs or quotas (owner)"
-      description: "Update name, scopes, origins, callback URLs or quotas (owner). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      summary: "Update name, description, website, scopes, origins, callback URLs or quotas (owner)"
+      description: "Update name, description, website, scopes, origins, callback URLs or quotas (owner). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
       operationId: patchAppsAppId
       security:
         - clerkSession: []
@@ -1303,6 +1386,13 @@ paths:
                   type: string
                   minLength: 2
                   maxLength: 80
+                description:
+                  type: string
+                  maxLength: 500
+                websiteUrl:
+                  type: string
+                  maxLength: 300
+                  description: "Absolute http(s) URL, or empty to clear"
                 scopes:
                   type: array
                   items:
@@ -1363,6 +1453,10 @@ paths:
                       _id:
                         type: string
                       name:
+                        type: string
+                      description:
+                        type: string
+                      websiteUrl:
                         type: string
                       environment:
                         type: string
@@ -1485,6 +1579,10 @@ paths:
                         type: string
                       name:
                         type: string
+                      description:
+                        type: string
+                      websiteUrl:
+                        type: string
                       environment:
                         type: string
                         enum:
@@ -1605,6 +1703,10 @@ paths:
                       _id:
                         type: string
                       name:
+                        type: string
+                      description:
+                        type: string
+                      websiteUrl:
                         type: string
                       environment:
                         type: string
@@ -1740,6 +1842,10 @@ paths:
                       _id:
                         type: string
                       name:
+                        type: string
+                      description:
+                        type: string
+                      websiteUrl:
                         type: string
                       environment:
                         type: string
@@ -1955,6 +2061,9 @@ paths:
                           type: string
                         apiRequests:
                           type: integer
+                        apiErrors:
+                          type: integer
+                          description: "Authenticated requests answered with status >= 400"
                         tokensIssued:
                           type: integer
                         messagesSent:
@@ -3323,6 +3432,10 @@ paths:
                         _id:
                           type: string
                         name:
+                          type: string
+                        description:
+                          type: string
+                        websiteUrl:
                           type: string
                         environment:
                           type: string
@@ -9306,7 +9419,7 @@ components:
             "directory:read": "List people the user can contact in the app's context (GET /v1/directory)"
             "conversations:read": "List the user's conversations (GET /v1/conversations)"
             "messages:read": Read messages (GET /v1/conversations/{id}/messages) and receive new / edited / deleted message events over Socket.IO
-            "messages:write": Send text messages over Socket.IO (no attachments)
+            "messages:write": "Not available: messages are end-to-end encrypted on the user's own devices, so apps cannot send them (every app sendMessage is refused). Reserved."
             "calls:read": "Read the user's call history (GET /v1/calls)"
             "recordings:read": Read recording details and short-lived download links (GET /v1/recordings/{id})
             "realtime:connect": "Open a Socket.IO connection; receive presence of people visible in the app's context"

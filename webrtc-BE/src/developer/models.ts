@@ -20,6 +20,10 @@ export interface AppQuotas {
 export interface IDeveloperApp {
     _id: mongoose.Types.ObjectId;
     name: string;
+    /** Shown to the developer (and on the consent screen); plain text */
+    description: string;
+    /** The app's public website (absolute http(s) URL) or empty */
+    websiteUrl: string;
     ownerUserId: mongoose.Types.ObjectId;
     /** null = global app; otherwise the only tenant this app can ever act in */
     tenantId: mongoose.Types.ObjectId | null;
@@ -39,6 +43,8 @@ export interface IDeveloperApp {
 
 const AppSchema = new Schema<IDeveloperApp>({
     name: { type: String, required: true, maxlength: 80 },
+    description: { type: String, default: "", maxlength: 500 },
+    websiteUrl: { type: String, default: "", maxlength: 300 },
     ownerUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     tenantId: { type: Schema.Types.ObjectId, ref: "Tenant", default: null },
     environment: { type: String, enum: ["development", "production"], required: true },
@@ -164,6 +170,8 @@ export interface IAppUsage {
     tokensIssued: number;
     messagesSent: number;
     socketConnections: number;
+    /** API responses with status >= 400 to this app's authenticated requests */
+    apiErrors: number;
 }
 
 const UsageSchema = new Schema<IAppUsage>({
@@ -173,6 +181,7 @@ const UsageSchema = new Schema<IAppUsage>({
     tokensIssued: { type: Number, default: 0 },
     messagesSent: { type: Number, default: 0 },
     socketConnections: { type: Number, default: 0 },
+    apiErrors: { type: Number, default: 0 },
 }, { versionKey: false });
 UsageSchema.index({ appId: 1, day: 1 }, { unique: true });
 

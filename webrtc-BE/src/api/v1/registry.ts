@@ -103,6 +103,13 @@ const bearer = (req: Request) => {
 
 const clerkAuth = createVerifyToken((res, status, message) => sendV1Error(res, new AppError(message, status)));
 
+/** Usage: an authenticated app request that ends with status >= 400 (failures before the app is known are not attributable) */
+function countErrors(res: Response, appId: string): void {
+    res.once("finish", () => {
+        if (res.statusCode >= 400) recordUsage(appId, "apiErrors");
+    });
+}
+
 /** Clerk session, or a developer-app user token (verified against live app / grant / tenant state). */
 function userAuth(allowAppTokens: boolean) {
     return async (req: Request, res: Response, next: NextFunction) => {
@@ -123,6 +130,7 @@ function userAuth(allowAppTokens: boolean) {
         (req as CustomRequest).userId = ctx.userId;
         (req as CustomRequest).ctx = ctx;
         recordUsage(ctx.app!.appId, "apiRequests");
+        countErrors(res, ctx.app!.appId);
         runWithContext(ctx, () => next());
     };
 }
@@ -131,6 +139,7 @@ async function credentialAuth(req: Request, res: Response, next: NextFunction) {
     try {
         (req as any).appAuth = await authenticateCredential(req.headers.authorization);
         recordUsage(String((req as any).appAuth.app._id), "apiRequests");
+        countErrors(res, String((req as any).appAuth.app._id));
         next();
     } catch (error) {
         sendV1Error(res, error);
