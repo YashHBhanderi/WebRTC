@@ -82,7 +82,7 @@ What this means for deployments:
 
 - A new web origin, such as a customer domain or a staging domain, must be added to both variables, and the server must be restarted.
 - Origins must match exactly on scheme, host and port. `https://example.com` does not cover `https://www.example.com`.
-- The `allowedOrigins` of active developer apps are added to CORS for `/v1` and Socket.IO only. Each server caches this list for 60 seconds. An app token presented from a different app's origin is still rejected.
+- The `allowedOrigins` of active developer apps are added to CORS for every API path (REST, `/v1`, `/oauth`) and Socket.IO. Each server caches this list for 60 seconds. An app token presented from a different app's origin is still rejected.
 
 Status: **Implemented and tested** (`webrtc-BE/test/security-config.test.ts`).
 
@@ -147,7 +147,7 @@ The response is `{ accessToken, tokenType: "Bearer", expiresIn, expiresAt, scope
 
 ### Refresh
 
-There is no refresh token. When a token is close to expiry, your server calls `POST /v1/app-tokens` again. **The server disconnects an app socket when its token expires**, so reconnect with a new token.
+With the server exchange above there is no refresh token: when a token is close to expiry, your server calls `POST /v1/app-tokens` again. Apps without a backend use OAuth instead (next section), which issues refresh tokens. **The server disconnects an app socket when its token expires**, so reconnect with a new token.
 
 ### Effective scopes
 
@@ -166,6 +166,27 @@ A token's effective scopes are the scopes present in all three of: the token, th
 Origins: when a token is used from a browser, the `Origin` must be in that app's `allowedOrigins`.
 
 Status: **Implemented and tested** (`developer-platform.test.ts`, `token-validation.test.ts`).
+
+---
+
+## 6a. OAuth 2.0 (authorization code + PKCE, refresh tokens)
+
+For apps **without a backend** (mobile, single-page) and for backends that prefer standard OAuth. It uses the same consent page and the same access tokens as above. PKCE (`S256`) is required for every client.
+
+1. **Authorize:** send the user's browser to
+   `GET /oauth/authorize?response_type=code&client_id=<app id>&redirect_uri=<exact redirect URL>&scope=<space-separated scopes>&state=<8+ visible characters>&code_challenge=<base64url(SHA-256(verifier))>&code_challenge_method=S256`.
+   SpreeWe redirects to its consent page. An unknown `client_id` or a `redirect_uri` that isn't one of the app's redirect URLs is answered with an error (no redirect). Other problems come back to your `redirect_uri` as `?error=…&error_description=…&state=…` (`invalid_request`, `invalid_scope`, `unsupported_response_type`).
+2. **Callback:** after approval, the browser arrives at `redirect_uri?state=…&code=swc_…` (or `?state=…&error=access_denied`). Check `state`. The code works **once**, for **2 minutes**, and only for this client.
+3. **Token:** `POST /oauth/token` (JSON or `application/x-www-form-urlencoded`) with `grant_type=authorization_code`, `client_id`, `code`, `redirect_uri` (identical), `code_verifier`.
+   Response: `{ access_token, token_type: "Bearer", expires_in, refresh_token: "swr_…", scope }` with `Cache-Control: no-store`. A wrong verifier consumes the code.
+4. **Refresh:** `POST /oauth/token` with `grant_type=refresh_token`, `client_id`, `refresh_token` (optional `scope` to narrow). Each refresh token works **once** and returns a new one. Presenting an already-used refresh token revokes the **whole family** (assume it was stolen). Refresh tokens last `OAUTH_REFRESH_TTL_DAYS` (default 30), renewed on each use.
+5. **Revoke:** `POST /oauth/revoke` with `client_id` and `token=<refresh token>` revokes it and its family (always `200`).
+
+Every refresh re-checks the user's grant, the app's status, the user and workspace membership. Refresh tokens stop working when the user withdraws the app, when the developer revokes all tokens or deletes the app, and on revocation. Apps with a backend may also send their client credentials (HTTP Basic); they must belong to `client_id`. Codes and refresh tokens are stored only as SHA-256 hashes.
+
+Errors follow RFC 6749: `{ "error": "invalid_grant", "error_description": "…" }` (`invalid_request`, `invalid_client` (401), `invalid_grant`, `invalid_scope`, `unsupported_grant_type`, `slow_down` (429)).
+
+Status: **Implemented and tested** (`developer-oauth.test.ts`).
 
 ---
 
