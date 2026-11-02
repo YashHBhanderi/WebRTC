@@ -8,6 +8,7 @@ import {
     AppAuditEvent, AppCredential, AppEnvironment, AppGrant, AppUsage, ConsentRequest, DeveloperApp, IAppCredential, IDeveloperApp, RevokedToken,
 } from "./models";
 import { ALL_SCOPES, APP_SCOPES, UNAVAILABLE_SCOPES, isScope } from "./scopes";
+import { revokeAppDevices } from "../e2ee/e2ee.service";
 import { forgetAppOrigins } from "./origins";
 import { AppTokenClaims, AppTokenError, defaultTtlSeconds, maxTtlSeconds, signAppToken, verifyAppTokenSignature } from "./tokens";
 
@@ -231,12 +232,14 @@ export async function updateApp(ctx: RequestContext, appId: string, patch: any) 
     if (patch.websiteUrl !== undefined) set.websiteUrl = websiteUrlFrom(patch.websiteUrl);
     // Unavailable scopes can't be newly added (ones an app already had are kept, still granting nothing)
     if (patch.scopes !== undefined) set.scopes = availableScopes(scopesFrom(patch.scopes), app.scopes);
+    const dropsDevices = Array.isArray(set.scopes) && app.scopes.includes("e2ee:device") && !(set.scopes as string[]).includes("e2ee:device");
     if (patch.allowedOrigins !== undefined) set.allowedOrigins = patch.allowedOrigins.map((o: unknown) => origin(o, app.environment, "origin"));
     if (patch.callbackUrls !== undefined) set.callbackUrls = patch.callbackUrls.map((o: unknown) => origin(o, app.environment, "callback"));
     if (patch.quotas !== undefined) set.quotas = quotasFrom(patch.quotas, app.environment, app.quotas);
     const updated = await sys(() => DeveloperApp.findByIdAndUpdate(app._id, { $set: set }, { new: true }).lean<IDeveloperApp>(), "app-update");
     forgetAppOrigins();
     await audit(app._id, ctx, "owner", "app.updated", { fields: Object.keys(set), scopes: set.scopes });
+    if (dropsDevices) await revokeAppDevices(String(app._id));
     return publicApp(updated!);
 }
 
@@ -254,6 +257,8 @@ export async function setAppStatus(ctx: RequestContext, appId: string, action: "
     const updated = await sys(() => DeveloperApp.findByIdAndUpdate(app._id, update, { new: true }).lean<IDeveloperApp>(), "app-status");
     forgetAppOrigins();
     await audit(app._id, ctx, actor, `app.${action === "suspend" ? "suspended" : action === "reactivate" ? "reactivated" : "revoked"}`);
+    // Deleted: every encryption device the app holds is revoked (suspension keeps them; its tokens fail meanwhile)
+    if (action === "revoke") await revokeAppDevices(String(app._id));
     return publicApp(updated!);
 }
 
@@ -408,6 +413,7 @@ export async function grantApp(ctx: RequestContext, appId: string, input: { scop
         { upsert: true, new: true },
     ).lean(), "app-grant");
     await audit(app._id, ctx, "user", "grant.updated", { scopes });
+    if (!scopes.includes("e2ee:device")) await revokeAppDevices(String(app._id), String(ctx.userId));
     return { _id: String(grant!._id), appId: String(app._id), appName: app.name, scopes: grant!.scopes, externalUserRef: grant!.externalUserRef, status: grant!.status };
 }
 
@@ -500,6 +506,7 @@ export async function decideConsentRequest(ctx: RequestContext, requestId: strin
                 { upsert: true, new: true },
             ).lean(), "consent-request");
             await audit(app._id, ctx, "user", "grant.updated", { scopes: chosen, via: "consent-request" });
+            if (!chosen.includes("e2ee:device")) await revokeAppDevices(String(app._id), String(ctx.userId));
             const url = new URL(req.redirectUri);
             url.searchParams.set("state", req.state);
             url.searchParams.set("result", "approved");
@@ -535,6 +542,8 @@ export async function revokeMyGrant(ctx: RequestContext, grantId: string) {
     const grant = await sys(() => AppGrant.findOneAndUpdate({ _id: oid(grantId), userId: oid(ctx.userId), status: "active" }, { $set: { status: "revoked" }, $inc: { version: 1 } }, { new: true }).lean(), "app-grant");
     if (!grant) throw new NotFoundError("Grant not found");
     await audit(grant.appId, ctx, "user", "grant.revoked");
+    // The app's encryption devices for this user stop receiving keys
+    await revokeAppDevices(String(grant.appId), String(ctx.userId));
     return { revoked: true };
 }
 

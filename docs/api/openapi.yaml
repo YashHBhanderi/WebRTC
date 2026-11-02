@@ -9237,11 +9237,14 @@ paths:
       tags:
         - Encryption
       summary: "Register (or touch) this browser's encryption device"
-      description: "Register (or touch) this browser's encryption device. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Register (or touch) this browser's encryption device. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: postE2eeDevices
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -9305,11 +9308,14 @@ paths:
       tags:
         - Encryption
       summary: "My encryption devices (public identity key fingerprints; revoked ones marked)"
-      description: "My encryption devices (public identity key fingerprints; revoked ones marked). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "My encryption devices (public identity key fingerprints; revoked ones marked). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: getE2eeDevices
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       responses:
         "200":
           description: Success
@@ -9370,11 +9376,14 @@ paths:
       tags:
         - Encryption
       summary: "Remove one of my devices: it stops receiving keys and device messages; contacts are told"
-      description: "Remove one of my devices: it stops receiving keys and device messages; contacts are told. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Remove one of my devices: it stops receiving keys and device messages; contacts are told. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: postE2eeDevicesDeviceIdRevoke
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       parameters:
         - name: deviceId
           in: path
@@ -9439,11 +9448,14 @@ paths:
       tags:
         - Encryption
       summary: "Publish this device's signed identity keys and one-time / fallback prekeys (public keys only)"
-      description: "Publish this device's signed identity keys and one-time / fallback prekeys (public keys only). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Publish this device's signed identity keys and one-time / fallback prekeys (public keys only). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: postE2eeKeysUpload
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -9507,11 +9519,14 @@ paths:
       tags:
         - Encryption
       summary: Device keys of people I share a conversation with (others are listed as failures)
-      description: "Device keys of people I share a conversation with (others are listed as failures). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Device keys of people I share a conversation with (others are listed as failures). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: postE2eeKeysQuery
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -9569,11 +9584,14 @@ paths:
       tags:
         - Encryption
       summary: Claim one one-time prekey per device (consumed) to start an encrypted session
-      description: "Claim one one-time prekey per device (consumed) to start an encrypted session. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Claim one one-time prekey per device (consumed) to start an encrypted session. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: postE2eeKeysClaim
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -9631,11 +9649,14 @@ paths:
       tags:
         - Encryption
       summary: Send device messages (Olm ciphertext / verification) to people I share a conversation with
-      description: "Send device messages (Olm ciphertext / verification) to people I share a conversation with. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Send device messages (Olm ciphertext / verification) to people I share a conversation with. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: postE2eeSendToDeviceEventTypeTxnId
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       parameters:
         - name: eventType
           in: path
@@ -9706,11 +9727,14 @@ paths:
       tags:
         - Encryption
       summary: "Pending device messages for this device (acknowledge with ack), key counts and contacts' device-list changes"
-      description: "Pending device messages for this device (acknowledge with ack), key counts and contacts' device-list changes. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Pending device messages for this device (acknowledge with ack), key counts and contacts' device-list changes. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: getE2eeSync
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       parameters:
         - name: ack
           in: query
@@ -9780,11 +9804,14 @@ paths:
       tags:
         - Encryption
       summary: "Members of a conversation I belong to, as encryption identities (who its room key is shared with)"
-      description: "Members of a conversation I belong to, as encryption identities (who its room key is shared with). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Members of a conversation I belong to, as encryption identities (who its room key is shared with). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `e2ee:device` scope."
       operationId: getE2eeRoomsConversationIdMembers
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "e2ee:device"
+      x-required-scope: "e2ee:device"
+      x-auth: user
       parameters:
         - name: conversationId
           in: path

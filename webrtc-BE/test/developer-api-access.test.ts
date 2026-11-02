@@ -57,11 +57,15 @@ describe("permission coverage", () => {
 
     it("app management, consent decisions and organization delete / transfer stay SpreeWe-session only", () => {
         const firstParty = (path: string, method: string) => v1Routes.find((r) => r.path === path && r.method === method);
-        for (const [m, p] of [["post", "/apps"], ["post", "/consent-requests/:requestId/approve"], ["post", "/workspace/organization/delete"], ["post", "/workspace/organization/transfer"], ["get", "/workspace/apps"], ["post", "/e2ee/devices"]]) {
+        for (const [m, p] of [["post", "/apps"], ["post", "/consent-requests/:requestId/approve"], ["post", "/workspace/organization/delete"], ["post", "/workspace/organization/transfer"], ["get", "/workspace/apps"]]) {
             const r = firstParty(p, m);
             expect(r, `${m} ${p}`).toBeTruthy();
             expect(r!.scope, `${m} ${p}`).toBeUndefined();
         }
+    });
+
+    it("encryption-device routes need e2ee:device (app tokens without it are refused)", () => {
+        for (const r of v1Routes.filter((x) => x.path.startsWith("/e2ee/"))) expect(r.scope, `${r.method} ${r.path}`).toBe("e2ee:device");
     });
 
     it("unavailable scopes can't be added to an app", async () => {
@@ -77,7 +81,8 @@ describe("REST access with app tokens", () => {
     let alice: Session, bob: Session, carol: Session, token: string;
     beforeAll(async () => {
         [alice, bob, carol] = (await Promise.all([makeUser(), makeUser(), makeUser()])).map((user) => ({ user }));
-        token = await appToken(alice, available);
+        // Without e2ee:device: this app must never see ciphertext (apps with it are covered in developer-api-e2ee.test.ts)
+        token = await appToken(alice, available.filter((s) => s !== "e2ee:device"));
     });
 
     it("works through the same handlers: direct chat, groups, members, history (no ciphertext), notifications, search, profile", async () => {

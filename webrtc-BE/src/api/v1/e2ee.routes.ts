@@ -4,11 +4,12 @@ import * as e2ee from "../../e2ee/e2ee.service";
 
 /**
  * End-to-end encryption: device registration, public key directory and device-message relay.
- * First-party sessions only; the caller's device is named by the X-SpreeWe-Device header. Bodies follow
+ * SpreeWe sessions, and developer apps with the e2ee:device scope (only through devices the app
+ * registered itself, labelled with its name); the caller's device is named by the X-SpreeWe-Device header. Bodies follow
  * the Olm/Megolm client library's request formats; the server only ever handles PUBLIC keys and
  * ciphertext. See docs/security/end-to-end-encryption.md.
  */
-const base = { tag: "Encryption", auth: "firstParty" as const };
+const base = { tag: "Encryption", scope: "e2ee:device" as const };
 const device = (h: Record<string, unknown>) => h["x-spreewe-device"];
 const obj = { type: "object", additionalProperties: true };
 
@@ -24,7 +25,7 @@ defineRoute({
     ...base, method: "get", path: "/e2ee/devices",
     summary: "My encryption devices (public identity key fingerprints; revoked ones marked)",
     response: S.doc({ type: "array", items: { type: "object", properties: { deviceId: { type: "string" }, displayName: { type: "string" }, ed25519: { type: "string", nullable: true }, revoked: { type: "boolean" } } } }),
-    handler: ({ ctx }) => e2ee.myDevices(ctx),
+    handler: ({ ctx, headers }) => e2ee.myDevices(ctx, device(headers)),
 });
 
 defineRoute({
@@ -48,7 +49,7 @@ defineRoute({
     summary: "Device keys of people I share a conversation with (others are listed as failures)",
     body: S.json({ maxBytes: 64 * 1024 }),
     response: S.doc(obj),
-    handler: ({ ctx, body }) => e2ee.queryKeys(ctx, body),
+    handler: ({ ctx, headers, body }) => e2ee.queryKeys(ctx, body, device(headers)),
 });
 
 defineRoute({
@@ -56,7 +57,7 @@ defineRoute({
     summary: "Claim one one-time prekey per device (consumed) to start an encrypted session",
     body: S.json({ maxBytes: 64 * 1024 }),
     response: S.doc(obj),
-    handler: ({ ctx, body }) => e2ee.claimKeys(ctx, body),
+    handler: ({ ctx, headers, body }) => e2ee.claimKeys(ctx, body, device(headers)),
 });
 
 defineRoute({
@@ -81,5 +82,5 @@ defineRoute({
     summary: "Members of a conversation I belong to, as encryption identities (who its room key is shared with)",
     params: S.object({ conversationId: S.objectId() }),
     response: S.doc({ type: "object", properties: { roomId: { type: "string" }, members: { type: "array", items: { type: "string" } } } }),
-    handler: ({ ctx, params }) => e2ee.roomMembers(ctx, params.conversationId),
+    handler: ({ ctx, headers, params }) => e2ee.roomMembers(ctx, params.conversationId, device(headers)),
 });

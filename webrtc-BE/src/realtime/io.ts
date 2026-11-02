@@ -76,7 +76,8 @@ export function appMayReceive(ctx: RequestContext | undefined, event: string): b
 
 /** Developer-app sockets never get ciphertext of end-to-end encrypted messages (they can't decrypt it). */
 function forSocket(ctx: RequestContext | undefined, payload: unknown): unknown {
-    return ctx?.app ? forApp(payload) : payload;
+    // Apps with their own encryption device (e2ee:device) get the ciphertext to decrypt, like SpreeWe clients
+    return ctx?.app && !ctx.app.scopes.includes("e2ee:device") ? forApp(payload) : payload;
 }
 
 function forApp(payload: unknown): unknown {
@@ -97,7 +98,13 @@ function forApp(payload: unknown): unknown {
 export const APP_ROOM_PREFIX = "app:";
 export const shadowRoom = (scope: string, room: string) => `${APP_ROOM_PREFIX}${scope}:${room}`;
 const isShadow = (room: unknown) => String(room).startsWith(APP_ROOM_PREFIX);
-const allShadows = (rooms: Iterable<unknown>) => [...rooms].filter((r) => !isShadow(r)).flatMap((r) => ALL_SCOPES.map((s) => shadowRoom(s, String(r))));
+/**
+ * Apps holding messages:read AND e2ee:device join this variant of the messages:read shadow, which carries
+ * the ciphertext (the plain messages:read shadow gets `encrypted: true` only).
+ */
+export const WITH_CIPHERTEXT = "messages:read+e2ee";
+const SHADOW_KEYS = [...ALL_SCOPES, WITH_CIPHERTEXT];
+const allShadows = (rooms: Iterable<unknown>) => [...rooms].filter((r) => !isShadow(r)).flatMap((r) => SHADOW_KEYS.map((s) => shadowRoom(s, String(r))));
 
 export function installAppRoomShadows(server: Server): void {
     const adapter = server.of("/").adapter as any;
@@ -116,6 +123,9 @@ export function installAppRoomShadows(server: Server): void {
             const rooms = [...opts.rooms].filter((r: unknown) => !isShadow(r) && !server.of("/").sockets.has(String(r)));
             if (scope && rooms.length) {
                 broadcast({ ...packet, data: [event, ...args.map(forApp)] }, { ...opts, rooms: new Set(rooms.map((r: unknown) => shadowRoom(scope, String(r)))) });
+                if (scope === "messages:read") {
+                    broadcast(packet, { ...opts, rooms: new Set(rooms.map((r: unknown) => shadowRoom(WITH_CIPHERTEXT, String(r)))) });
+                }
             }
         }
         return result;
@@ -139,7 +149,10 @@ export function useAppRooms(socket: Socket, scopes: readonly string[]): void {
     const leave = socket.leave.bind(socket);
     // Rooms that are already shadows (the adapter making sockets join / leave them, e.g. on revocation)
     // pass through unchanged; any other room becomes the shadows of the scopes this socket holds
-    const expand = (rooms: string | string[]) => (Array.isArray(rooms) ? rooms : [rooms]).flatMap((r) => (isShadow(r) ? [r] : scopes.map((s) => shadowRoom(s, r))));
+    const keys = scopes.includes("messages:read") && scopes.includes("e2ee:device")
+        ? scopes.map((s) => (s === "messages:read" ? WITH_CIPHERTEXT : s))
+        : scopes;
+    const expand = (rooms: string | string[]) => (Array.isArray(rooms) ? rooms : [rooms]).flatMap((r) => (isShadow(r) ? [r] : keys.map((s) => shadowRoom(s, r))));
     (socket as any).join = (rooms: string | string[]) => join(expand(rooms));
     (socket as any).leave = (room: string) => Promise.all(expand(room).map((r) => leave(r)));
 }

@@ -17,6 +17,8 @@ export interface IE2eeDevice {
     /** ed25519 identity key, fixed for the lifetime of the device id (a new identity needs a new device) */
     ed25519: string | null;
     displayName: string;
+    /** The developer app that registered this device (labelled with its name); null = the user's own SpreeWe clients */
+    appId: Types.ObjectId | null;
     revokedAt: Date | null;
     lastSeenAt: Date;
     createdAt: Date;
@@ -29,11 +31,13 @@ const DeviceSchema = new Schema<IE2eeDevice>({
     keys: { type: Schema.Types.Mixed, default: null },
     ed25519: { type: String, default: null, maxlength: 128 },
     displayName: { type: String, default: "", maxlength: 100 },
+    appId: { type: Schema.Types.ObjectId, ref: "DeveloperApp", default: null },
     revokedAt: { type: Date, default: null },
     lastSeenAt: { type: Date, default: Date.now },
 }, { timestamps: true, collection: "e2ee_devices" });
 DeviceSchema.index({ userId: 1, deviceId: 1 }, { unique: true });
 DeviceSchema.index({ userId: 1, updatedAt: -1 });
+DeviceSchema.index({ appId: 1, revokedAt: 1 }, { partialFilterExpression: { appId: { $type: "objectId" } } });
 
 /** One-time (consumed on claim) and fallback (reused until replaced) public prekeys. */
 export interface IE2eeOneTimeKey {

@@ -4,6 +4,7 @@ import { RequestContext, runAsSystem } from "../tenancy/context";
 import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { notifyUserEverywhere } from "../realtime/io";
 import { E2eeDevice, E2eeOneTimeKey, E2eeToDevice, IE2eeDevice } from "./models";
+import { DeveloperApp } from "../developer/models";
 
 /**
  * Key directory and device-message relay for end-to-end encryption (protocol: Olm/Megolm via
@@ -40,9 +41,27 @@ export function requireDeviceId(raw: unknown): string {
     return id;
 }
 
+/**
+ * The user acting. Developer apps take part only with the e2ee:device scope (the route checks it,
+ * this is defence in depth), and only through devices they registered themselves (activeDevice).
+ */
 function caller(ctx: RequestContext): string {
-    if (ctx.app) throw new ForbiddenError("Apps can't take part in end-to-end encryption");
+    if (ctx.app && !ctx.app.scopes.includes("e2ee:device")) throw new ForbiddenError("This needs the e2ee:device scope");
     return String(ctx.userId);
+}
+
+/** Which client a device belongs to: null = the user's own SpreeWe clients, otherwise a developer app */
+const ownerOf = (ctx: RequestContext): string | null => ctx.app?.appId ?? null;
+
+/** Is `deviceId` an active encryption device that this app registered for this user? (app message sends) */
+export async function isActiveAppDevice(userId: string, appId: string, deviceId: unknown): Promise<boolean> {
+    if (typeof deviceId !== "string" || !DEVICE_ID.test(deviceId)) return false;
+    return !!(await runAsSystem(() => E2eeDevice.exists({ userId: oid(userId), deviceId, appId: oid(appId), revokedAt: null }), "e2ee-device"));
+}
+
+/** Apps must name one of their own active devices on every encryption request */
+async function appDevice(ctx: RequestContext, me: string, deviceIdRaw: unknown): Promise<void> {
+    if (ctx.app) await activeDevice(me, requireDeviceId(deviceIdRaw), ownerOf(ctx));
 }
 
 /** People the caller may exchange keys / device messages with: themself, or anyone they share a conversation with. */
@@ -57,11 +76,16 @@ async function peersAllowed(me: string, others: string[]): Promise<Set<string>> 
     return ok;
 }
 
-/** The caller's device, which must be registered and not revoked. */
-async function activeDevice(userId: string, deviceId: string): Promise<IE2eeDevice> {
+/**
+ * The caller's device, which must be registered, not revoked, and belong to the calling client: a
+ * developer app can only use devices it registered, and SpreeWe clients can't use an app's device
+ * (otherwise one client could consume another's key deliveries).
+ */
+async function activeDevice(userId: string, deviceId: string, owner: string | null): Promise<IE2eeDevice> {
     const d = await runAsSystem(() => E2eeDevice.findOne({ userId: oid(userId), deviceId }).lean<IE2eeDevice>(), "e2ee-device");
     if (!d) throw new NotFoundError("This encryption device isn't registered");
     if (d.revokedAt) throw new ForbiddenError("This encryption device was removed from your account. Set it up again to send or read encrypted messages.");
+    if ((d.appId ? String(d.appId) : null) !== owner) throw new ForbiddenError("This encryption device belongs to another client");
     return d;
 }
 
@@ -79,20 +103,32 @@ async function keyCounts(userId: string, deviceId: string) {
 export async function registerDevice(ctx: RequestContext, deviceIdRaw: unknown, displayName?: unknown) {
     const me = caller(ctx);
     const deviceId = requireDeviceId(deviceIdRaw);
+    const owner = ownerOf(ctx);
     const existing = await runAsSystem(() => E2eeDevice.findOne({ userId: oid(me), deviceId }).lean<IE2eeDevice>(), "e2ee-device");
     if (existing?.revokedAt) throw new ForbiddenError("This encryption device was removed from your account. Set it up again to get a new device.");
+    // A device id belongs to the client that registered it, for its whole life
+    if (existing && (existing.appId ? String(existing.appId) : null) !== owner) throw new ForbiddenError("This encryption device belongs to another client");
+    // App devices are always labelled with the app's name, so the user can recognise (and revoke) them
+    const label = owner
+        ? `${(await runAsSystem(() => DeveloperApp.findById(owner).select("name").lean<{ name: string }>(), "e2ee-device"))?.name || "Developer app"} (app)`
+        : typeof displayName === "string" ? displayName.slice(0, 100) : undefined;
     await runAsSystem(() => E2eeDevice.updateOne(
         { userId: oid(me), deviceId },
-        { $set: { lastSeenAt: new Date(), ...(typeof displayName === "string" ? { displayName: displayName.slice(0, 100) } : {}) }, $setOnInsert: { keys: null, ed25519: null, revokedAt: null } },
+        { $set: { lastSeenAt: new Date(), ...(label !== undefined ? { displayName: label.slice(0, 100) } : {}) }, $setOnInsert: { keys: null, ed25519: null, revokedAt: null, appId: owner ? oid(owner) : null } },
         { upsert: true },
     ), "e2ee-device");
     return { deviceId, userId: matrixUserId(me) };
 }
 
-export async function myDevices(ctx: RequestContext) {
+export async function myDevices(ctx: RequestContext, deviceIdRaw?: unknown) {
     const me = caller(ctx);
+    await appDevice(ctx, me, deviceIdRaw);
     const rows = await runAsSystem(() => E2eeDevice.find({ userId: oid(me) }).sort({ createdAt: 1 }).lean<IE2eeDevice[]>(), "e2ee-device");
-    return rows.map((d) => ({ deviceId: d.deviceId, displayName: d.displayName, ed25519: d.ed25519, createdAt: d.createdAt, lastSeenAt: d.lastSeenAt, revoked: !!d.revokedAt }));
+    return rows.map((d) => ({
+        deviceId: d.deviceId, displayName: d.displayName, ed25519: d.ed25519, createdAt: d.createdAt, lastSeenAt: d.lastSeenAt, revoked: !!d.revokedAt,
+        // Devices registered by a developer app (labelled with its name); null for the user's SpreeWe clients
+        appId: d.appId ? String(d.appId) : null,
+    }));
 }
 
 /**
@@ -103,14 +139,34 @@ export async function myDevices(ctx: RequestContext) {
 export async function revokeDevice(ctx: RequestContext, deviceIdRaw: unknown) {
     const me = caller(ctx);
     const deviceId = requireDeviceId(deviceIdRaw);
-    const res = await runAsSystem(() => E2eeDevice.updateOne({ userId: oid(me), deviceId, revokedAt: null }, { $set: { revokedAt: new Date() } }), "e2ee-device");
+    // The user (SpreeWe session) can remove any of their devices; an app only its own
+    const filter = { userId: oid(me), deviceId, revokedAt: null, ...(ctx.app ? { appId: oid(ctx.app.appId) } : {}) };
+    const res = await runAsSystem(() => E2eeDevice.updateOne(filter, { $set: { revokedAt: new Date() } }), "e2ee-device");
     if (!res.modifiedCount) throw new NotFoundError("Device not found (or already removed)");
-    await Promise.all([
-        runAsSystem(() => E2eeOneTimeKey.deleteMany({ userId: oid(me), deviceId }), "e2ee-device"),
-        runAsSystem(() => E2eeToDevice.deleteMany({ recipientUserId: oid(me), recipientDeviceId: deviceId }), "e2ee-device"),
-    ]);
+    await forgetDevice(me, deviceId);
     await announceDeviceChange(me);
     return { revoked: true };
+}
+
+async function forgetDevice(userId: string, deviceId: string): Promise<void> {
+    await Promise.all([
+        runAsSystem(() => E2eeOneTimeKey.deleteMany({ userId: oid(userId), deviceId }), "e2ee-device"),
+        runAsSystem(() => E2eeToDevice.deleteMany({ recipientUserId: oid(userId), recipientDeviceId: deviceId }), "e2ee-device"),
+    ]);
+}
+
+/**
+ * The user withdrew an app's access, or the app was deleted: revoke every encryption device it holds
+ * (for one user, or for all users of the app), so contacts stop sharing room keys with them.
+ */
+export async function revokeAppDevices(appId: string, userId?: string): Promise<number> {
+    const filter = { appId: oid(appId), revokedAt: null, ...(userId ? { userId: oid(userId) } : {}) };
+    const devices = await runAsSystem(() => E2eeDevice.find(filter).select("userId deviceId").lean<IE2eeDevice[]>(), "e2ee-device");
+    if (!devices.length) return 0;
+    await runAsSystem(() => E2eeDevice.updateMany(filter, { $set: { revokedAt: new Date() } }), "e2ee-device");
+    for (const d of devices) await forgetDevice(String(d.userId), d.deviceId);
+    for (const user of new Set(devices.map((d) => String(d.userId)))) await announceDeviceChange(user);
+    return devices.length;
 }
 
 /** My device list changed: everyone I share a conversation with re-queries my keys. */
@@ -132,7 +188,7 @@ function assertKeyObject(value: unknown, what: string): Record<string, unknown> 
 export async function uploadKeys(ctx: RequestContext, deviceIdRaw: unknown, body: Record<string, unknown>) {
     const me = caller(ctx);
     const deviceId = requireDeviceId(deviceIdRaw);
-    const device = await activeDevice(me, deviceId);
+    const device = await activeDevice(me, deviceId, ownerOf(ctx));
     if (body.device_keys !== undefined) {
         const dk = assertKeyObject(body.device_keys, "device_keys");
         if (dk.user_id !== matrixUserId(me) || dk.device_id !== deviceId) throw new ForbiddenError("Device keys must be for your own account and this device");
@@ -159,8 +215,9 @@ export async function uploadKeys(ctx: RequestContext, deviceIdRaw: unknown, body
 }
 
 /** POST keys/query: device keys of people I share a conversation with (others come back empty). */
-export async function queryKeys(ctx: RequestContext, body: Record<string, unknown>) {
+export async function queryKeys(ctx: RequestContext, body: Record<string, unknown>, deviceIdRaw?: unknown) {
     const me = caller(ctx);
+    await appDevice(ctx, me, deviceIdRaw);
     const requested = Object.keys(assertKeyObject(body.device_keys, "device_keys")).slice(0, 1000);
     const ids = requested.map((m) => [m, userIdFromMatrix(m)] as const);
     const allowed = await peersAllowed(me, ids.map(([, id]) => id).filter((x): x is string => !!x));
@@ -179,8 +236,9 @@ export async function queryKeys(ctx: RequestContext, body: Record<string, unknow
 }
 
 /** POST keys/claim: one one-time prekey per requested device (consumed), or its fallback key. */
-export async function claimKeys(ctx: RequestContext, body: Record<string, unknown>) {
+export async function claimKeys(ctx: RequestContext, body: Record<string, unknown>, deviceIdRaw?: unknown) {
     const me = caller(ctx);
+    await appDevice(ctx, me, deviceIdRaw);
     const request = assertKeyObject(body.one_time_keys, "one_time_keys");
     const ids = Object.keys(request).slice(0, 1000).map((m) => [m, userIdFromMatrix(m)] as const);
     const allowed = await peersAllowed(me, ids.map(([, id]) => id).filter((x): x is string => !!x));
@@ -209,7 +267,7 @@ export async function claimKeys(ctx: RequestContext, body: Record<string, unknow
 export async function sendToDevice(ctx: RequestContext, deviceIdRaw: unknown, eventType: unknown, txnIdRaw: unknown, body: Record<string, unknown>) {
     const me = caller(ctx);
     const deviceId = requireDeviceId(deviceIdRaw);
-    await activeDevice(me, deviceId);
+    await activeDevice(me, deviceId, ownerOf(ctx));
     const type = String(eventType || "");
     if (!ALLOWED_TO_DEVICE.test(type)) throw new AppError("This device message type isn't allowed");
     const txnId = String(txnIdRaw || "");
@@ -254,7 +312,7 @@ export async function sendToDevice(ctx: RequestContext, deviceIdRaw: unknown, ev
 export async function syncDevice(ctx: RequestContext, deviceIdRaw: unknown, opts: { ack?: string; since?: number; limit?: number }) {
     const me = caller(ctx);
     const deviceId = requireDeviceId(deviceIdRaw);
-    await activeDevice(me, deviceId);
+    await activeDevice(me, deviceId, ownerOf(ctx));
     await runAsSystem(() => E2eeDevice.updateOne({ userId: oid(me), deviceId }, { $set: { lastSeenAt: new Date() } }), "e2ee-sync");
     if (opts.ack && mongoose.isValidObjectId(opts.ack)) {
         await runAsSystem(() => E2eeToDevice.deleteMany({ recipientUserId: oid(me), recipientDeviceId: deviceId, _id: { $lte: oid(opts.ack) } }), "e2ee-sync");
@@ -282,8 +340,9 @@ export async function syncDevice(ctx: RequestContext, deviceIdRaw: unknown, opts
  * Members of a conversation, as encryption identities, for sharing its room key. Only for its
  * members; the server's membership is the authority (a client never decides who may read).
  */
-export async function roomMembers(ctx: RequestContext, conversationId: unknown) {
+export async function roomMembers(ctx: RequestContext, conversationId: unknown, deviceIdRaw?: unknown) {
     const me = caller(ctx);
+    await appDevice(ctx, me, deviceIdRaw);
     if (!mongoose.isValidObjectId(String(conversationId))) throw new NotFoundError("Conversation not found");
     // Read in the caller's workspace context: a conversation outside it is "not found"
     const conv = await Conversation.findOne({ _id: oid(conversationId), members: oid(me) }).select("members").lean();

@@ -89,7 +89,8 @@ export function requireUser(scope: AppScope | null) {
         }
         (req as CustomRequest).userId = ctx.userId;
         (req as CustomRequest).ctx = ctx;
-        withoutCiphertext(res);
+        // Apps with their own encryption device (e2ee:device) get ciphertext to decrypt; others never do
+        if (!ctx.app!.scopes.includes("e2ee:device")) withoutCiphertext(res);
         meterAppRequest(req, res, () => runWithContext(ctx, () => next()));
     };
     // Exposed so tests can check that every session route made an explicit app-access decision

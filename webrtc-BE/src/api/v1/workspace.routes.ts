@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { revokeAppDevices } from "../../e2ee/e2ee.service";
 import TenantMembership from "../../models/tenantMembershipModel";
 import User from "../../models/userModel";
 import { AppAuditEvent, AppGrant, DeveloperApp, IDeveloperApp } from "../../developer/models";
@@ -60,6 +61,8 @@ defineRoute({
         if (!app) throw new NotFoundError("App not found");
         if (body.confirm !== app.name) throw new AppError("Confirm with the app's exact name");
         const res = await runAsSystem(() => AppGrant.updateMany({ appId: app._id, status: "active" }, { $set: { status: "revoked" }, $inc: { version: 1 } }), "workspace-apps");
+        // Every encryption device the app holds stops receiving keys
+        await revokeAppDevices(String(app._id));
         await runAsSystem(() => AppAuditEvent.create({ appId: app._id, actorUserId: oid(ctx.userId), actorKind: "owner", action: "grants.revoked_by_workspace_admin", details: { count: res.modifiedCount }, at: new Date() }), "app-audit");
         return { revoked: res.modifiedCount };
     },

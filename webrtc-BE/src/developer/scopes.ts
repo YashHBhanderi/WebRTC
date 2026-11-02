@@ -56,9 +56,7 @@ export type AppScope = keyof typeof APP_SCOPES;
 export const ALL_SCOPES = Object.keys(APP_SCOPES) as AppScope[];
 
 /** Listed, but grant nothing yet (their functionality ships in a later phase) and can't be added to apps */
-export const UNAVAILABLE_SCOPES: ReadonlySet<string> = new Set<AppScope>([
-    "messages:write", "messages:edit", "e2ee:device",
-]);
+export const UNAVAILABLE_SCOPES: ReadonlySet<string> = new Set<AppScope>([]);
 
 export function isScope(value: unknown): value is AppScope {
     return typeof value === "string" && value in APP_SCOPES;
@@ -171,6 +169,9 @@ export const DELIVERED_EVENT_SCOPES: Record<string, AppScope> = {
     "meeting:updated": "meetings:read",
     "recording:updated": "recordings:read",
     "call:recording": "recordings:read",
+    // end-to-end encryption: room keys / device changes are waiting (the app device syncs)
+    "e2ee:to-device": "e2ee:device",
+    "e2ee:devices-changed": "e2ee:device",
     // calls: invitations and lifecycle
     "call:incoming": "calls:read",
     "call:pending-rings": "calls:read",

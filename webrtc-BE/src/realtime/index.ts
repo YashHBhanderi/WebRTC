@@ -5,7 +5,8 @@ import { resolveLocalUserId } from "../services/identity.service";
 import { AuthedSocket, addAppSocket, createIo, installAppRoomShadows, removeAppSocket, socketContexts, useAppRooms } from "./io";
 import { userRoom } from "./cluster";
 import { looksLikeAppToken, verifyAppTokenSignature } from "../developer/tokens";
-import { recordUsage, verifyUserToken } from "../developer/app.service";
+import { consumeMessageQuota, recordUsage, verifyUserToken } from "../developer/app.service";
+import { isActiveAppDevice } from "../e2ee/e2ee.service";
 import { SOCKET_EVENT_SCOPES } from "../developer/scopes";
 import { orgClaimsFromPayload, resolveContext } from "../tenancy/tenant.service";
 import { runWithContext } from "../tenancy/context";
@@ -199,11 +200,25 @@ function setUpAppSocket(socket: AuthedSocket, ctx: AuthedSocket["data"]["ctx"]):
             socket.emit("rate-limited", { event: event.slice(0, 64) });
             return next(new Error("Too many requests"));
         }
-        if (event === "sendMessage") {
-            // Every message is end-to-end encrypted on the user's own devices; an app holds no device
-            // keys, so it can't send messages (it could only send plaintext, which is refused for everyone)
-            socket.emit("message:rejected", { reason: "e2ee", message: "Apps can't send end-to-end encrypted messages" });
-            return next(new Error("Apps can't send end-to-end encrypted messages"));
+        if (event === "sendMessage" || event === "message:edit") {
+            // Apps send end-to-end encrypted content only from an encryption device they registered for
+            // this user (e2ee:device; the gateway then applies the usual checks: membership, encrypted
+            // payload, author-only edits). New messages count against the app's daily quota.
+            const payload = (packet?.[1] || {}) as { conversationId?: unknown; e2ee?: { device_id?: unknown } };
+            const reject = (reason: string, message: string) => {
+                socket.emit("message:rejected", { conversationId: payload.conversationId ? String(payload.conversationId) : undefined, reason, message });
+                next(new Error(message));
+            };
+            void (async () => {
+                if (!(await isActiveAppDevice(ctx.userId, app.appId, payload.e2ee?.device_id))) {
+                    return reject("e2ee", "Send from an encryption device this app registered for the user (e2ee:device)");
+                }
+                if (event === "sendMessage" && !(await consumeMessageQuota(app))) {
+                    return reject("quota", "This app's daily message quota is used up");
+                }
+                runWithContext(ctx, () => next());
+            })().catch(() => reject("error", "The message could not be sent"));
+            return;
         }
         runWithContext(ctx, () => next());
     });

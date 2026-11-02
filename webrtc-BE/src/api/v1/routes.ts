@@ -157,9 +157,9 @@ defineRoute({
     handler: async ({ ctx, params, query }) => {
         try {
             const page: any = await MessageService.historyPage(params.conversationId, ctx.userId, { before: query.cursor, limit: query.limit });
-            // Developer apps can't take part in end-to-end encryption: they see that a message is
-            // encrypted, never its ciphertext. First-party clients get the ciphertext to decrypt.
-            if (ctx.app && Array.isArray(page?.items)) {
+            // Developer apps without their own encryption device see that a message is encrypted, never
+            // its ciphertext. SpreeWe clients and apps with e2ee:device get the ciphertext to decrypt.
+            if (ctx.app && !ctx.app.scopes.includes("e2ee:device") && Array.isArray(page?.items)) {
                 page.items = page.items.map((m: any) => (m?.e2ee ? { ...m, e2ee: undefined, content: null, encrypted: true } : m));
             }
             return page;
