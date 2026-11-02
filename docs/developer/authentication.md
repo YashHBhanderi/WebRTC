@@ -24,7 +24,7 @@ The end user signs in to SpreeWe (Clerk) in your client application. Your client
 - E2EE works if your client implements the Olm/Megolm device protocol on the user's device (see [section 9](#9-e2ee-device-lifecycle-mode-a-only)); the client becomes one of the user's encryption devices.
 - The active workspace is the user's Clerk active organization.
 
-Status: **Implemented and tested** at the protocol level (`webrtc-BE/test/sdk-e2e.test.ts`). **Implemented, not tested in a real browser**: nobody has tested the SDK in a real browser yet.
+Status: **Implemented and tested** with session tokens across the server test suite. **Not tested from a third-party client in a real browser or app.**
 
 ### (B) Developer applications: server credentials and scoped user tokens
 
@@ -46,7 +46,7 @@ Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`)
 | Calls and media | A, or B with `calls:read` / `calls:write` / `calls:manage` |
 | Read a user's profile, directory, conversation list, call history or recording links from your server | B |
 | Learn on your server that messages were created, edited or deleted (without their content) | B with `messages:read` |
-| Work while the user's browser is closed | B (read-only scopes) |
+| Work while the user's browser is closed | B with any approved scopes (server exchange, or OAuth refresh tokens) |
 | Send messages from a bot or a backend | B with `e2ee:device` + `messages:write`, running an encryption device on your server (the user consents to it) |
 
 ---
@@ -55,16 +55,16 @@ Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`)
 
 1. Fetch the publishable key. `GET /config` needs no authentication and returns `{ status, data: { clerkPublishableKey, s3BaseUrl }, message }`.
 2. Initialise Clerk in your app with that key and sign the user in.
-3. Pass `getToken: () => clerk.session?.getToken()` (or your framework's equivalent) to the SDK.
+3. Pass `getToken: () => clerk.session?.getToken()` (or your framework's equivalent) to your API and Socket.IO client code.
 
 Rules:
 
-- **Clerk session tokens last about 60 seconds.** Call `getToken()` right before each use and never cache the token. The SDK already does this on every request and every socket (re)connect.
+- **Clerk session tokens last about 60 seconds.** Call `getToken()` right before each use and never cache the token. Use a Socket.IO `auth` callback so every (re)connect gets a fresh token.
 - **Clock skew.** If `CLERK_CLOCK_SKEW_MS` is set, the server uses that value. Otherwise it allows 5 seconds in production and with live keys. It allows 3 minutes only outside production with a `pk_test_` key. Keep server clocks synchronised with NTP, because in production an expired token is refused almost at once.
 - REST calls send `Authorization: Bearer <token>`.
 - The socket handshake sends `auth: { token, deviceId }`:
   - `auth.token` is a fresh Clerk session token in mode A, or an app token in mode B.
-  - `auth.deviceId` is optional and must match `^[\w-]{8,64}$`. If it doesn't, the server uses the socket id. The SDK sends `sdk-<encryption device id>`.
+  - `auth.deviceId` is optional and must match `^[\w-]{8,64}$`. If it doesn't, the server uses the socket id.
 - The token's active organization decides which workspace a request runs in ([section 8](#8-personal-vs-workspace-context)).
 
 ---
@@ -262,12 +262,12 @@ See [Organizations and workspaces](./organizations.md) for details. Status: **Im
 
 Messages are encrypted in the browser with Olm/Megolm, using the Matrix Rust crypto library. The server stores and routes ciphertext and public keys.
 
-1. **The first connect creates a device.** The SDK registers it with `POST /v1/e2ee/devices`. Every E2EE request names the device in the `X-SpreeWe-Device` header.
+1. **The first connect creates a device.** The client registers it with `POST /v1/e2ee/devices`. Every E2EE request names the device in the `X-SpreeWe-Device` header.
 2. **Keys.** The device uploads its identity keys and one-time keys (`POST /v1/e2ee/keys/upload`). It looks up other users' devices (`/keys/query`) and claims their one-time keys (`/keys/claim`) to open sessions. Lookups only return people the user shares a conversation with.
 3. **To-device sync.** Room keys travel as to-device messages. They are sent with `POST /v1/e2ee/sendToDevice/{eventType}/{txnId}` and fetched with `GET /v1/e2ee/sync`. The socket event `e2ee:to-device` announces new ones.
 4. **Room keys.** Megolm room keys go to the devices of the conversation members **as listed by the server** (`GET /v1/e2ee/rooms/{conversationId}/members`). This means the client trusts the server's member list.
-5. **Sender check.** When decrypting, the SDK checks that the sending device's key belongs to the claimed sender. If it doesn't, the message is not shown.
-6. **Storage.** Private keys stay in the browser's IndexedDB. The SDK uses its own database (`spreewe-sdk-e2ee-vault`), separate from the SpreeWe web app's. The library's key store is encrypted with a random passphrase, and that passphrase is wrapped by a non-extractable AES-GCM key. Keys survive a page refresh and are never sent to the server or written to `localStorage`. This protects keys at rest. It does not protect against malicious script running in the page.
+5. **Sender check.** When decrypting, the client must check that the sending device's key belongs to the claimed sender. If it doesn't, the message is not shown.
+6. **Storage.** Private keys must stay on the device and are never sent to the server. The SpreeWe web app keeps them in IndexedDB, in a key store encrypted with a random passphrase wrapped by a non-extractable AES-GCM key; your client needs equivalent protection for keys at rest. No storage scheme protects against malicious code running in your client.
 7. **A new browser, or cleared site data, means a new device.** The new device **cannot read messages sent before it existed**. **There is no key backup.**
 8. **Revocation.** `GET /v1/e2ee/devices` lists the user's devices and `POST /v1/e2ee/devices/{deviceId}/revoke` removes one. A revoked device id cannot be registered again, so that browser has to set up a new device.
 

@@ -1,6 +1,11 @@
-# Session REST API (user-session endpoints)
+# Session REST API
 
-These are the REST endpoints a signed-in end user's browser or app calls with its own Clerk session token. They are the older, unversioned surface. For the versioned, uniformly enveloped API, see [./v1-api.md](./v1-api.md).
+These are the unversioned REST endpoints behind SpreeWe's own clients. They accept two kinds of bearer token:
+
+- a **SpreeWe session token** (Clerk) for a signed-in end user, and
+- a **developer-app user token**, if the token holds the scope the route requires.
+
+For the versioned API with one uniform envelope, see [./v1-api.md](./v1-api.md). For how app tokens are issued, see [../authentication.md](../authentication.md) and [./oauth.md](./oauth.md).
 
 Messages are **not** sent over REST. Sending, editing, reacting, pinning and read receipts go over Socket.IO (`sendMessage`, `message:edit`, `reactToMessage`, `message:pin`, `markMessagesRead`, ...). See [../realtime-events.md](../realtime-events.md).
 
@@ -8,6 +13,7 @@ Messages are **not** sent over REST. Sending, editing, reacting, pinning and rea
 
 - [Conventions](#conventions)
 - [Status labels](#status-labels)
+- [Route summary](#route-summary)
 - [Users](#users)
 - [Conversations](#conversations)
 - [Groups](#groups)
@@ -25,41 +31,53 @@ Messages are **not** sent over REST. Sending, editing, reacting, pinning and rea
 
 ### Base URL
 
-Every route in this document is served twice: at the root and under `/api`. `GET $SPREEWE_API/conversations` and `GET $SPREEWE_API/api/conversations` hit the same handler. Pick whichever your reverse proxy forwards. The examples use `$SPREEWE_API` with no prefix.
+Every route in this document is served twice: at the root and under `/api`. `GET $SPREEWE_API/conversations` and `GET $SPREEWE_API/api/conversations` hit the same handler. The examples use `$SPREEWE_API` with no prefix.
 
 ### Authentication
 
 ```
-Authorization: Bearer $SPREEWE_SESSION_TOKEN
+Authorization: Bearer <token>
 ```
 
-- The token is a **Clerk session token** for the end user. Every route except `GET /config` requires it.
-- **Developer-app tokens are not accepted here.** The `verifyToken` middleware only reads the Clerk session (`getAuth`). Developer-app user tokens belong to the `/v1` surface, documented in [./v1-api.md](./v1-api.md).
-- Browser requests (those with an `Origin` header) are checked against `CLERK_AUTHORIZED_PARTIES` (Clerk `azp`). Requests with no `Origin` header and a Bearer token (native apps) skip the `azp` check.
-- On the first authenticated request, the server links the Clerk user to an app account and creates the account if it does not exist yet.
+Every route except `GET /config` requires a token. The server tells the two kinds apart by the token's format.
+
+**SpreeWe session token (Clerk).** The examples use `$SPREEWE_SESSION_TOKEN`.
+
+- Accepted by every authenticated route in this document.
+- Browser requests (with an `Origin` header) are checked against `CLERK_AUTHORIZED_PARTIES` (Clerk `azp`). Requests with no `Origin` header (native apps) skip that check.
+- On the first authenticated request, the server links the Clerk user to an app account and creates the account if needed.
+
+**Developer-app user token.** The examples use `$SPREEWE_APP_TOKEN`. Each route's **Auth** line names the one scope it needs; the scope catalogue is in [../authentication.md](../authentication.md#7-scopes). For an app token the server:
+
+1. Verifies the token against the current app, grant and workspace state, and against the request `Origin` (app tokens are bound to the app's registered origins). Any failure (expired, revoked, disabled app, removed member, wrong origin) returns `401 { "success": false, "message": "Invalid or expired token" }`.
+2. Refuses routes marked **SpreeWe session only** with `403 { "success": false, "message": "This endpoint needs a signed-in SpreeWe session" }`.
+3. Checks the scope. A valid token without it returns `403 { "success": false, "message": "The token lacks the <scope> scope" }`.
+4. Runs the same handler as for a session, with the same membership, role and workspace-policy checks. A scope never lets the app do more than the user could do in SpreeWe.
+5. Counts the request in the app's usage (requests, plus errors for responses with status 400 or above) and applies the app's per-minute quota. The quota is shared by all of the app's users and by `/v1` and these routes together (60 per minute if the app has no quota set). Over the quota: `429 { "success": false, "message": "Too many requests. Please slow down and try again." }`.
+6. **Removes ciphertext** unless the app holds `e2ee:device`: every object in the JSON response that has an `e2ee` value loses that field and gets `"encrypted": true, "content": null` instead. Apps with `e2ee:device` receive `e2ee` unchanged and decrypt it with their own registered device.
+
+In short: `401` means the token itself is not usable (get a new one); `403` means the token is valid but not allowed on this route.
 
 ### Workspace context
 
-The workspace is the **active Clerk organization in the session token** (`org_id`). No endpoint takes a tenant or workspace id. To change workspace, switch the organization in Clerk and use the new session token.
+The workspace is the **active organization of the token**: for a session token, the active Clerk organization (`org_id`); for an app token, the context it was issued for (see [../authentication.md](../authentication.md)). No endpoint takes a tenant or workspace id.
 
 - **No active org:** personal context. You only see people you already share a conversation with. There is no public directory.
-- **Active org:** the workspace must exist and be `active`, otherwise you get `403 This workspace is suspended` or `403 This workspace no longer exists`. A malformed org id returns `401 Invalid organization in session`. A member removed from the workspace gets `403 You are no longer a member of this workspace`. For organizations managed in SpreeWe, a caller who is not an active member gets `403 You are not a member of this organization`.
+- **Active org:** the workspace must exist and be `active`, otherwise a session token gets `403 This workspace is suspended` or `403 This workspace no longer exists`. A malformed org id returns `401 Invalid organization in session`. A member removed from the workspace gets `403 You are no longer a member of this workspace`. For organizations managed in SpreeWe, a caller who is not an active member gets `403 You are not a member of this organization`. For an app token, these conditions all surface as `401 Invalid or expired token`.
 - Conversations, messages, search results and the directory are all filtered to the active context.
 
 ### Response envelopes
 
-These routes do **not** share one envelope. Each route lists the exact shape it returns. The shapes in use:
+These routes do **not** share one envelope. Each route lists the exact shape it returns:
 
 | Shape | Used by |
 |---|---|
 | `{ "status": true, "data": ..., "message": "..." }` | Most user, group, meeting, recording, notification, search, workspace and config routes |
 | `{ "success": true, "data": ... }` (sometimes with `message`) | `GET /conversations`, `GET /messages/:conversationId`, message search and position, `GET /conversations/:id/state`, `GET /groupConversations` |
 | `{ "conversationId": "..." }` (no envelope) | `POST /conversations` |
-| `{ "storageKey", "type", "size", "encrypted" }` (no envelope) | `POST /upload`, `purpose=message` |
+| Bare object (no envelope) | `POST /upload` |
 | `{ "status": <bool>, "data": null, "message": "Message deleted" }` | `DELETE /messages/:messageId` (`status` mirrors the service result) |
 | File download | `GET /recordings/:id/transcript/export` |
-
-The SDK's internal `rest()` helper returns `json.data` by default. It reads the raw body only for `POST /conversations` and `POST /upload`.
 
 ### Errors
 
@@ -83,44 +101,107 @@ Most handlers report failures through `sendError`:
 | 404 | `NOT_FOUND_ERROR` |
 | 409 | `CONFLICT_ERROR` |
 | 429 | `RATE_LIMIT_ERROR` |
-| 5xx | `SERVER_ERROR`. The `message` is a generic fallback and internal details are never returned. |
+| 5xx | `SERVER_ERROR`. The `message` is a generic fallback; internal details are never returned. |
 
 Some failures use a different shape:
 
-- **Authentication failures** from `verifyToken` return `{ "success": false, "message": "..." }`:
-  - `401 Please sign in to continue.`
+- **Authentication and scope failures** return `{ "success": false, "message": "..." }` with no `error` object:
+  - `401 Please sign in to continue.` (missing or rejected session token)
+  - `401 Invalid or expired token` (app token)
+  - `403 The token lacks the <scope> scope` and `403 This endpoint needs a signed-in SpreeWe session` (app token)
   - `503 Sign-in is not configured on the server`
   - a workspace-resolution error with its own status (see [Workspace context](#workspace-context))
 - **Upload errors** (`POST /upload`, and multer errors on any multipart route) return `{ "status": false, "data": null, "message": "..." }` with no `error` object.
-- **Rate-limit responses** return `429` with `{ "success": false, "message": "Too many requests. Please slow down and try again." }`.
+- **Rate-limit responses** return `429 { "success": false, "message": "Too many requests. Please slow down and try again." }`.
 - **`DELETE /web/deleteUser/:id` with someone else's id** returns `403 { "status": false, "data": null, "message": "You can only delete your own account" }`.
 
-Invalid ObjectIds are generally rejected as `400`. Resources outside your membership or workspace generally return `404`, so the response does not reveal whether the resource exists.
+Invalid ObjectIds are generally rejected with `400`. Resources outside your membership or workspace generally return `404`, so the response does not reveal whether the resource exists.
 
 ### Rate limits
 
-Limits are per client IP, per window. Configure them in `webrtc-BE/src/config/security.ts`:
+Up to three limits apply to a request:
 
-| Variable | Default | Applies to |
-|---|---|---|
-| `RATE_LIMIT_WINDOW_MS` | `60000` | Window length for both limits |
-| `RATE_LIMIT_MAX` | `600` | Every request |
-| `RATE_LIMIT_SENSITIVE_MAX` | `60` | Additionally: `POST /upload`, `GET /search`, `POST /conversations/group`, `POST /meetings`, `POST /meetings/code/:code/join`, `POST /tenant/external-conversations`, `PATCH /tenant/current/policies` (with and without `/api`) |
+| Limit | Counted per | Default | Applies to |
+|---|---|---|---|
+| Standard | client IP | `RATE_LIMIT_MAX` = `600` per `RATE_LIMIT_WINDOW_MS` (`60000` ms) | Every request |
+| Sensitive | client IP | `RATE_LIMIT_SENSITIVE_MAX` = `60` per window | Additionally: `POST /upload`, `GET /search`, `POST /conversations/group`, `POST /meetings`, `POST /meetings/code/:code/join`, `POST /tenant/external-conversations`, `PATCH /tenant/current/policies` (with and without `/api`) |
+| App quota | developer app | the app's `rateLimitPerMinute` (60 if unset), 1-minute window | Additionally: every request made with an app token, on these routes and `/v1` combined |
 
-Responses carry `RateLimit` / `RateLimit-Policy` headers (draft-7). JSON and URL-encoded bodies are capped at `JSON_BODY_LIMIT` (default `2mb`). Files go through multipart.
+The IP limits are configured in `webrtc-BE/src/config/security.ts`. Responses carry `RateLimit` / `RateLimit-Policy` headers (draft-7). JSON and URL-encoded bodies are capped at `JSON_BODY_LIMIT` (default `2mb`). Files go through multipart.
+
+Each route below gives its IP class as **Rate limit:** standard or sensitive.
+
+### CORS
+
+CORS applies to every path. Origins in `CORS_ORIGINS` (first party) are always allowed. Any other origin is allowed only if it is registered on a developer app. Responses never allow credentials: no cookies are used, and the token always travels in the `Authorization` header. Passing CORS does not authenticate anything; an app token is still checked against its own app's origins.
 
 ### End-to-end encryption
 
-Message text and media are end-to-end encrypted on the sender's device. When a client sends a message (Socket.IO `sendMessage`), the server validates the ciphertext and stores it in the message's `e2ee` field. It refuses plaintext text or media messages with `message:rejected` (`reason: "unencrypted"`, "Messages must be end-to-end encrypted"). REST responses therefore return `e2ee` for clients to decrypt. For encrypted messages, `content` is empty or a placeholder. Chat attachments are uploaded as ciphertext too (see [Uploads](#uploads)).
+Message text and media are end-to-end encrypted on the sender's device. The server stores the ciphertext in the message's `e2ee` field and refuses plaintext text or media messages (`message:rejected`, `reason: "unencrypted"`). For SpreeWe sessions and apps with `e2ee:device`, responses include `e2ee` for the client to decrypt, and `content` is empty or a placeholder. For apps without `e2ee:device`, `e2ee` is removed as described under [Authentication](#authentication). Chat attachments are uploaded as ciphertext too (see [Uploads](#uploads)).
 
 ## Status labels
 
-Each endpoint is labelled with one of:
+- **Tested**: a test in `webrtc-BE/test/*.test.ts` calls the route and checks a successful result.
+- **Tested (refusal only)**: a test calls the route but only checks that it refuses (for example, an app token without the scope).
+- **Implemented, not covered by tests**: no automated test calls the route.
 
-- **Tested via SDK**: exercised by the SDK end-to-end test (`webrtc-BE/test/sdk-e2e.test.ts`, through `packages/chat-sdk`).
-- **Implemented (server tests)**: covered by another test in `webrtc-BE/test/*.test.ts`.
-- **Implemented, not covered by tests**: no automated test calls it.
-- **Implemented, not tested end to end (needs S3)**: upload paths.
+Upload routes are tested against the test suite's storage setup, not real S3.
+
+## Route summary
+
+47 routes, each also served under `/api`. "session" means a SpreeWe session token; the scope is what an app token needs.
+
+| Method & path | Auth | Rate limit | Status |
+|---|---|---|---|
+| `GET /web/user/me` | session or `profile:read` | standard | Tested |
+| `GET /web/users` | session or `directory:read` | standard | Tested |
+| `GET /web/users/except-current` | session or `directory:read` | standard | Tested |
+| `GET /web/user/:userId` | session or `profile:read` | standard | Tested |
+| `PATCH /web/user/profile` | session or `profile:write` | standard | Tested |
+| `DELETE /web/deleteUser/:id` | session only | standard | Tested (refusal only) |
+| `GET /conversations` | session or `conversations:read` | standard | Tested |
+| `POST /conversations` | session or `conversations:write` | standard | Tested |
+| `GET /conversations/:conversationId/state` | session or `conversations:read` | standard | Not covered |
+| `DELETE /conversations/:conversationId` | session or `conversations:delete` | standard | Tested |
+| `GET /conversations/:conversationId/media` | session or `files:read` | standard | Tested |
+| `POST /conversations/group` | session or `groups:write` | sensitive | Tested |
+| `PUT /conversations/group/:id/add-member` | session or `groups:manage` | standard | Tested |
+| `PUT /conversations/group/:id/remove-member` | session or `groups:manage` | standard | Tested |
+| `GET /groupConversations` | session or `groups:read` | standard | Tested |
+| `GET /conversations/:id/group` | session or `groups:read` | standard | Tested |
+| `GET /messages/:conversationId` | session or `messages:read` | standard | Tested |
+| `GET /messages/:conversationId/search` | session or `messages:read` | standard | Not covered |
+| `GET /messages/:conversationId/position/:messageId` | session or `messages:read` | standard | Not covered |
+| `DELETE /messages/:messageId` | session or `messages:delete` | standard | Tested |
+| `PUT /messages/:messageId/save` | session or `messages:react` | standard | Tested |
+| `GET /saved-messages` | session or `messages:read` | standard | Tested |
+| `GET /search` | session or `search:read` | sensitive | Tested |
+| `GET /files` | session or `files:read` | standard | Tested |
+| `POST /upload` | session or `files:write` | sensitive | Tested |
+| `GET /calls` | session or `calls:read` | standard | Tested |
+| `GET /meetings` | session or `meetings:read` | standard | Tested |
+| `POST /meetings` | session or `meetings:write` | sensitive | Tested |
+| `GET /meetings/:id` | session or `meetings:read` | standard | Tested |
+| `PATCH /meetings/:id` | session or `meetings:write` | standard | Not covered |
+| `DELETE /meetings/:id` | session or `meetings:write` | standard | Not covered |
+| `GET /meetings/code/:code` | session or `meetings:read` | standard | Not covered |
+| `POST /meetings/code/:code/join` | session or `meetings:write` | sensitive | Tested |
+| `GET /conversations/:conversationId/recordings` | session or `recordings:read` | standard | Tested |
+| `GET /recordings/:id` | session or `recordings:read` | standard | Tested |
+| `GET /recordings/:id/transcript` | session or `recordings:read` | standard | Not covered |
+| `GET /recordings/:id/transcript/export` | session or `recordings:read` | standard | Not covered |
+| `POST /recordings/:id/transcript/retry` | session or `recordings:write` | standard | Not covered |
+| `GET /notifications` | session or `notifications:read` | standard | Tested |
+| `GET /notifications/unread-count` | session or `notifications:read` | standard | Not covered |
+| `POST /notifications/read` | session or `notifications:write` | standard | Tested |
+| `GET /tenant/current` | session or `organizations:read` | standard | Tested |
+| `PATCH /tenant/current/policies` | session or `organizations:manage` | sensitive | Tested |
+| `GET /tenant/workspaces` | session or `organizations:read` | standard | Tested (refusal only) |
+| `GET /directory` | session or `directory:read` | standard | Tested |
+| `POST /tenant/external-conversations` | session or `conversations:write` | sensitive | Tested |
+| `GET /config` | none | standard | Tested |
+
+"Not covered" = Implemented, not covered by tests. App-token behaviour (scope refusals across many of these routes, the same handlers for apps, ciphertext removal on history) is covered by `developer-api-access.test.ts`, `developer-api-calls.test.ts` and `developer-api-e2ee.test.ts`.
 
 ---
 
@@ -128,8 +209,9 @@ Each endpoint is labelled with one of:
 
 ### GET /web/user/me
 
-Returns the signed-in user's account. On first use, the server links the Clerk user to an app account or creates one.
-Status: **Tested via SDK** (`auth.connect`).
+Returns the signed-in user's account. On first use with a session token, the server links the Clerk user to an app account or creates one.
+
+**Auth:** SpreeWe session, or app token with `profile:read`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200** `{ status, data, message }`. `data` is the full user document, including your own unmasked `status`.
 
@@ -141,6 +223,9 @@ Status: **Tested via SDK** (`auth.connect`).
 
 ```bash
 curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/web/user/me"
+
+# With an app token holding profile:read
+curl -H "Authorization: Bearer $SPREEWE_APP_TOKEN" "$SPREEWE_API/web/user/me"
 ```
 
 ### GET /web/users
@@ -153,7 +238,8 @@ Both routes return the same thing: the directory of people you may start a conve
 - In personal context: people you already share a conversation with.
 
 Accounts that are deleted or banned in Clerk are never listed. Results are sorted by username, up to 500.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `directory:read`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200**:
 
@@ -171,7 +257,8 @@ For a filterable version, see [`GET /directory`](#get-directory).
 ### GET /web/user/:userId
 
 Returns one person's profile if they are visible to you. A user is visible if they are you, share a conversation with you in the active context, or (outside guest role) are an active member of the active workspace. Other users get `404`.
-Status: **Tested via SDK** (`users.get`).
+
+**Auth:** SpreeWe session, or app token with `profile:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Param | Type | Notes |
 |---|---|---|
@@ -188,7 +275,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/web/user/66
 ### PATCH /web/user/profile
 
 Updates the signed-in user's profile. Send `multipart/form-data`, or JSON if there is no image. After the update, the server pushes `user:updated` to everyone who shares a conversation with you.
-Status: **Implemented, not covered by tests**. Image upload: **Implemented, not tested end to end (needs S3)**.
+
+**Auth:** SpreeWe session, or app token with `profile:write`. **Rate limit:** standard. **Status:** Tested (JSON body; the image upload path is not covered).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -212,7 +300,8 @@ curl -X PATCH -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" \
 ### DELETE /web/deleteUser/:id — internal, not for integrators
 
 Deletes the caller's own app user record (MongoDB) and releases their avatar file. Any other `:id` returns `403 You can only delete your own account`. There is no admin override.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session only (app tokens get `403 This endpoint needs a signed-in SpreeWe session`). **Rate limit:** standard. **Status:** Tested (refusal only: the app-token `403`).
 
 This does **not** delete the Clerk user. The next authenticated request with a valid session links or creates the app account again (see `verifyToken`). Conversations and messages are not removed either. Do not use this for account deletion. Delete the user in Clerk, which the server syncs through its Clerk webhook.
 
@@ -229,7 +318,8 @@ curl -X DELETE -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/w
 ### GET /conversations
 
 Lists your **direct (1:1)** conversations in the active context, newest first. Only chats that have a message, or that you cleared, are included. Group conversations are **not** included; use [`GET /groupConversations`](#get-groupconversations) for those.
-Status: **Tested via SDK** (`conversations.list`).
+
+**Auth:** SpreeWe session, or app token with `conversations:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Query | Type | Default | Notes |
 |---|---|---|---|
@@ -241,7 +331,7 @@ Status: **Tested via SDK** (`conversations.list`).
 - `scope` (`global` / `workspace` / `external`), `externalParticipants`
 - `isArchived`, `isFavorite`
 - `sender` (you), `receiver` (the other person)
-- `lastMessage` (may carry `e2ee` rather than readable text)
+- `lastMessage` (may carry `e2ee` rather than readable text; for apps without `e2ee:device`, `encrypted: true, content: null` instead)
 
 ```json
 { "success": true, "data": [ { "_id": "6710...", "unreadCount": 2, "scope": "global", "externalParticipants": [], "isArchived": false, "isFavorite": false, "receiver": { "_id": "66f0...", "username": "bob" }, "lastMessage": { "type": "text" }, "timestamp": "2026-11-01T09:12:00.000Z" } ] }
@@ -261,7 +351,7 @@ Rules for a **new** conversation:
 - In a workspace, the receiver must be a workspace member. To chat with outsiders, use [`POST /tenant/external-conversations`](#post-tenantexternal-conversations).
 - In personal context, the receiver must be discoverable and not deleted or banned.
 
-Status: **Tested via SDK** (`conversations.openDirect`).
+**Auth:** SpreeWe session, or app token with `conversations:write`. **Rate limit:** standard. **Status:** Tested.
 
 | Body field | Type | Notes |
 |---|---|---|
@@ -287,7 +377,8 @@ curl -X POST -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" -H "Content-Type:
 ### GET /conversations/:conversationId/state
 
 Returns your per-chat state. You must be a member of the conversation.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session, or app token with `conversations:read`. **Rate limit:** standard. **Status:** Implemented, not covered by tests.
 
 **Response 200** `{ success: true, data }`. `data` includes:
 
@@ -305,7 +396,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/conversatio
 ### DELETE /conversations/:conversationId
 
 Deletes a **group**. Only group admins may do this. Members are notified with `group:removed` (`reason: "deleted"`). Direct chats cannot be deleted: use Clear chat or Archive instead.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `conversations:delete`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200** `{ status: true, data: null, message: "Group deleted" }`.
 
@@ -323,9 +415,10 @@ curl -X DELETE -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/c
 ### GET /conversations/:conversationId/media
 
 Returns up to 300 media messages in the chat, newest first: images, videos, audio, PDFs and files. You must be a member. Messages before your "clear chat" point are excluded.
-Status: **Implemented, not covered by tests**. Media: **needs S3**.
 
-**Response 200** `{ status: true, data: Media[], message: "Shared media retrieved successfully" }`. Each item has `_id, conversationId, userId, e2ee, type, createdAt` plus media fields with pre-signed URLs. Encrypted files are decrypted on the client using the key inside the message's `e2ee` payload.
+**Auth:** SpreeWe session, or app token with `files:read`. **Rate limit:** standard. **Status:** Tested.
+
+**Response 200** `{ status: true, data: Media[], message: "Shared media retrieved successfully" }`. Each item has `_id, conversationId, userId, e2ee, type, createdAt` plus media fields with pre-signed URLs. Encrypted files are decrypted on the client using the key inside the message's `e2ee` payload. Apps without `e2ee:device` receive `encrypted: true, content: null` instead of `e2ee`, so they can list the files but cannot decrypt them.
 
 ```bash
 curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/conversations/6710aa000000000000000001/media"
@@ -338,7 +431,7 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/conversatio
 ### POST /conversations/group
 
 Creates a group. The caller becomes the group admin and is added to the members if missing. Send `multipart/form-data` (needed for the optional photo) or JSON.
-Status: **Tested via SDK** (`conversations.createGroup`). Photo: **Implemented, not tested end to end (needs S3)**. Rate limit: **sensitive**.
+**Auth:** SpreeWe session, or app token with `groups:write`. **Rate limit:** sensitive. **Status:** Tested (the photo upload path is not covered).
 
 | Field | Type | Notes |
 |---|---|---|
@@ -365,7 +458,8 @@ curl -X POST -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" \
 ### PUT /conversations/group/:id/add-member
 
 Adds members to a group. The same rules apply as for the `group:add-member` socket event.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `groups:manage`. **Rate limit:** standard. **Status:** Tested.
 
 | Body | Type |
 |---|---|
@@ -389,7 +483,8 @@ curl -X PUT -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" -H "Content-Type: 
 ### PUT /conversations/group/:id/remove-member
 
 Removes one member from a group.
-Status: **Tested via SDK** (`conversations.removeMember`).
+
+**Auth:** SpreeWe session, or app token with `groups:manage`. **Rate limit:** standard. **Status:** Tested.
 
 | Body | Type |
 |---|---|
@@ -412,7 +507,8 @@ curl -X PUT -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" -H "Content-Type: 
 ### GET /groupConversations
 
 Lists your groups with the last message and unread count, newest first. Team channels are excluded.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `groups:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Query | Type | Default |
 |---|---|---|
@@ -427,7 +523,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/groupConver
 ### GET /conversations/:id/group
 
 Returns group details for a member.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `groups:read`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200** `{ status: true, data: Group, message: "Data get Successfully" }`.
 
@@ -446,22 +543,25 @@ There is no REST endpoint for sending messages. Use the Socket.IO `sendMessage` 
 ### GET /messages/:conversationId
 
 Returns a page of message history, oldest first within the page. You must be a member. Messages before your "clear chat" point are excluded.
-Status: **Tested via SDK** (`messages.history`).
+
+**Auth:** SpreeWe session, or app token with `messages:read`. **Rate limit:** standard. **Status:** Tested (including ciphertext stripping for app tokens).
 
 | Query | Type | Default | Limits |
 |---|---|---|---|
 | `page` | int | 1 | ≥ 1. Page 1 holds the newest messages |
-| `limit` | int | 20 (the SDK sends 30) | Clamped to 1–2000 |
+| `limit` | int | 20 | Clamped to 1–2000 |
 
 **Response 200** `{ success: true, message: "Messages retrieved successfully", data: Message[] }`. Each message has:
 
 - `_id, conversationId, type, createdAt, userId`
 - `content`: empty for encrypted messages
-- `e2ee`: the ciphertext, decrypted on the device
+- `e2ee`: the ciphertext, decrypted on the device (for apps without `e2ee:device`: removed, with `encrypted: true` and `content: null`)
 - media fields
 - `isDeleted, isRead, status` (`seen`/`delivered`/...), `editedAt, mentions, saved, call, recording, reactions`
 - `user`: `{ _id, username, email, avatar, isOnline, lastSeen }`
 - `replyTo`: `{ _id, content, e2ee, type, userId }`
+
+Session example:
 
 ```json
 { "success": true, "message": "Messages retrieved successfully", "data": [ { "_id": "6711...", "conversationId": "6710...", "content": "", "e2ee": { "...": "ciphertext" }, "type": "text", "status": "seen", "isRead": true, "saved": false, "mentions": [], "createdAt": "2026-11-01T09:12:00.000Z", "user": { "_id": "66f0...", "username": "alice" }, "replyTo": null } ] }
@@ -471,10 +571,21 @@ Status: **Tested via SDK** (`messages.history`).
 curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/messages/6710aa000000000000000001?page=1&limit=30"
 ```
 
+The same call with an app token holding `messages:read` but **not** `e2ee:device`:
+
+```bash
+curl -H "Authorization: Bearer $SPREEWE_APP_TOKEN" "$SPREEWE_API/messages/6710aa000000000000000001?page=1&limit=30"
+```
+
+```json
+{ "success": true, "message": "Messages retrieved successfully", "data": [ { "_id": "6711...", "conversationId": "6710...", "type": "text", "encrypted": true, "content": null, "createdAt": "2026-11-01T09:12:00.000Z" } ] }
+```
+
 ### GET /messages/:conversationId/search
 
 Server-side search inside one chat. It runs a case-insensitive substring match on the stored `content` field of text messages and captioned media.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session, or app token with `messages:read`. **Rate limit:** standard. **Status:** Implemented, not covered by tests.
 
 **Limitation:** encrypted messages store their text only in `e2ee`, so `content` is empty. This search **cannot match end-to-end-encrypted text**. It only finds legacy plaintext messages. Search decrypted history on the client instead.
 
@@ -496,7 +607,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/messages/67
 ### GET /messages/:conversationId/position/:messageId
 
 Returns how many visible messages are newer than the given one. Use it to load enough history pages to reach that message.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session, or app token with `messages:read`. **Rate limit:** standard. **Status:** Implemented, not covered by tests.
 
 **Response 200** `{ success: true, data: { messageId, newerCount } }`.
 
@@ -509,7 +621,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/messages/67
 ### DELETE /messages/:messageId
 
 Deletes your own message for everyone and unpins it. Members receive `message:deleted` and `message:pins`.
-Status: **Tested via SDK** (`messages.delete`).
+
+**Auth:** SpreeWe session, or app token with `messages:delete`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200** `{ status: <bool>, data: null, message: "Message deleted" }`.
 
@@ -522,7 +635,8 @@ curl -X DELETE -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/m
 ### PUT /messages/:messageId/save
 
 Saves or unsaves a message for yourself (bookmark). You must be a member of the message's conversation.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `messages:react`. **Rate limit:** standard. **Status:** Tested.
 
 | Body | Type | Default |
 |---|---|---|
@@ -538,7 +652,8 @@ curl -X PUT -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" -H "Content-Type: 
 ### GET /saved-messages
 
 Returns your saved messages, newest saved first. Only messages from chats you are still in, and that are not deleted, are included.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `messages:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Query | Type | Default | Notes |
 |---|---|---|---|
@@ -560,7 +675,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/saved-messa
 ### GET /search
 
 Global search across what you can see in the active context.
-Status: **Implemented (server tests)**. Rate limit: **sensitive**.
+
+**Auth:** SpreeWe session, or app token with `search:read`. **Rate limit:** sensitive. **Status:** Tested.
 
 The `messages` category matches `content` with a case-insensitive regex. Like the per-chat search, it **cannot match end-to-end-encrypted text**. The `files` category matches `file.originalName`. Encrypted attachments are stored with the name `"encrypted"`, so their real file names are not searchable. User, chat (by name) and meeting results work normally.
 
@@ -583,7 +699,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/search?q=bo
 ### GET /files
 
 Lists files shared in your chats, newest first.
-Status: **Implemented, not covered by tests**. Media URLs: **needs S3**.
+
+**Auth:** SpreeWe session, or app token with `files:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Query | Type | Default | Notes |
 |---|---|---|---|
@@ -603,7 +720,9 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/files?type=
 
 ### POST /upload
 
-Uploads one file to S3 storage as `multipart/form-data`. Status: **Implemented, not tested end to end (needs S3)**. Rate limit: **sensitive**.
+Uploads one file to S3 storage as `multipart/form-data`.
+
+**Auth:** SpreeWe session, or app token with `files:write`. **Rate limit:** sensitive. **Status:** Tested (against the test storage setup).
 
 The flow for chat attachments:
 
@@ -677,7 +796,8 @@ Calls are started and controlled over Socket.IO. REST only exposes history.
 ### GET /calls
 
 Returns your call history (1:1 and group), newest first.
-Status: **Implemented (server tests)**. Note: the SDK's `calls.history()` calls this route, but the SDK e2e test does not exercise it.
+
+**Auth:** SpreeWe session, or app token with `calls:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Query | Type | Default | Notes |
 |---|---|---|---|
@@ -702,17 +822,17 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/calls?filte
 
 ## Meetings
 
-These routes are not wrapped by the browser SDK. All of them return `{ status: true, data, message: "" }`.
+All of these routes return `{ status: true, data, message: "" }`. **Auth:** SpreeWe session, or an app token with the scope in the table.
 
-| Method & path | Purpose | Status |
-|---|---|---|
-| `GET /meetings?from=&to=` | Occurrences in a date range (max 62 days) | Implemented (server tests) |
-| `POST /meetings` | Create a meeting. **Sensitive** rate limit | Implemented (server tests) |
-| `GET /meetings/:id` | Meeting details | Implemented (server tests) |
-| `PATCH /meetings/:id` | Update (organizer only) | Implemented, not covered by tests |
-| `DELETE /meetings/:id?occurrence=` | Cancel the whole series, or one occurrence. `data: null` | Implemented, not covered by tests |
-| `GET /meetings/code/:code` | Preview what a join link shows | Implemented, not covered by tests |
-| `POST /meetings/code/:code/join` | Join by code. **Sensitive** rate limit | Implemented (server tests) |
+| Method & path | Purpose | App scope | Rate limit | Status |
+|---|---|---|---|---|
+| `GET /meetings?from=&to=` | Occurrences in a date range (max 62 days) | `meetings:read` | standard | Tested |
+| `POST /meetings` | Create a meeting | `meetings:write` | sensitive | Tested |
+| `GET /meetings/:id` | Meeting details | `meetings:read` | standard | Tested |
+| `PATCH /meetings/:id` | Update (organizer only) | `meetings:write` | standard | Implemented, not covered by tests |
+| `DELETE /meetings/:id?occurrence=` | Cancel the whole series, or one occurrence. `data: null` | `meetings:write` | standard | Implemented, not covered by tests |
+| `GET /meetings/code/:code` | Preview what a join link shows | `meetings:read` | standard | Implemented, not covered by tests |
+| `POST /meetings/code/:code/join` | Join by code | `meetings:write` | sensitive | Tested |
 
 **Body for `POST /meetings` and `PATCH /meetings/:id`.** For PATCH, all fields are optional.
 
@@ -752,7 +872,8 @@ Recording files are stored privately in S3. Responses carry short-lived signed l
 ### GET /conversations/:conversationId/recordings
 
 Returns up to 50 recordings of a conversation, newest first. You must be a member.
-Status: **Tested via SDK** (`recordings.list`).
+
+**Auth:** SpreeWe session, or app token with `recordings:read`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200** `{ status: true, data: [{ _id, title, startedAt, duration, status, transcriptStatus, size, expired, ... }], message: "" }`.
 
@@ -765,7 +886,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/conversatio
 ### GET /recordings/:id
 
 Returns recording details. When the file is available, the response includes a `playbackUrl` and a `downloadUrl` (pre-signed, short-lived); otherwise both are `null`. It also includes `transcriptAvailable` and `startedByName`.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `recordings:read`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200** `{ status: true, data, message: "" }`.
 
@@ -776,7 +898,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/recordings/
 ### GET /recordings/:id/transcript
 
 Returns the transcript.
-Status: **Implemented, not covered by tests**. Note: the SDK's `recordings.transcript()` calls this route, but the SDK e2e test does not exercise it.
+
+**Auth:** SpreeWe session, or app token with `recordings:read`. **Rate limit:** standard. **Status:** Implemented, not covered by tests.
 
 **Response 200** `{ status: true, data: { status, error, segments }, message: "" }`. Each segment has `startTime`, `endTime`, `speaker` and `text`.
 
@@ -787,7 +910,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/recordings/
 ### GET /recordings/:id/transcript/export
 
 Downloads the transcript as a file, not JSON. The response sets `Content-Disposition: attachment`.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session, or app token with `recordings:read`. **Rate limit:** standard. **Status:** Implemented, not covered by tests.
 
 | Query | Values | Default |
 |---|---|---|
@@ -802,7 +926,8 @@ curl -OJ -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/recordi
 ### POST /recordings/:id/transcript/retry
 
 Starts transcription again.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session, or app token with `recordings:write`. **Rate limit:** standard. **Status:** Implemented, not covered by tests.
 
 **Response 200** `{ status: true, data: { transcriptStatus }, message: "Transcription started" }`.
 
@@ -823,7 +948,8 @@ curl -X POST -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/rec
 ### GET /notifications
 
 Returns your activity feed, newest first.
-Status: **Tested via SDK** (`notifications.list`).
+
+**Auth:** SpreeWe session, or app token with `notifications:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Query | Type | Default | Notes |
 |---|---|---|---|
@@ -841,7 +967,9 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/notificatio
 
 ### GET /notifications/unread-count
 
-Status: **Tested via SDK** (`notifications.unreadCount`).
+Returns the number of unread notifications.
+
+**Auth:** SpreeWe session, or app token with `notifications:read`. **Rate limit:** standard. **Status:** Implemented, not covered by tests.
 
 **Response 200** `{ "status": true, "data": { "unread": 3 }, "message": "" }`.
 
@@ -852,7 +980,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/notificatio
 ### POST /notifications/read
 
 Marks notifications as read. It only ever touches your own notifications.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session, or app token with `notifications:write`. **Rate limit:** standard. **Status:** Tested.
 
 | Body | Type | Notes |
 |---|---|---|
@@ -870,12 +999,13 @@ curl -X POST -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" -H "Content-Type:
 
 ## Workspace (tenant)
 
-The workspace is always the active organization in your session token. All of these routes return `{ status: true, data, message: "" }` and report errors through `sendError`.
+The workspace is always the active organization of your token (see [Workspace context](#workspace-context)). All of these routes return `{ status: true, data, message: "" }` and report errors through `sendError`.
 
 ### GET /tenant/current
 
 Returns a summary of the active workspace.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `organizations:read`. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200**, `data`:
 
@@ -895,8 +1025,9 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/tenant/curr
 
 ### PATCH /tenant/current/policies
 
-Changes workspace policies. Only workspace owners and admins may do this. Rate limit: **sensitive**.
-Status: **Implemented (server tests)**.
+Changes workspace policies. Only workspace owners and admins may do this; an app token acts with the user's own role.
+
+**Auth:** SpreeWe session, or app token with `organizations:manage`. **Rate limit:** sensitive. **Status:** Tested.
 
 **Body:** any subset of `allowExternalChat`, `allowExternalCalls`, `allowExternalFiles` and `membersCanStartExternal`. Each value must be a boolean.
 
@@ -919,7 +1050,8 @@ curl -X PATCH -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" -H "Content-Type
 ### GET /tenant/workspaces
 
 Lists workspaces in which you have an active membership. To switch workspace, change the active organization in Clerk.
-Status: **Implemented, not covered by tests**.
+
+**Auth:** SpreeWe session, or app token with `organizations:read`. **Rate limit:** standard. **Status:** Tested (refusal only: the app-token `403` without the scope).
 
 **Response 200** `data: [{ tenantId, clerkOrgId, name, slug, status, role, active }]`.
 
@@ -930,7 +1062,8 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/tenant/work
 ### GET /directory
 
 Returns the people you can start a conversation with, under the same rules as [`GET /web/users`](#get-webusers), with optional filtering.
-Status: **Implemented (server tests)**.
+
+**Auth:** SpreeWe session, or app token with `directory:read`. **Rate limit:** standard. **Status:** Tested.
 
 | Query | Type | Notes |
 |---|---|---|
@@ -946,8 +1079,9 @@ curl -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" "$SPREEWE_API/directory?q
 
 Starts, or reopens, a 1:1 chat between you and someone **outside** the active workspace. The workspace owns the conversation, and the guest sees only that conversation.
 
-It requires `allowExternalChat`. Admins may always start one; other members need `membersCanStartExternal`; guests never can. Rate limit: **sensitive**.
-Status: **Implemented (server tests)**.
+It requires `allowExternalChat`. Admins may always start one; other members need `membersCanStartExternal`; guests never can.
+
+**Auth:** SpreeWe session, or app token with `conversations:write`. **Rate limit:** sensitive. **Status:** Tested.
 
 | Body | Type |
 |---|---|
@@ -980,7 +1114,8 @@ curl -X POST -H "Authorization: Bearer $SPREEWE_SESSION_TOKEN" -H "Content-Type:
 ### GET /config
 
 Returns public client settings. No authentication is needed and the response contains no secrets.
-Status: **Implemented (server tests)**.
+
+**Auth:** none. **Rate limit:** standard. **Status:** Tested.
 
 **Response 200**:
 
