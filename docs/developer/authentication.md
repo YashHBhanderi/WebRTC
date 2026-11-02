@@ -32,7 +32,7 @@ Your backend holds an app credential (a key id and a secret). It asks the user f
 
 - Access is limited to the scopes in [section 7](#7-scopes).
 - No E2EE: no devices, no sending, and no message content (see the box above).
-- No calls, media, uploads, group management, workspace administration or app management.
+- Conversations, groups, profiles, contacts, uploads, meetings, recordings (read), notifications, search, organizations and realtime events, each behind its scope ([section 7](#7-scopes)). Call signaling and media arrive in Phase 2; sending encrypted messages in Phase 3. App management stays SpreeWe-session only.
 
 Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`).
 
@@ -41,8 +41,9 @@ Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`)
 | You need to... | Use |
 |---|---|
 | Embed chat (send and read messages) in a web app where the user signs in to SpreeWe | A |
-| Read or send end-to-end encrypted message content | A (B cannot) |
-| Calls, media, uploads, groups | A |
+| Read or send end-to-end encrypted message content | A (B from Phase 3, through a consented app encryption device) |
+| Groups, uploads, meetings, notifications, organizations | A, or B with the matching scopes |
+| Calls and media | A (B in Phase 2) |
 | Read a user's profile, directory, conversation list, call history or recording links from your server | B |
 | Learn on your server that messages were created, edited or deleted (without their content) | B with `messages:read` |
 | Work while the user's browser is closed | B (read-only scopes) |
@@ -170,22 +171,50 @@ Status: **Implemented and tested** (`developer-platform.test.ts`, `token-validat
 
 ## 7. Scopes
 
-Nothing is granted by default. App tokens have no access to anything outside this table, including group calls, media, uploads, recording control, workspace administration, app management and E2EE.
+Nothing is granted by default. A token carries only scopes present in the app, the user's grant and the token request. **Every** REST route and Socket.IO event an app token can reach names exactly one scope; everything else refuses app tokens (`403`, or "Not available to this app" on sockets). The scope only opens the door: the same handler as for SpreeWe's own clients then applies the user's own permissions (membership, group admin, organization role, workspace policies, tenant isolation).
 
-| Scope | What it grants | Sensitive\* |
-|---|---|---|
-| `profile:read` | `GET /v1/me` | |
-| `directory:read` | `GET /v1/directory`: people the user can contact in the app's context | yes |
-| `conversations:read` | `GET /v1/conversations` | |
-| `messages:read` | `GET /v1/conversations/{id}/messages`, plus the socket events `receiveMessage`, `message:updated` and `message:deleted`. Encrypted content is removed before it reaches apps | yes |
-| `messages:write` | **Nothing at present.** Every `sendMessage` from an app is rejected because of E2EE | yes |
-| `calls:read` | `GET /v1/calls` | |
-| `recordings:read` | `GET /v1/recordings/{id}` and short-lived download links | yes |
-| `realtime:connect` | Opening a Socket.IO connection, plus the `user:presence` events for people visible in the app's context and `rate-limited` events | |
+The live catalogue (with descriptions, `sensitive` and `available`) is `GET /v1/scopes`. Session routes below are also served under `/api`.
 
-\*Sensitive scopes are highlighted on the consent screen.
+| Scope | REST | Socket.IO (client → server) | Events received |
+|---|---|---|---|
+| `profile:read` | `GET /v1/me`, `GET /web/user/me`, `GET /web/user/:userId` | | |
+| `profile:write` | `PATCH /web/user/profile` | `presence:set`, `presence:idle` | |
+| `directory:read`\* | `GET /v1/directory`, `GET /directory`, `GET /web/users`, `POST /v1/contacts/lookup` | | |
+| `contacts:write` | `POST /v1/contacts/start` | `chat:block`, `chat:unblock` | |
+| `conversations:read` | `GET /v1/conversations`, `GET /conversations`, `GET /conversations/:id/state` | | |
+| `conversations:write` | `POST /conversations`, `POST /v1/conversations/external`, `POST /tenant/external-conversations` | `chat:archive`, `chat:unarchive`, `chat:favorite`, `chat:unfavorite`, `chat:clear` | |
+| `conversations:delete`\* | `DELETE /conversations/:id` | | |
+| `groups:read` | `GET /groupConversations`, `GET /conversations/:id/group` | | `group:added`, `group:removed`, `group:updated` |
+| `groups:write` | `POST /conversations/group` | `group:update` | |
+| `groups:manage`\* | `PUT /conversations/group/:id/add-member`, `…/remove-member` | `group:add-member`, `group:remove-member`, `group:promote-admin`, `group:remove-admin`, `group:leave` | |
+| `messages:read`\* | `GET /v1/conversations/:id/messages`, `GET /messages/:id`, `…/search`, `…/position/:messageId`, `GET /saved-messages` | `joinConversation`, `typing`, `stopTyping`, `markMessagesRead`, `message:delivered` | `receiveMessage`, `message:updated`, `message:deleted`, `message:rejected`, `message:pins`, `messageReactionUpdated`, `messagesMarkedRead`, `receipts:updated`, `userTyping` |
+| `messages:react` | `PUT /messages/:id/save` | `reactToMessage`, `message:pin` | |
+| `messages:delete`\* | `DELETE /messages/:id` | | |
+| `files:read`\* | `GET /files`, `GET /conversations/:id/media` | | |
+| `files:write` | `POST /upload` | | |
+| `calls:read` | `GET /v1/calls`, `GET /calls` | | |
+| `meetings:read` | `GET /meetings`, `GET /meetings/:id`, `GET /meetings/code/:code` | | `meeting:updated` |
+| `meetings:write` | `POST /meetings`, `PATCH /meetings/:id`, `DELETE /meetings/:id`, `POST /meetings/code/:code/join` | | |
+| `recordings:read`\* | `GET /v1/recordings/:id`, `GET /recordings/:id`, `…/transcript`, `…/transcript/export`, `GET /conversations/:id/recordings` | | `recording:updated` |
+| `notifications:read` | `GET /notifications`, `GET /notifications/unread-count` | | `notification:new`, `notification:read` |
+| `notifications:write` | `POST /notifications/read` | | |
+| `search:read`\* | `GET /search` | | |
+| `organizations:read` | `/v1/organizations/mine`, `…/discover`, `/v1/me/join-requests`, `/v1/me/organization-invitations`, `POST /v1/organization-invitations/preview`, `GET /v1/workspace`, `GET /v1/workspaces`, `GET /v1/workspace/organization` and `…/members`, `GET /v1/workspace/members`, `GET /v1/teams`, `/v1/teams/:id`, `…/members`, `…/channels`, `GET /tenant/current`, `GET /tenant/workspaces` | | |
+| `organizations:write` | `POST /v1/organizations`, `…/:id/join`, `…/:id/join-requests`, `POST /v1/me/join-requests/:id/cancel`, `POST /v1/organization-invitations/accept`, `POST /v1/workspace/leave`, `POST /v1/teams`, `…/:id/join`, `…/:id/members`, `…/:id/channels`, `…/channels/:id/members` | | |
+| `organizations:manage`\* | `PATCH /v1/workspace/organization`, `PATCH /v1/workspace/policies`, `PATCH /tenant/current/policies`, members role / remove, invitations (create, list, resend, revoke), join requests, join code, workspace audit, team update / archive / member role / remove, channel member remove, channel delete | | |
+| `realtime:connect` | | opening the connection | `user:presence`, `rate-limited` |
 
-App sockets never join conversation rooms. The server refuses `joinConversation`, typing, receipts, calls and every other client event with "Not available to this app".
+\*Sensitive: highlighted on the consent screen.
+
+**Not available yet** (listed in `GET /v1/scopes` with `available: false`, and refused when you add them to an app):
+- `calls:write`, `calls:manage`, `recordings:write`: call signaling, media and host controls, recording control and transcript retry. Phase 2.
+- `messages:write`, `messages:edit`, `e2ee:device`: sending and editing end-to-end encrypted messages from an encryption device the app registers with the user's consent. Phase 3. Apps registered before these became unavailable may still hold `messages:write`; their sends are refused (`message:rejected`, reason `e2ee`).
+
+**Always SpreeWe-session only:** developer-app management, consent decisions, the E2EE device and key endpoints (until Phase 3), deleting or transferring an organization, `/v1/workspace/apps` and app-grant revocation, and `DELETE /web/deleteUser/:id`.
+
+**Message content:** apps never receive ciphertext. REST responses and socket events replace each encrypted message's `e2ee` with `encrypted: true` and `content: null`.
+
+**Realtime rooms:** an app socket joins rooms through the same requests as SpreeWe's clients (`joinConversation` checks membership). It receives only the events its scopes cover. When the user is removed from a group, the app socket loses that group's events too, on every server instance.
 
 ---
 
