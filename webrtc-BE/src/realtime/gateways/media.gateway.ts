@@ -48,15 +48,28 @@ function otherProducers(callId: string, selfUserId?: string): ProducerInfo[] {
     return producers;
 }
 
+const NOT_JOINED = { error: "Join the call before using media", code: "NOT_JOINED" } as const;
+
+/**
+ * SEC-005: transports (ICE/DTLS allocations) only for a peer admitted to a call. `peer.callId` is set
+ * only by a successful, non-lobby `mediasoup:joinCall`; the call record is re-checked so a participant
+ * removed (or a call ended) since joining is refused too.
+ */
+async function admittedPeer(socket: AuthedSocket) {
+    const peer = mediasoupService.getPeer(socket.id);
+    if (!peer?.callId) return null;
+    return (await callService.isActiveParticipant(peer.callId, socket.data.userId)) ? peer : null;
+}
+
 /** mediasoup SFU signaling (transports, produce/consume, layers, ICE). Event names unchanged. */
 export function registerMediaGateway(socket: AuthedSocket): void {
     const userId = socket.data.userId;
 
     const createTransportHandler = (direction: "send" | "recv") => async (_: unknown, callback: (r: any) => void) => {
         try {
-            const peer = await claimPeer(socket.data.userId, socket.id, socket.data.deviceId);
+            const peer = await admittedPeer(socket);
             if (!peer) {
-                return callback({ error: "You're already in a call on another device", code: "IN_CALL_ELSEWHERE" });
+                return callback(NOT_JOINED);
             }
             const current = direction === "send" ? peer.sendTransport : peer.recvTransport;
 
@@ -90,9 +103,9 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
     socket.on("mediasoup:connectTransport", async ({ transportId, dtlsParameters } = {} as any, callback) => {
         try {
-            const peer = mediasoupService.getPeer(socket.id);
+            const peer = await admittedPeer(socket);
             if (!peer) {
-                return callback({ error: "Peer not found" });
+                return callback(NOT_JOINED);
             }
             const transport = mediasoupService.getTransport(peer, transportId);
             if (!transport) {
@@ -114,8 +127,11 @@ export function registerMediaGateway(socket: AuthedSocket): void {
     // Network change (Wi-Fi ↔ 4G, VPN toggle) → client asks for fresh ICE credentials
     socket.on("mediasoup:restartIce", async ({ transportId } = {} as any, callback) => {
         try {
-            const peer = mediasoupService.getPeer(socket.id);
-            const transport = peer && mediasoupService.getTransport(peer, transportId);
+            const peer = await admittedPeer(socket);
+            if (!peer) {
+                return callback?.(NOT_JOINED);
+            }
+            const transport = mediasoupService.getTransport(peer, transportId);
             if (!transport || transport.closed) {
                 return callback?.({ error: "Transport not found" });
             }
