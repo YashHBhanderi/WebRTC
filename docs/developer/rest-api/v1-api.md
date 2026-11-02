@@ -115,7 +115,7 @@ SpreeWe messages are end-to-end encrypted on the user's own devices, and a devel
 3. **No ciphertext over sockets.** When an app socket receives `receiveMessage`, `message:updated` or `message:deleted` for an encrypted message, the server strips the encryption envelope. The payload carries `content: null` and `encrypted: true` (`webrtc-BE/src/realtime/io.ts`).
 4. **No ciphertext over REST or webhooks.** `GET /v1/conversations/{id}/messages` with an app token returns encrypted messages as `{ ..., "content": null, "encrypted": true }`. The `message.created` webhook carries `encrypted: true` and `content: null` for encrypted messages.
 
-**Known limitation: `messages:write` currently grants nothing.** The scope catalogue still lists it ("Send text messages over Socket.IO"), and apps can request it, receive consent for it and carry it in tokens. Every send attempt is still refused. Don't plan features around it.
+**Known limitation: `messages:write` currently grants nothing.** The scope catalogue lists it as not available (`GET /v1/scopes` returns `available: false`, and the consent screen marks it). Apps can still request it, receive consent for it and carry it in tokens. Every send attempt is still refused. Don't plan features around it.
 
 There is no supported way for an app to read or send message content. Message content stays within the user's own SpreeWe clients.
 
@@ -157,6 +157,16 @@ App object (`appDoc`):
 
 Credential object: `{ _id, keyId, hint, status: "active"|"rotated"|"revoked", graceUntil, expiresAt, lastUsedAt }`.
 
+#### `GET /v1/scopes`: permission catalogue
+Auth: firstParty · Scope: none · Workspace: no · Errors: common · Implemented (server tests: `developer-portal.test.ts`)
+
+Every scope an app can request, for showing to developers. `sensitive` scopes are highlighted on the consent screen; `available: false` scopes exist but currently grant nothing.
+
+```json
+{ "data": [ { "scope": "profile:read", "description": "Read the user's own profile (GET /v1/me)", "sensitive": false, "available": true },
+             { "scope": "messages:write", "description": "Not available: …", "sensitive": true, "available": false } ] }
+```
+
 #### `POST /v1/apps`: register an app
 Auth: firstParty · Scope: none · Workspace: no · Sensitive: yes · Errors: common · Implemented (server tests)
 
@@ -165,6 +175,8 @@ The app is global when created from the personal context. With `tenantBound: tru
 | Body field | Type | Required | Limits |
 |---|---|---|---|
 | `name` | string | yes | 2–80 |
+| `description` | string | no | max 500; plain text, shown on the consent screen |
+| `websiteUrl` | string | no | absolute `http(s)` URL without credentials, max 300; empty for none |
 | `environment` | `"development"` \| `"production"` | yes | |
 | `tenantBound` | boolean | no | |
 | `scopes` | scope[] | no | defaults to none |
@@ -200,7 +212,7 @@ curl "$SPREEWE/v1/apps/$APP_ID" -H "Authorization: Bearer $TOKEN"
 #### `PATCH /v1/apps/{appId}`: update an app
 Auth: firstParty (owner) · Workspace: no · Sensitive: yes · Errors: 404, 409 (app revoked) · Implemented (server tests)
 
-Body: at least one of `name` (2–80), `scopes`, `allowedOrigins`, `callbackUrls`, `quotas`. The limits are the same as for create. Response `200`: `{ "data": <app> }`
+Body: at least one of `name` (2–80), `description` (max 500), `websiteUrl` (absolute `http(s)` URL, or `""` to clear), `scopes`, `allowedOrigins`, `callbackUrls`, `quotas`. The limits are the same as for create. Response `200`: `{ "data": <app> }`
 
 ```sh
 curl -X PATCH "$SPREEWE/v1/apps/$APP_ID" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -249,7 +261,12 @@ Auth: firstParty (owner or platform admin) · Workspace: no · Sensitive: no · 
 Query: `days` (integer 1–90, default 30). Response `200`:
 
 ```json
-{ "data": [ { "day": "2026-11-01", "apiRequests": 412, "tokensIssued": 37, "messagesSent": 0, "socketConnections": 12 } ] }
+{ "data": [ { "day": "2026-11-01", "apiRequests": 412, "apiErrors": 9, "tokensIssued": 37, "messagesSent": 0, "socketConnections": 12 } ] }
+```
+
+`apiErrors` counts the app's authenticated requests that ended with status 400 or higher. Requests with an invalid or expired token can't be attributed to an app and aren't counted.
+
+```
 ```
 
 ```sh

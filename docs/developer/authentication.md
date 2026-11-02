@@ -93,6 +93,8 @@ The server checks `azp` on a socket handshake only when the handshake has an `Or
 
 ## 4. Registering a developer application (mode B)
 
+The simplest way is the **Developer Portal** in the SpreeWe web app (**Account menu → Developer portal**, `/developer`), which calls the endpoints below. Applications also have an optional `description` (max 500 characters) and `websiteUrl` (absolute `http(s)` URL), shown to users on the consent screen.
+
 Management endpoints use the signed-in user's Clerk session. High-impact actions require a `confirm` field set to the app's exact name.
 
 1. **Choose the context.**
