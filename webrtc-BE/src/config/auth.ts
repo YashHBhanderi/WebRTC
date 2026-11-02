@@ -8,9 +8,10 @@ dotenv.config();
  *
  *   CLERK_PUBLISHABLE_KEY      required, pk_test_… / pk_live_…
  *   CLERK_SECRET_KEY           required, sk_test_… / sk_live_…
- *   CLERK_AUTHORIZED_PARTIES   recommended in production: comma-separated origins allowed to use
+ *   CLERK_AUTHORIZED_PARTIES   REQUIRED in production: comma-separated origins allowed to use
  *                              session tokens, e.g. https://chat.example.com (blocks tokens minted
- *                              for other sites/subdomains)
+ *                              for other sites/subdomains). Validated at startup by
+ *                              productionConfigProblems (config/security.ts)
  *   CLERK_JWT_KEY              optional PEM public key for networkless token verification
  *   CLERK_CLOCK_SKEW_MS        optional clock tolerance for session tokens (see below)
  *
@@ -53,6 +54,5 @@ if (!isAuthConfigured()) {
         ["CLERK_SECRET_KEY", authConfig.secretKey],
     ].filter(([, v]) => !v).map(([name]) => name);
     console.warn(`[auth] ${missing.join(", ")} not set — sign-in is disabled until they are configured`);
-} else if (!authConfig.authorizedParties.length && process.env.NODE_ENV === "production") {
-    console.warn("[auth] CLERK_AUTHORIZED_PARTIES not set — set it to your app's origin(s) in production");
 }
+// CLERK_AUTHORIZED_PARTIES in production: enforced by assertProductionSecrets at startup (server.ts)

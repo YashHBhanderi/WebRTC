@@ -70,6 +70,7 @@ describe("HTTP hardening", () => {
 const PROD_OK = {
     NODE_ENV: "production", PLATFORM_TOKEN_SECRET: "y".repeat(40), LEGACY_FILES_SECRET: "x".repeat(40), WEBHOOK_SECRET_KEY: "z".repeat(40),
     APP_PUBLIC_URL: "https://app.example.com", CLERK_SECRET_KEY: "sk_live_example", CLERK_WEBHOOK_SIGNING_SECRET: "whsec_example",
+    CLERK_AUTHORIZED_PARTIES: "https://app.example.com",
 } as any;
 
 describe("production secrets", () => {
@@ -82,6 +83,27 @@ describe("production secrets", () => {
         expect(() => assertProductionSecrets({ ...PROD_OK, APP_PUBLIC_URL: "not a url" })).toThrow(/APP_PUBLIC_URL/);
         expect(() => assertProductionSecrets({ ...PROD_OK, CLERK_WEBHOOK_SIGNING_SECRET: "" })).toThrow(/CLERK_WEBHOOK_SIGNING_SECRET/);
         expect(() => assertProductionSecrets({ ...PROD_OK, CLERK_SECRET_KEY: "" })).toThrow(/CLERK_SECRET_KEY/);
+    });
+    it("SEC-015: production requires CLERK_AUTHORIZED_PARTIES as exact https origins", () => {
+        for (const missing of [undefined, "", " , "]) {
+            expect(() => assertProductionSecrets({ ...PROD_OK, CLERK_AUTHORIZED_PARTIES: missing })).toThrow(/CLERK_AUTHORIZED_PARTIES must be set/);
+        }
+        for (const bad of [
+            "*", "https://*.example.com", "http://app.example.com", "https://app.example.com/path",
+            "app.example.com", "https://user:pw@app.example.com", "https://app.example.com?x=1",
+            "https://app.example.com, http://other.example.com",
+        ]) {
+            expect(() => assertProductionSecrets({ ...PROD_OK, CLERK_AUTHORIZED_PARTIES: bad }), bad).toThrow(/CLERK_AUTHORIZED_PARTIES must contain only exact https origins/);
+        }
+        // Accepted: several origins, a port, and a trailing slash (auth.ts strips it the same way)
+        expect(() => assertProductionSecrets({ ...PROD_OK, CLERK_AUTHORIZED_PARTIES: "https://app.example.com, https://admin.example.com:8443/" })).not.toThrow();
+        // Names only: the configured value is never echoed
+        try { assertProductionSecrets({ ...PROD_OK, CLERK_AUTHORIZED_PARTIES: "http://leak.example.com" }); } catch (e) { expect(String(e)).not.toContain("leak.example.com"); }
+        // Development is unaffected
+        expect(() => assertProductionSecrets({ NODE_ENV: "development" } as any)).not.toThrow();
+        // check:config reports it as a FAIL in production
+        const results = checkConfig({ ...PROD_OK, CLERK_AUTHORIZED_PARTIES: undefined, LEGACY_UPLOADS_DIR: os.tmpdir(), S3_BUCKET: "b", CORS_ORIGINS: "https://app.example.com" });
+        expect(results.some((r) => r.level === "FAIL" && /CLERK_AUTHORIZED_PARTIES/.test(r.detail || ""))).toBe(true);
     });
     it("Phase 5B: production CORS origins must be https", () => {
         expect(() => resolveCorsOrigins({ NODE_ENV: "production", CORS_ORIGINS: "http://app.example.com" } as any)).toThrow(/https/);

@@ -22,7 +22,7 @@ export function checkConfig(env: NodeJS.ProcessEnv = process.env): Result[] {
     }
     const problems = productionConfigProblems(env);
     if (prod) {
-        results.push(...(problems.length ? problems.map((p) => ({ level: "FAIL" as const, check: "production security", detail: p })) : [{ level: "PASS" as const, check: "production security", detail: "secrets, APP_PUBLIC_URL, Clerk" }]));
+        results.push(...(problems.length ? problems.map((p) => ({ level: "FAIL" as const, check: "production security", detail: p })) : [{ level: "PASS" as const, check: "production security", detail: "secrets, APP_PUBLIC_URL, Clerk keys and authorized parties" }]));
     } else {
         results.push({ level: "WARN", check: "production security", detail: "NODE_ENV is not production; production rules not applied" });
     }

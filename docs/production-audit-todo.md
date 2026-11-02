@@ -18,7 +18,7 @@ Legend: **P0** before public production · **P1** before significant growth · *
   - Reason: No app-layer abuse protection (upload, search, meeting codes, floods).
   - Dependencies: WAF / reverse proxy limits.
 
-- [ ] **SEC-015** · P0 · LOW · `webrtc-BE/src/config/auth.ts`, `server.ts`
+- [x] **SEC-015** · P0 · LOW · `webrtc-BE/src/config/auth.ts`, `server.ts` — fixed 2026-11-02: `CORS_ORIGINS` was already fail-closed; `CLERK_AUTHORIZED_PARTIES` now validated in `productionConfigProblems` (config/security.ts), tests in `test/security-config.test.ts`. Native-client `Origin`-less socket exemption is tracked separately (native auth redesign).
   - Change: Fail closed in production if `CORS_ORIGINS` or `CLERK_AUTHORIZED_PARTIES` is unset.
   - Reason: Token/origin binding is currently warn-only.
   - Dependencies: Ops env config.

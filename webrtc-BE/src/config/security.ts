@@ -66,6 +66,8 @@ export function resolveCorsOrigins(env: NodeJS.ProcessEnv = process.env): string
  *   WEBHOOK_SECRET_KEY     encrypts webhook signing secrets at rest        } instance
  *   APP_PUBLIC_URL         https origin of the web app (consent links)
  *   CLERK_SECRET_KEY, CLERK_WEBHOOK_SIGNING_SECRET  authentication and membership sync
+ *   CLERK_AUTHORIZED_PARTIES  exact https origins allowed to present session tokens (Clerk `azp`);
+ *                          without it Clerk skips the check and accepts tokens minted for any site
  */
 export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): string[] {
     if (env.NODE_ENV !== "production") return [];
@@ -79,7 +81,24 @@ export function productionConfigProblems(env: NodeJS.ProcessEnv = process.env): 
     try { publicUrl = env.APP_PUBLIC_URL ? new URL(env.APP_PUBLIC_URL) : null; } catch { publicUrl = null; }
     if (!publicUrl || publicUrl.protocol !== "https:" || publicUrl.username || publicUrl.password) problems.push("APP_PUBLIC_URL must be an https URL in production");
     for (const k of ["CLERK_SECRET_KEY", "CLERK_WEBHOOK_SIGNING_SECRET"]) if (!env[k]) problems.push(`${k} must be set in production`);
+    const parties = authorizedPartiesProblem(env.CLERK_AUTHORIZED_PARTIES);
+    if (parties) problems.push(parties);
     return problems;
+}
+
+/**
+ * Same parsing as config/auth.ts (comma-separated, trailing "/" ignored). Every entry must be an
+ * exact https origin: no wildcard, path, query or credentials. Names the variable only.
+ */
+function authorizedPartiesProblem(value: string | undefined): string | null {
+    const list = (value || "").split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
+    if (!list.length) return "CLERK_AUTHORIZED_PARTIES must be set in production (comma-separated https origins of the web app)";
+    const isOrigin = (o: string) => {
+        if (o.includes("*")) return false;
+        try { const u = new URL(o); return u.protocol === "https:" && u.origin === o; } catch { return false; }
+    };
+    if (!list.every(isOrigin)) return "CLERK_AUTHORIZED_PARTIES must contain only exact https origins in production (like https://app.example.com: no *, paths or http)";
+    return null;
 }
 
 export function assertProductionSecrets(env: NodeJS.ProcessEnv = process.env): void {

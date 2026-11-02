@@ -33,7 +33,7 @@ Status as of 2026-10-26 (Phase 5C). **Not production-ready.** Unchecked items bl
 | `PLATFORM_TOKEN_SECRET`, `LEGACY_FILES_SECRET`, `WEBHOOK_SECRET_KEY` | 32+ characters, all different, identical on every instance | Startup |
 | `APP_PUBLIC_URL` | https URL of the web app | Startup |
 | `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SIGNING_SECRET` | Set (live keys) | Startup (`check:config` warns on test keys) |
-| `CLERK_AUTHORIZED_PARTIES` | Exact frontend origins | Warning |
+| `CLERK_AUTHORIZED_PARTIES` | Required. Comma-separated **exact https origins** of the web app (e.g. `https://app.example.com`); no `*`, paths, query, credentials or `http`. A trailing `/` is ignored. Must match the `Origin` browsers send, including a non-default port. | Startup (SEC-015) and `check:config`. **Production refuses to start if it is missing or invalid.** |
 | `CLERK_CLOCK_SKEW_MS` | Unset (5 s) or ≤ 30 s; **never raised to hide clock drift** | `check:config` |
 | `SOCKET_ADAPTER` | `mongo` on every instance when more than one; `MONGO_URI` must be a replica set | Startup (invalid values and non-replica sets refused); readiness 503 on mismatch |
 | `MEMBERSHIP_CHECK_CACHE_MS` | `0` with several instances | — |
