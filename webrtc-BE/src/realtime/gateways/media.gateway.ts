@@ -405,13 +405,17 @@ export function registerMediaGateway(socket: AuthedSocket): void {
         }
     });
 
-    socket.on("mediasoup:syncProducers", ({ callId } = {} as any, callback) => {
+    socket.on("mediasoup:syncProducers", async ({ callId } = {} as any, callback) => {
         try {
             if (!callId) {
                 return callback?.({ producers: [] });
             }
-            const peer = mediasoupService.getPeer(socket.id);
-            callback?.({ producers: otherProducers(callId.toString(), peer?.userId) });
+            // Only a peer admitted to THIS call (and still an active participant) may list its producers
+            const peer = await admittedPeer(socket);
+            if (!peer || String(peer.callId) !== String(callId)) {
+                return callback?.({ producers: [], ...NOT_JOINED });
+            }
+            callback?.({ producers: otherProducers(callId.toString(), peer.userId) });
         } catch (error) {
             callback?.({ producers: [], error: error instanceof Error ? error.message : "sync failed" });
         }

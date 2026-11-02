@@ -268,10 +268,9 @@ export function removeUserFromRoom(userId: string, room: string): void {
 }
 
 function removeUserFromRoomLocally(userId: string, room: string): void {
-    const socketId = userSockets.get(String(userId));
-    if (socketId) {
-        io().in(socketId).socketsLeave(String(room));
-    }
+    // EVERY socket of the user (each tab / device), not only the latest: a removed member's other
+    // connections must stop receiving the room's broadcasts too (userRoom holds all first-party sockets)
+    io().in(userRoom(String(userId))).socketsLeave(String(room));
 }
 
 export type AuthedSocket = Socket & { data: { userId: string; deviceId: string; ctx: RequestContext } };

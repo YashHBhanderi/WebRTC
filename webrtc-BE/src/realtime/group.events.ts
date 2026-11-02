@@ -3,7 +3,7 @@ import User from "../models/userModel";
 import MessageService from "../services/message.service";
 import { GroupSummary } from "../services/group.service";
 import { broadcastMessage } from "../services/call-session.service";
-import { emitToUser, emitToUsers, removeUserFromRoom } from "./io";
+import { emitToUser, emitToUsers, notifyUserEverywhere, removeUserFromRoom } from "./io";
 import { safeError } from "../utils/safe-log";
 
 /**
@@ -43,7 +43,8 @@ export async function memberRemoved(group: GroupSummary, actorId: string, remove
     publishWebhook({ type: "conversation.members_removed", conversationId: String(group._id), data: { conversationId: String(group._id), userIds: [String(removedId)], actorId: String(actorId), reason: "removed" } });
     // No more room broadcasts (messages, typing) for the removed user
     removeUserFromRoom(removedId, group._id);
-    emitToUser(removedId, "group:removed", { groupId: group._id, reason: "removed" });
+    // Every tab / device of the removed user (not only the latest connection)
+    notifyUserEverywhere(removedId, "group:removed", { groupId: group._id, reason: "removed" });
     groupUpdated(group);
     await systemNotice(group, actorId, `${await nameOf(actorId)} removed ${await nameOf(removedId)}`);
 }
@@ -51,7 +52,7 @@ export async function memberRemoved(group: GroupSummary, actorId: string, remove
 export async function memberLeft(groupId: string, group: GroupSummary | null, userId: string): Promise<void> {
     publishWebhook({ type: "conversation.members_removed", conversationId: String(groupId), data: { conversationId: String(groupId), userIds: [String(userId)], actorId: String(userId), reason: "left" } });
     removeUserFromRoom(userId, groupId);
-    emitToUser(userId, "group:removed", { groupId, reason: "left" });
+    notifyUserEverywhere(userId, "group:removed", { groupId, reason: "left" });
     if (group) {
         groupUpdated(group);
         await systemNotice(group, userId, `${await nameOf(userId)} left`);

@@ -70,4 +70,38 @@ describe("mediasoup transports require call admission (SEC-005)", () => {
         expect(await ack<any>(s, "mediasoup:createRecvTransport", {})).toMatchObject({ code: "NOT_JOINED" });
         expect(await ack<any>(s, "mediasoup:restartIce", { transportId: send.id })).toMatchObject({ code: "NOT_JOINED" });
     });
+
+    describe("mediasoup:syncProducers requires admission to that call", () => {
+        it("refuses a user who is not a participant (no producer ids or user ids leak)", async () => {
+            const [u, v, outsider] = await Promise.all([makeUser(), makeUser(), makeUser()]);
+            const call = await activeCall(u, v);
+            const s = await sock(G(outsider));
+            const r = await ack<any>(s, "mediasoup:syncProducers", { callId: String(call._id) });
+            expect(r).toMatchObject({ producers: [], code: "NOT_JOINED" });
+        });
+
+        it("refuses a participant of ANOTHER call asking about this one", async () => {
+            const [u, v, w, x] = await Promise.all([makeUser(), makeUser(), makeUser(), makeUser()]);
+            const target = await activeCall(u, v);
+            const mine = await activeCall(w, x);
+            const s = await sock(G(w));
+            expect((await ack<any>(s, "mediasoup:joinCall", { callId: String(mine._id), callType: "audio" })).success).toBe(true);
+            const r = await ack<any>(s, "mediasoup:syncProducers", { callId: String(target._id) });
+            expect(r).toMatchObject({ producers: [], code: "NOT_JOINED" });
+        });
+
+        it("answers a joined participant, and refuses them once removed from the call", async () => {
+            const [u, v] = await Promise.all([makeUser(), makeUser()]);
+            const call = await activeCall(u, v);
+            const s = await sock(G(u));
+            expect((await ack<any>(s, "mediasoup:joinCall", { callId: String(call._id), callType: "audio" })).success).toBe(true);
+            const ok = await ack<any>(s, "mediasoup:syncProducers", { callId: String(call._id) });
+            expect(ok.error).toBeUndefined();
+            expect(Array.isArray(ok.producers)).toBe(true);
+
+            await runAsSystem(() => Call.updateOne({ _id: call._id, "participants.userId": u._id }, { $set: { "participants.$.status": "removed" } }));
+            const after = await ack<any>(s, "mediasoup:syncProducers", { callId: String(call._id) });
+            expect(after).toMatchObject({ producers: [], code: "NOT_JOINED" });
+        });
+    });
 });
