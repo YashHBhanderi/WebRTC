@@ -9,6 +9,9 @@ export interface IConversationUserState extends Document {
     conversationId: mongoose.Types.ObjectId;
     isArchived: boolean;
     archivedAt?: Date | null;
+    /** Pinned to the top of this user's chat list ("Favorites") */
+    isFavorite?: boolean;
+    favoritedAt?: Date | null;
     /** Messages created at or before this instant are hidden for this user. */
     clearedAt?: Date | null;
     /** Read cursor: every message from others created at or before this is read by this user. */
@@ -23,6 +26,8 @@ const ConversationUserStateSchema = new Schema<IConversationUserState>(
         conversationId: { type: Schema.Types.ObjectId, ref: "Conversation", required: true },
         isArchived: { type: Boolean, default: false },
         archivedAt: { type: Date, default: null },
+        isFavorite: { type: Boolean, default: false },
+        favoritedAt: { type: Date, default: null },
         clearedAt: { type: Date, default: null },
         lastReadAt: { type: Date, default: null },
         lastDeliveredAt: { type: Date, default: null },

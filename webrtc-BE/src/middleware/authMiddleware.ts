@@ -3,34 +3,57 @@ import { getAuth } from "@clerk/express";
 import CustomRequest from "../types/customRequest";
 import { isAuthConfigured } from "../config/auth";
 import { resolveLocalUserId } from "../services/identity.service";
+import { resolveContext } from "../tenancy/tenant.service";
+import { runWithContext } from "../tenancy/context";
 import { AppError, publicMessage } from "../utils/errors";
+
+/** Writes an authentication failure. Legacy routes keep `{ success, message }`; /v1 uses its envelope. */
+export type AuthFailure = (res: Response, status: number, message: string) => void;
+
+const legacyFailure: AuthFailure = (res, status, message) => {
+    res.status(status).json({ success: false, message });
+};
 
 /**
  * Requires a signed-in Clerk session (Authorization: Bearer <session token>, verified by
  * clerkMiddleware in app.ts) and sets req.userId to the matching app user's MongoDB id.
  * 401 tells the client to sign in again.
  */
-async function verifyToken(req: Request, res: Response, next: NextFunction): Promise<void> {
-    if (!isAuthConfigured()) {
-        res.status(503).json({ success: false, message: "Sign-in is not configured on the server" });
-        return;
-    }
-    const auth = getAuth(req);
-    if (!auth.isAuthenticated || !auth.userId) {
-        logRejection(req, res);
-        res.status(401).json({ success: false, message: "Please sign in to continue." });
-        return;
-    }
-    try {
-        (req as CustomRequest).userId = await resolveLocalUserId(auth.userId);
-        next();
-    } catch (error) {
-        if (!(error instanceof AppError)) {
-            console.error("[auth] could not resolve the signed-in user:", error instanceof Error ? error.message : error);
+export function createVerifyToken(fail: AuthFailure = legacyFailure) {
+    return async function verifyToken(req: Request, res: Response, next: NextFunction): Promise<void> {
+        if (!isAuthConfigured()) {
+            fail(res, 503, "Sign-in is not configured on the server");
+            return;
         }
-        res.status(error instanceof AppError ? error.status : 500).json({ success: false, message: publicMessage(error, "Could not load your account") });
-    }
+        const auth = getAuth(req);
+        if (!auth.isAuthenticated || !auth.userId) {
+            logRejection(req, res);
+            fail(res, 401, "Please sign in to continue.");
+            return;
+        }
+        let ctx;
+        try {
+            const userId = await resolveLocalUserId(auth.userId);
+            // Workspace = Clerk's active organization in the verified session (never a request parameter)
+            ctx = await resolveContext(userId, auth.userId, { orgId: auth.orgId, orgRole: auth.orgRole, orgSlug: auth.orgSlug }, (auth as any).sessionClaims?.iat ?? null);
+            // Clerk fva = [minutes since first-factor verification, second factor]; used for re-auth checks
+            const fva = (auth as any).sessionClaims?.fva;
+            ctx.authAgeMinutes = Array.isArray(fva) && Number.isFinite(fva[0]) && fva[0] >= 0 ? fva[0] : null;
+            (req as CustomRequest).userId = userId;
+            (req as CustomRequest).ctx = ctx;
+        } catch (error) {
+            if (!(error instanceof AppError)) {
+                console.error("[auth] could not resolve the signed-in user:", error instanceof Error ? error.message : error);
+            }
+            fail(res, error instanceof AppError ? error.status : 500, publicMessage(error, "Could not load your account"));
+            return;
+        }
+        // Everything downstream (controllers, services, queries) runs inside this context
+        runWithContext(ctx, () => next());
+    };
 }
+
+const verifyToken = createVerifyToken();
 
 const lastLogged = new Map<string, number>();
 

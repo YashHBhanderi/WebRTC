@@ -1,7 +1,10 @@
+import { RequestContext, runAsSystem, runWithContext } from "../tenancy/context";
+import TenantMembership from "../models/tenantMembershipModel";
 import mongoose from "mongoose";
 import Conversation from "../models/conversationModel";
 import User from "../models/userModel";
-import { emitToUsers, userSockets } from "../realtime/io";
+import { appMayReceive, emitToUsers, io, socketContexts, socketIdsOf, userSockets } from "../realtime/io";
+import { onCluster, publish, userConnectedAnywhere } from "../realtime/cluster";
 import mediasoupService from "./mediasoup.service";
 import { AppError } from "../utils/errors";
 
@@ -45,13 +48,15 @@ class PresenceService {
         if (cached && Date.now() - cached.at < CONTACTS_TTL_MS) {
             return cached.ids;
         }
-        const ids = (await Conversation.distinct("members", { members: oid(userId) })).map(String);
+        // Everyone who shares a conversation with the user in any workspace (cache is per user, not per context)
+        const ids = (await runAsSystem(() => Conversation.distinct("members", { members: oid(userId) }))).map(String);
         this.contacts.set(userId, { ids, at: Date.now() });
         return ids;
     }
 
-    isConnected(userId: string): boolean {
-        return userSockets.has(String(userId));
+    /** Connected on this instance, or (multi-instance) on any instance. */
+    isConnected(userId: string): Promise<boolean> {
+        return userConnectedAnywhere(String(userId), userSockets.has(String(userId)));
     }
 
     /** Socket connected: online (unless appearing offline), activity resets automatic away. */
@@ -63,6 +68,8 @@ class PresenceService {
 
     /** The user's active socket went away. */
     async disconnected(userId: string): Promise<void> {
+        // Still connected through another instance: stay online
+        if (await this.isConnected(userId)) return;
         await User.updateOne({ _id: userId }, { $set: { isOnline: false, lastSeen: new Date(), autoAway: false } });
         await this.publish(userId);
     }
@@ -74,7 +81,7 @@ class PresenceService {
                 throw new AppError("Invalid status");
             }
             update.status = status;
-            update.isOnline = this.isConnected(userId) && status !== "Appear offline";
+            update.isOnline = (await this.isConnected(userId)) && status !== "Appear offline";
         }
         if (statusMessage !== undefined) {
             const text = typeof statusMessage === "string" ? statusMessage.replace(/\s+/g, " ").trim() : "";
@@ -103,7 +110,7 @@ class PresenceService {
         const chosen = (user?.status || "Available") as UserStatus;
         return {
             userId: String(userId),
-            isOnline: this.isConnected(userId) && chosen !== "Appear offline",
+            isOnline: (await this.isConnected(userId)) && chosen !== "Appear offline",
             status: publicStatus(chosen),
             statusMessage: user?.statusMessage || "",
             autoAway: !!user?.autoAway,
@@ -112,16 +119,56 @@ class PresenceService {
         };
     }
 
-    /** Push the user's current presence to their contacts, and the unmasked version to their own sockets. */
+    private visibility = new Map<string, { ok: boolean; at: number }>();
+
+    /**
+     * May the viewer (in the context of their socket) see the subject's presence? Only if, in that
+     * context, they share a visible conversation, or the subject is in that context's directory
+     * (workspace member / globally discoverable). Cached briefly per (subject, viewer, context).
+     */
+    async visibleTo(subjectId: string, viewer: RequestContext): Promise<boolean> {
+        const key = `${subjectId}:${viewer.userId}:${viewer.tenantId || "global"}`;
+        const hit = this.visibility.get(key);
+        if (hit && Date.now() - hit.at < CONTACTS_TTL_MS) {
+            return hit.ok;
+        }
+        let ok = !!(await runWithContext(viewer, () => Conversation.exists({ members: { $all: [oid(subjectId), oid(viewer.userId)] } })));
+        if (!ok && viewer.tenantId && viewer.role === "guest") {
+            ok = false; // guests: people they share a conversation with only (checked above)
+        } else if (!ok && viewer.tenantId) {
+            ok = !!(await runAsSystem(() => TenantMembership.exists({ tenantId: oid(viewer.tenantId!), userId: oid(subjectId), status: "active" }), "presence-visibility"));
+        }
+        // Personal context: presence only for people I share a conversation with (checked above)
+        if (this.visibility.size > 50_000) this.visibility.clear();
+        this.visibility.set(key, { ok, at: Date.now() });
+        return ok;
+    }
+
+    /** Each live socket of each contact on THIS instance (SpreeWe and developer-app connections), judged by that socket's context. */
+    async deliverLocally(subjectId: string, contacts: string[], payload: PresencePayload): Promise<void> {
+        await Promise.all(contacts.flatMap((contactId) => socketIdsOf(contactId)).map(async (socketId) => {
+            const viewer = socketContexts.get(socketId);
+            if (viewer && appMayReceive(viewer, "user:presence") && (await this.visibleTo(subjectId, viewer).catch(() => false))) {
+                io().to(socketId).emit("user:presence", payload);
+            }
+        }));
+    }
+
+    /** Push the user's current presence to contacts allowed to see it, and the unmasked version to their own sockets. */
     async publish(userId: string): Promise<PresencePayload & { ownStatus: UserStatus }> {
         const payload = await this.payloadFor(userId);
         const own = await User.findById(userId).select("status").lean();
         const contacts = (await this.contactsOf(userId)).filter((id) => id !== String(userId));
-        emitToUsers(contacts, "user:presence", payload);
+        await this.deliverLocally(String(userId), contacts, payload);
+        // Contacts connected to other instances are judged there, by their own socket's context
+        publish({ kind: "presence", subjectId: String(userId), contacts, payload });
         const mine = { ...payload, ownStatus: (own?.status || "Available") as UserStatus };
         emitToUsers([String(userId)], "user:presence", mine);
         return mine;
     }
 }
 
-export default new PresenceService();
+const presenceService = new PresenceService();
+onCluster("presence", (m) => presenceService.deliverLocally(String(m.subjectId), (m.contacts as string[]) || [], m.payload as PresencePayload));
+
+export default presenceService;

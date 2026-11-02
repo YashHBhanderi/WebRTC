@@ -7,6 +7,7 @@ import recordingService from "../../services/recording.service";
 import { emitToCall } from "../../services/call-session.service";
 import { getClientIceConfig, mediaConfig, withTestTunnelCandidate } from "../../utils/network";
 import { AuthedSocket, io } from "../io";
+import { safeError } from "../../utils/safe-log";
 
 interface ProducerInfo {
     producerId: string;
@@ -79,7 +80,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             }
             callback(await transportParams(transport, socket.data.userId));
         } catch (error) {
-            console.error(`Failed to create ${direction} transport:`, error);
+            console.error(`Failed to create ${direction} transport:`, safeError(error));
             callback({ error: direction === "send" ? "Failed to create send transport" : "Failed to create receive transport" });
         }
     };
@@ -105,7 +106,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             await transport.connect({ dtlsParameters });
             callback({ connected: true });
         } catch (error) {
-            console.error("Failed to connect transport:", error);
+            console.error("Failed to connect transport:", safeError(error));
             callback({ error: "Failed to connect transport" });
         }
     });
@@ -121,7 +122,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             const iceParameters = await transport.restartIce();
             callback?.({ iceParameters, ...getClientIceConfig(socket.data.userId) });
         } catch (error) {
-            console.error("Failed to restart ICE:", error);
+            console.error("Failed to restart ICE:", safeError(error));
             callback?.({ error: "Failed to restart ICE" });
         }
     });
@@ -135,7 +136,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
         try {
             callback({ rtpCapabilities: mediasoupService.getRouter().rtpCapabilities });
         } catch (error) {
-            console.error("Failed to get router RTP capabilities:", error);
+            console.error("Failed to get router RTP capabilities:", safeError(error));
             callback({ error: "Failed to get router RTP capabilities" });
         }
     });
@@ -216,7 +217,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
             callback({ id: producer.id });
         } catch (error) {
-            console.error("Failed to create producer:", error);
+            console.error("Failed to create producer:", safeError(error));
             callback({ error: "Failed to create producer" });
         }
     });
@@ -303,7 +304,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
                 source: producerSource,
             });
         } catch (error) {
-            console.error("Failed to create consumer:", error);
+            console.error("Failed to create consumer:", safeError(error));
             callback({ error: "Failed to create consumer" });
         }
     });
@@ -327,7 +328,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             }
             callback({ success: true });
         } catch (error) {
-            console.error("Failed to resume consumer:", error);
+            console.error("Failed to resume consumer:", safeError(error));
             callback({ error: "Failed to resume consumer" });
         }
     });
@@ -351,7 +352,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             await consumer.setPreferredLayers({ spatialLayer: s, temporalLayer: t });
             callback?.({ success: true });
         } catch (error) {
-            console.error("Failed to set preferred layers:", error);
+            console.error("Failed to set preferred layers:", safeError(error));
             callback?.({ error: "Failed to set preferred layers" });
         }
     });
@@ -383,7 +384,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
             callback({ success: true, producers: otherProducers(String(callId), peer.userId) });
         } catch (error) {
-            console.error("Failed to join mediasoup call:", error);
+            console.error("Failed to join mediasoup call:", safeError(error));
             callback({ error: "Failed to join call" });
         }
     });

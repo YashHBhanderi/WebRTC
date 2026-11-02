@@ -1,8 +1,10 @@
+import { publish as publishWebhook } from "../webhooks/events";
 import User from "../models/userModel";
 import MessageService from "../services/message.service";
 import { GroupSummary } from "../services/group.service";
 import { broadcastMessage } from "../services/call-session.service";
 import { emitToUser, emitToUsers, removeUserFromRoom } from "./io";
+import { safeError } from "../utils/safe-log";
 
 /**
  * Socket notifications for group membership changes. Shared by the socket gateway and the
@@ -21,7 +23,7 @@ async function systemNotice(group: GroupSummary, actorId: string, content: strin
         const message = await MessageService.postServiceMessage(group._id, actorId, "system", content);
         broadcastMessage(group._id, memberIds(group), message);
     } catch (error) {
-        console.error("Failed to post group notice:", error);
+        console.error("Failed to post group notice:", safeError(error));
     }
 }
 
@@ -31,12 +33,14 @@ export function groupUpdated(group: GroupSummary): void {
 
 export async function membersAdded(group: GroupSummary, actorId: string, added: string[]): Promise<void> {
     groupUpdated(group);
+    publishWebhook({ type: "conversation.members_added", conversationId: String(group._id), data: { conversationId: String(group._id), userIds: added.map(String), actorId: String(actorId) } });
     added.forEach((id) => emitToUser(id, "group:added", { groupId: group._id, group }));
     const names = await Promise.all(added.map(nameOf));
     await systemNotice(group, actorId, `${await nameOf(actorId)} added ${names.join(", ")}`);
 }
 
 export async function memberRemoved(group: GroupSummary, actorId: string, removedId: string): Promise<void> {
+    publishWebhook({ type: "conversation.members_removed", conversationId: String(group._id), data: { conversationId: String(group._id), userIds: [String(removedId)], actorId: String(actorId), reason: "removed" } });
     // No more room broadcasts (messages, typing) for the removed user
     removeUserFromRoom(removedId, group._id);
     emitToUser(removedId, "group:removed", { groupId: group._id, reason: "removed" });
@@ -45,6 +49,7 @@ export async function memberRemoved(group: GroupSummary, actorId: string, remove
 }
 
 export async function memberLeft(groupId: string, group: GroupSummary | null, userId: string): Promise<void> {
+    publishWebhook({ type: "conversation.members_removed", conversationId: String(groupId), data: { conversationId: String(groupId), userIds: [String(userId)], actorId: String(userId), reason: "left" } });
     removeUserFromRoom(userId, groupId);
     emitToUser(userId, "group:removed", { groupId, reason: "left" });
     if (group) {

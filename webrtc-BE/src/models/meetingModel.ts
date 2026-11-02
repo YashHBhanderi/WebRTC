@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { tenantScopePlugin } from "../tenancy/scope";
 
 export type RecurrenceFreq = "daily" | "weekdays" | "weekly" | "monthly";
 
@@ -78,6 +79,8 @@ MeetingSchema.set("toJSON", {
         return ret;
     },
 });
+
+MeetingSchema.plugin(tenantScopePlugin, { kind: "derived" });
 
 const Meeting = mongoose.model<IMeeting>("Meeting", MeetingSchema);
 export default Meeting;

@@ -74,33 +74,7 @@
   color: var(--app-text);
 }
 
-.segmented {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 10px;
-  background: var(--app-input);
-}
-
-.segmented__opt {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--app-text-2);
-  font-weight: 500;
-  font-size: 0.875rem;
-
-  &--on {
-    background: var(--app-surface);
-    color: var(--app-text);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-  }
-}
+// .segmented (compact choice toggle) is global: styles.scss
 
 .setting-row {
   display: flex;

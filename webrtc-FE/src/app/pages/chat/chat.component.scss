@@ -234,6 +234,284 @@
   color: var(--app-muted);
 }
 
+// Collapsible section headings ("Favorites", "Recent chats", "Teams & channels")
+// Teams-style: sentence case, semibold, chevron on the left
+.list-section--toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 14px 16px 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--app-text-2);
+
+  i {
+    font-size: 12px;
+    color: var(--app-muted);
+  }
+
+  &:hover {
+    color: var(--app-text);
+  }
+}
+
+.list-section-head {
+  display: flex;
+  align-items: center;
+  padding-right: 10px;
+
+  .list-section--toggle {
+    width: auto;
+    flex: 1;
+  }
+}
+
+.icon-btn--sm {
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+}
+
+// A row plus its hover star (sibling button: buttons can't nest)
+.conv-item {
+  position: relative;
+}
+
+.conv-fav {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-surface);
+  color: var(--app-muted);
+  font-size: 16px;
+  box-shadow: var(--app-shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, color 0.12s ease;
+
+  &:hover {
+    color: var(--app-warning);
+  }
+
+  &[aria-pressed='true'] {
+    color: var(--app-warning);
+  }
+}
+
+.conv-item:hover .conv-fav,
+.conv-item:focus-within .conv-fav {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+// Touch screens have no hover: favorites stay reachable from a visible star
+@media (hover: none) {
+  .conv-fav {
+    opacity: 1;
+    pointer-events: auto;
+    box-shadow: none;
+    background: transparent;
+  }
+}
+
+// Channel icon in place of an avatar
+.conv__channel {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-input);
+  color: var(--app-text-2);
+  font-size: 18px;
+
+  &--sm {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    font-size: 15px;
+  }
+}
+
+// Teams & channels: a team header, its channels indented below
+.team-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 6px;
+  border-radius: 8px;
+
+  &:hover {
+    background: var(--app-input);
+  }
+}
+
+.team-row__head {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px 6px 6px;
+  border: 0;
+  background: transparent;
+  color: var(--app-text);
+  text-align: left;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.team-row__chev {
+  font-size: 13px;
+  color: var(--app-muted);
+}
+
+.team-row__avatar {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--app-brand);
+  color: var(--app-on-brand);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.team-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-row__lock {
+  font-size: 13px;
+  color: var(--app-muted);
+}
+
+.team-row__menu {
+  margin-right: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.team-row:hover .team-row__menu,
+.team-row:focus-within .team-row__menu,
+.team-row__menu.show {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .team-row__menu {
+    opacity: 1;
+  }
+}
+
+// Section contents sit indented under their heading, apart from the sidebar's own controls
+.sidebar .conv-list--section {
+  padding-left: 18px;
+}
+
+.team-block--section {
+  padding-left: 12px;
+}
+
+.sidebar .conv-list--channels {
+  padding: 0 6px 4px;
+}
+
+// A channel: its name only, indented under the team; ⋯ menu on hover
+.channel-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+
+  &:hover {
+    background: var(--app-input);
+  }
+
+  &--active,
+  &--active:hover {
+    background: var(--app-hover-strong);
+    box-shadow: inset 3px 0 0 var(--app-brand);
+
+    .channel-row__name {
+      color: var(--app-text);
+      font-weight: 600;
+    }
+  }
+}
+
+.channel-row__name {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px 6px 52px; // aligns with the team name (chevron + team avatar)
+  border: 0;
+  background: transparent;
+  color: var(--app-text-2);
+  text-align: left;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-row__menu {
+  margin-right: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.channel-row:hover .channel-row__menu,
+.channel-row:focus-within .channel-row__menu,
+.channel-row__menu.show {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .channel-row__menu {
+    opacity: 1;
+  }
+}
+
+.team-empty {
+  padding: 4px 12px 8px;
+  font-size: 0.8rem;
+  color: var(--app-muted);
+  list-style: none;
+
+  &--section {
+    padding: 4px 16px 12px;
+  }
+}
+
+.link-btn {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--bs-link-color);
+  text-decoration: underline;
+}
+
 // Compact rows; the open chat gets a tinted card with a left accent
 .sidebar .conv-list {
   padding: 0 6px 12px;
@@ -1544,4 +1822,51 @@
   border: 0;
   border-radius: 8px;
   background: #fff;
+}
+
+// Header title row: name + optional External badge on one line
+.conv-header__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+
+  .conv-header__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.conv__external {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+
+  .ti {
+    font-size: 13px;
+  }
+}
+
+// End-to-end encryption: the "can't send" gate (no plaintext fallback)
+.e2ee-gate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px;
+  padding: 10px 14px;
+  border-radius: var(--app-radius-sm);
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid rgba(220, 53, 69, 0.3);
+  font-size: 0.86rem;
 }

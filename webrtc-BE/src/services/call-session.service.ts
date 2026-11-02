@@ -1,3 +1,4 @@
+import { messageCreatedData, publish as publishWebhook } from "../webhooks/events";
 import Conversation from "../models/conversationModel";
 import callService from "./call.service";
 import callRoom from "./call-room.service";
@@ -8,6 +9,7 @@ import meetingControls from "./meeting-controls.service";
 import recordingService from "./recording.service";
 import { adminIds } from "./authorization.service";
 import { emitToUsers, io } from "../realtime/io";
+import { safeError } from "../utils/safe-log";
 
 /** Unanswered ring → missed call after this long (CALL_RING_TIMEOUT_MS, default 45 s) */
 export const RING_TIMEOUT_MS = Number(process.env.CALL_RING_TIMEOUT_MS) > 0 ? Number(process.env.CALL_RING_TIMEOUT_MS) : 45_000;
@@ -103,7 +105,7 @@ export async function takeOverCallSession(userId: string, deviceId: string, targ
             io().to(other.callId).emit("call:participant-left", { callId: other.callId, userId });
             await endIfEmpty(call, String(userId));
         } catch (error) {
-            console.error("Error leaving the other device's call during takeover:", error);
+            console.error("Error leaving the other device's call during takeover:", safeError(error));
         }
     }
     console.log(`call session of user=${userId} moved to device=${deviceId} (from socket ${other.socketId}${other.alive ? "" : ", stale"})`);
@@ -157,6 +159,7 @@ export async function announceCallEnded(call: any, extra: { endedBy?: string; re
 
     const payload = { callId, groupId, callStatus: call.callStatus, ...extra };
     io().to(callId).emit("call:ended", payload);
+    publishWebhook({ type: "call.ended", conversationId: groupId, data: { callId, conversationId: groupId, callType: call.callType, status: call.callStatus, endedAt: new Date().toISOString() } });
     const group = await Conversation.findById(call.conversationId).select("members");
     emitToUsers(group?.members, "call:ended", payload);
 
@@ -176,7 +179,7 @@ export async function announceCallEnded(call: any, extra: { endedBy?: string; re
             );
             broadcastMessage(groupId, group.members, message);
         } catch (error) {
-            console.error("Failed to post the call summary message:", error);
+            console.error("Failed to post the call summary message:", safeError(error));
         }
     }
 
@@ -194,7 +197,7 @@ export async function announceCallEnded(call: any, extra: { endedBy?: string; re
             );
             broadcastMessage(groupId, group.members, message);
         } catch (error) {
-            console.error("Failed to post the missed call message:", error);
+            console.error("Failed to post the missed call message:", safeError(error));
         }
     }
 
@@ -220,6 +223,8 @@ export async function announceCallEnded(call: any, extra: { endedBy?: string; re
 export function broadcastMessage(conversationId: string, memberIds: unknown[] | undefined, payload: unknown) {
     io().to(String(conversationId)).emit("receiveMessage", payload);
     emitToUsers(memberIds, "receiveMessage", payload);
+    // Outbound webhooks (fire-and-forget; never blocks or fails message delivery)
+    publishWebhook({ type: "message.created", conversationId: String(conversationId), memberIds: (memberIds || []).map(String), data: messageCreatedData(payload) });
 }
 
 /** End a ring nobody answered after RING_TIMEOUT_MS. */
@@ -231,7 +236,7 @@ export function startRingTimer(callKey: string) {
                 await announceCallEnded(missed, { reason: "no-answer" });
             }
         } catch (error) {
-            console.error("Ring timeout handling failed:", error);
+            console.error("Ring timeout handling failed:", safeError(error));
         }
     }, RING_TIMEOUT_MS));
 }

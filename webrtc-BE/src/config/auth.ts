@@ -23,6 +23,8 @@ const LIVE_CLOCK_SKEW_MS = 5_000;
 const list = (value: string | undefined): string[] =>
     (value || "").split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 
+export { clockSkew as resolveClockSkewMs };
+
 export const authConfig = {
     publishableKey: (process.env.CLERK_PUBLISHABLE_KEY || "").trim(),
     secretKey: (process.env.CLERK_SECRET_KEY || "").trim(),
@@ -36,6 +38,9 @@ function clockSkew(): number {
     if (process.env.CLERK_CLOCK_SKEW_MS && Number.isFinite(explicit) && explicit >= 0) {
         return explicit;
     }
+    // The generous skew is a local-development convenience only: in production (even with a test-instance
+    // key, e.g. staging) it would accept expired tokens for minutes and stretch the sign-out window
+    if (process.env.NODE_ENV === "production") return LIVE_CLOCK_SKEW_MS;
     return (process.env.CLERK_PUBLISHABLE_KEY || "").trim().startsWith("pk_test_") ? DEV_CLOCK_SKEW_MS : LIVE_CLOCK_SKEW_MS;
 }
 

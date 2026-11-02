@@ -1,10 +1,14 @@
 import mongoose, { Schema, Document } from "mongoose";
 import { IStoredFile, StoredFileSchema } from "./storedFile.schema";
+import { tenantScopePlugin } from "../tenancy/scope";
 
 export interface IMessage extends Document {
     userId: mongoose.Schema.Types.ObjectId;
     /** Owning conversation (denormalised from Conversation.messages for indexed history/search). */
     conversationId?: mongoose.Types.ObjectId;
+    /** Copied from the conversation on insert (defence in depth; see tenancy/consistency.ts) */
+    tenantId?: mongoose.Types.ObjectId | null;
+    scope?: "global" | "tenant" | "external";
     content: string;
     /** Attachment in object storage (image/video/audio/pdf). URLs are signed per response. */
     file?: IStoredFile | null;
@@ -20,6 +24,8 @@ export interface IMessage extends Document {
     mentions?: mongoose.Types.ObjectId[];
     /** Set when the author edited the text. */
     editedAt?: Date | null;
+    /** End-to-end encrypted content (Megolm ciphertext); absent on legacy and server-made messages */
+    e2ee?: { algorithm: string; ciphertext: string; session_id: string; sender_key: string; device_id: string };
     /** type "call": a call that ended (author = caller, createdAt = end time); outcome "missed" = nobody answered */
     call?: { callId: mongoose.Types.ObjectId; callType: "audio" | "video"; mode: "ring" | "meetNow"; duration: number; outcome?: "missed" } | null;
     /** Forwarded copy: name of the chat (group) or person the original came from */
@@ -39,9 +45,22 @@ const MessageSchema = new Schema<IMessage>({
         type: mongoose.Schema.Types.ObjectId,
         ref: "Conversation",
     },
+    // Plaintext only for messages from before end-to-end encryption and server-made ones (calls,
+    // system, recordings). Encrypted messages keep their content in `e2ee` and leave this empty.
     content: {
         type: String,
-        required: true
+        required: function (this: { e2ee?: unknown }) { return !this.e2ee; },
+        default: "",
+    },
+    e2ee: {
+        type: new Schema({
+            algorithm: { type: String, required: true, maxlength: 64 },
+            ciphertext: { type: String, required: true, maxlength: 128 * 1024 },
+            session_id: { type: String, required: true, maxlength: 128 },
+            sender_key: { type: String, required: true, maxlength: 128 },
+            device_id: { type: String, required: true, maxlength: 64 },
+        }, { _id: false }),
+        default: undefined,
     },
     file: {
         type: StoredFileSchema,
@@ -114,6 +133,12 @@ const MessageSchema = new Schema<IMessage>({
 MessageSchema.index({ conversationId: 1, createdAt: -1 });
 // Reference count before deleting a stored object (forwarded messages share the same object)
 MessageSchema.index({ "file.storageKey": 1 }, { sparse: true });
+
+// Defence in depth: messages carry their conversation's tenantId / scope (stamped on insert),
+// so a message query that skipped the conversation check still cannot cross workspaces.
+// Mismatches are reported by checkScopeConsistency() (see migrations).
+MessageSchema.plugin(tenantScopePlugin, { kind: "derived" });
+MessageSchema.index({ tenantId: 1, conversationId: 1, createdAt: -1 });
 
 const Message = mongoose.model<IMessage>("Message", MessageSchema);
 export default Message;

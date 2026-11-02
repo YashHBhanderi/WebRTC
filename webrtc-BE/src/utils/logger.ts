@@ -1,6 +1,7 @@
 import { NextFunction, Request, Response } from "express";
 import fs from "fs";
 import path from "path";
+import { safeError } from "./safe-log";
 
 const COLORS = {
     reset: "\x1b[0m",
@@ -35,7 +36,7 @@ export const logger = (req: Request, res: Response, next: NextFunction) => {
         else if (res.statusCode >= 400) color = COLORS.yellow;
         else if (res.statusCode >= 300) color = COLORS.cyan;
 
-        const logLine = `[${timestamp}] ${req.method} ${req.originalUrl} ${res.statusCode} - ${duration} ms - IP: ${req.ip || req.connection.remoteAddress} - Host: ${req.headers.host}`;
+        const logLine = `[${timestamp}] ${req.method} ${req.originalUrl.split("?")[0]} ${res.statusCode} - ${duration} ms - IP: ${req.ip || req.connection.remoteAddress} - Host: ${req.headers.host}`;
 
         console.log(`${color}${logLine}${COLORS.reset}`);
         const logLineWithNewline = logLine + "\n";
@@ -44,7 +45,7 @@ export const logger = (req: Request, res: Response, next: NextFunction) => {
         const logFilePath = path.join(logsDir, `${dateStr}.log`);
 
         fs.appendFile(logFilePath, logLineWithNewline, (error) => {
-            if (error) console.error("Failed to write log:", error)
+            if (error) console.error("Failed to write log:", safeError(error))
         });
     });
 

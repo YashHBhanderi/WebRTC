@@ -1,6 +1,7 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, filter, share, switchMap, take } from 'rxjs';
+import { Observable, filter, from, map, share, switchMap, take } from 'rxjs';
+import { E2eeService } from '../crypto/e2ee.service';
 import { environment } from 'src/environments/environment';
 import { IUser } from '../interfaces/user';
 import { IConversation } from '../interfaces/conversation';
@@ -24,6 +25,7 @@ export class UserService {
   readonly reconnected$: Observable<unknown>;
 
   constructor(
+    private e2ee: E2eeService,
     private http: HttpClient,
     private router: Router,
     private alertService: AlertService,
@@ -69,11 +71,22 @@ export class UserService {
   }
 
   getUserConversations(archived = false): Observable<IApiResponse<IConversation[]>> {
-    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/conversations${archived ? '?archived=true' : ''}`, { headers: this.getHeaders() });
+    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/conversations${archived ? '?archived=true' : ''}`, { headers: this.getHeaders() })
+      .pipe(switchMap((res) => from(this.revealPreviews(res))));
   }
 
+  /** Messages arrive end-to-end encrypted: decrypt in memory before anyone renders them. */
   getMessages(conversationId: string, page: number = 1, pageSize: number = 20): Observable<any> {
-    return this.http.get(`${this.apiUrl}/messages/${conversationId}?page=${page}&limit=${pageSize}`, { headers: this.getHeaders() });
+    return this.http.get<any>(`${this.apiUrl}/messages/${conversationId}?page=${page}&limit=${pageSize}`, { headers: this.getHeaders() })
+      .pipe(switchMap((res) => from(this.e2ee.revealAll(res?.data, conversationId)).pipe(map(() => res))));
+  }
+
+  /** Sidebar previews: the last message of each chat is decrypted like any other. */
+  private async revealPreviews<R extends { data?: any[] }>(res: R): Promise<R> {
+    for (const c of res?.data || []) {
+      if (c?.lastMessage?.e2ee) await this.e2ee.reveal(c.lastMessage, String(c._id));
+    }
+    return res;
   }
 
   getUserById(userId: string): Observable<IApiResponse<IUser>> {
@@ -101,7 +114,8 @@ export class UserService {
   }
 
   getUserGropuConversations(archived = false): Observable<IApiResponse<IConversation[]>> {
-    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/groupConversations${archived ? '?archived=true' : ''}`, { headers: this.getHeaders() });
+    return this.http.get<IApiResponse<IConversation[]>>(`${this.apiUrl}/groupConversations${archived ? '?archived=true' : ''}`, { headers: this.getHeaders() })
+      .pipe(switchMap((res) => from(this.revealPreviews(res))));
   }
 
   getGroupInfo(conversationId: string): Observable<any> {
@@ -121,7 +135,8 @@ export class UserService {
   }
 
   getSharedMedia(conversationId: string): Observable<IApiResponse<any[]>> {
-    return this.http.get<IApiResponse<any[]>>(`${this.apiUrl}/conversations/${conversationId}/media`, { headers: this.getHeaders() });
+    return this.http.get<IApiResponse<any[]>>(`${this.apiUrl}/conversations/${conversationId}/media`, { headers: this.getHeaders() })
+      .pipe(switchMap((res) => from(this.e2ee.revealAll(res?.data, conversationId)).pipe(map(() => res))));
   }
 
 }

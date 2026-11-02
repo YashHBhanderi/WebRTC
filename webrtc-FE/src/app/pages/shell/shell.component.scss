@@ -138,17 +138,216 @@
   }
 }
 
-.menu-user {
-  padding: 6px 12px 2px;
+// Account menu (profile picture)
+.me-menu {
+  width: 300px;
+  max-width: calc(100vw - 24px);
+
+  &__head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px 10px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--app-border);
+  }
+
+  &__who {
+    min-width: 0;
+  }
 
   &__name {
     font-weight: 600;
     color: var(--app-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__status {
     font-size: 0.8rem;
     color: var(--app-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__statuses {
+    margin: 2px 0 4px;
+    padding-left: 16px;
+
+    .dropdown-item {
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+  }
+
+  .dropdown-item .me-menu__check {
+    color: var(--app-accent-strong, var(--app-accent));
+  }
+
+  &__heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--app-muted);
+  }
+
+  &__manage {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--bs-link-color);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+
+    &:hover,
+    &:focus-visible {
+      text-decoration: underline;
+    }
+  }
+
+  // Manage → organization actions (indented like the status list)
+  &__sub {
+    margin: 0 0 4px;
+    padding-left: 16px;
+
+    .dropdown-item {
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+  }
+
+  &__badge {
+    margin-left: auto;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--app-danger);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 18px;
+    text-align: center;
+  }
+
+  &__accounts {
+    margin-top: 2px;
+    border-top: 1px solid var(--app-border);
+    padding-top: 4px;
+  }
+
+  &__account {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.25;
+  }
+
+  &__account-name,
+  &__account-mail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__account-mail {
+    font-size: 0.75rem;
+    color: var(--app-muted);
+  }
+}
+
+// Status message dialog
+.status-modal {
+  &__title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  &__icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--app-hover);
+    font-size: 18px;
+  }
+
+  &__sub {
+    font-size: 0.8rem;
+    color: var(--app-muted);
+  }
+
+  &__field {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius-sm);
+    background: var(--app-surface);
+
+    &:focus-within {
+      border-color: var(--app-accent);
+      box-shadow: 0 0 0 3px rgba(var(--bs-primary-rgb), 0.15);
+    }
+  }
+
+  &__input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--app-text);
+    font-size: 0.95rem;
+  }
+
+  &__clear {
+    border: 0;
+    background: transparent;
+    color: var(--app-muted);
+    padding: 2px;
+    line-height: 1;
+  }
+
+  &__count {
+    margin-top: 4px;
+    text-align: right;
+    font-size: 0.75rem;
+    color: var(--app-muted);
+  }
+
+  &__presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+  }
+
+  &__chip {
+    border: 1px solid var(--app-border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--app-text);
+    padding: 3px 10px;
+    font-size: 0.8rem;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--app-hover);
+    }
   }
 }
 
@@ -167,10 +366,10 @@
   line-height: 17px;
   text-align: center;
 
-  // Pinned to the icon's top-right corner
+  // Pinned to the icon's top-right corner (the tile is 6px wider and 2px taller than the icon box)
   &--rail {
-    top: -5px;
-    right: -9px;
+    top: -3px;
+    right: -3px;
     min-width: 15px;
     height: 15px;
     padding: 0 4px;
@@ -238,6 +437,7 @@
 
     .rail__tile {
       color: var(--app-rail-active-icon);
+      background: var(--app-rail-hover-bg);
       transform: scale(1.06);
     }
   }
@@ -262,6 +462,7 @@
     .rail__tile,
     &:hover .rail__tile {
       color: var(--app-rail-active-icon);
+      background: var(--app-rail-active-bg);
       transform: none;
     }
 
@@ -272,17 +473,19 @@
   }
 }
 
+// Icon on a rounded tile: tinted when active, faint on hover (same in every rail mode)
 .rail__tile {
   position: relative;
-  width: 28px;
-  height: 26px;
+  width: 40px;
+  height: 30px;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
   color: var(--app-rail-icon);
   font-size: 22px;
-  transition: color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 
   .ti {
     vertical-align: 0;

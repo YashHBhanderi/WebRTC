@@ -100,7 +100,7 @@ class WhisperCppProvider implements TranscriptionProvider {
                     "-np",
                     "-oj",
                     "-of", outBase,
-                ]);
+                ], transcriptionTimeoutMs(await wavSeconds(wavFile)));
                 const raw = JSON.parse(await fs.promises.readFile(`${outBase}.json`, "utf8"));
                 const items: any[] = Array.isArray(raw?.transcription) ? raw.transcription : [];
                 out.push(items
@@ -117,7 +117,7 @@ class WhisperCppProvider implements TranscriptionProvider {
         return out;
     }
 
-    private run(args: string[]): Promise<void> {
+    private run(args: string[], timeoutMs: number): Promise<void> {
         return new Promise((resolve, reject) => {
             const proc = spawn(transcriptionConfig.whisperBin, args, { windowsHide: true });
             if (proc.pid) {
@@ -128,8 +128,8 @@ class WhisperCppProvider implements TranscriptionProvider {
                 }
             }
             let stderr = "";
-            // Large models on CPU run slower than real time; this only guards against a hung process
-            const timer = setTimeout(() => proc.kill(), 8 * 60 * 60 * 1000);
+            // Only guards against a hung process: scaled to the audio length (CPU runs slower than real time)
+            const timer = setTimeout(() => proc.kill(), timeoutMs);
             proc.stdout.resume();
             proc.stderr.on("data", (chunk) => {
                 stderr = (stderr + String(chunk)).slice(-4000);
@@ -148,6 +148,22 @@ class WhisperCppProvider implements TranscriptionProvider {
             });
         });
     }
+}
+
+/** Seconds of audio in a 16 kHz mono 16-bit WAV (what the pipeline produces), from its size. */
+export async function wavSeconds(file: string): Promise<number> {
+    const size = (await fs.promises.stat(file).catch(() => null))?.size ?? 0;
+    return Math.max(0, (size - 44) / (16000 * 2));
+}
+
+/**
+ * Kill timeout for one whisper.cpp run. Measured on a 4-core CPU (docs/testing/phase-5c-test-results.md):
+ * large-v3 ≈ 3.6× real time with 4 threads and slower with 2, so a fixed cap (formerly 8 h) killed the
+ * transcription of long meetings. TRANSCRIPTION_TIMEOUT_FACTOR × audio length, at least 30 min.
+ */
+export function transcriptionTimeoutMs(audioSeconds: number, env: NodeJS.ProcessEnv = process.env): number {
+    const factor = Number(env.TRANSCRIPTION_TIMEOUT_FACTOR) > 0 ? Number(env.TRANSCRIPTION_TIMEOUT_FACTOR) : 12;
+    return Math.max(30 * 60_000, Math.round(audioSeconds * factor * 1000));
 }
 
 class NoTranscription implements TranscriptionProvider {

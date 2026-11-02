@@ -23,6 +23,11 @@ export interface IUser extends Document {
     statusMessage?: string;
     /** Idle on all devices for a while: shown as Away while the chosen status is Available */
     autoAway?: boolean;
+    /** Listed in the global directory / people search (privacy setting; default on, as before) */
+    globalDiscoverable?: boolean;
+    /** Set from Clerk webhooks: account deleted / banned in Clerk (hidden from directories) */
+    clerkDeletedAt?: Date | null;
+    clerkBanned?: boolean;
 }
 
 const UserSchema = new Schema<IUser>({
@@ -83,6 +88,18 @@ const UserSchema = new Schema<IUser>({
         maxlength: 140,
     },
     autoAway: {
+        type: Boolean,
+        default: false,
+    },
+    globalDiscoverable: {
+        type: Boolean,
+        default: true,
+    },
+    clerkDeletedAt: {
+        type: Date,
+        default: null,
+    },
+    clerkBanned: {
         type: Boolean,
         default: false,
     },

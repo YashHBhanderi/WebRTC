@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { tenantScopePlugin } from "../tenancy/scope";
 
 /** A message one user saved ("starred") for later. Private to that user. */
 export interface ISavedMessage extends Document {
@@ -18,6 +19,8 @@ const SavedMessageSchema = new Schema<ISavedMessage>({
 // Save once per user; "my saved messages" newest first
 SavedMessageSchema.index({ userId: 1, messageId: 1 }, { unique: true });
 SavedMessageSchema.index({ userId: 1, createdAt: -1 });
+
+SavedMessageSchema.plugin(tenantScopePlugin, { kind: "derived" });
 
 const SavedMessage = mongoose.model<ISavedMessage>("SavedMessage", SavedMessageSchema, "saved_messages");
 export default SavedMessage;

@@ -1,3 +1,5 @@
+import { publish as publishWebhook } from "../webhooks/events";
+import { runAsSystem } from "../tenancy/context";
 import fs from "fs";
 import path from "path";
 import mongoose from "mongoose";
@@ -22,6 +24,8 @@ import MessageService from "./message.service";
 import { emitToUsers } from "../realtime/io";
 import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { requireObjectId } from "../utils/validation";
+import { safeError } from "../utils/safe-log";
+import { freeBytes, minFreeBytes, planRecovery, recordingHost, recoveryNote, staleTempDirs } from "../recording/recovery";
 
 const oid = (id: string) => new mongoose.Types.ObjectId(id);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -52,6 +56,8 @@ interface LiveRecording {
     events: LiveEvent[];
     present: Set<string>;
     limitTimer: ReturnType<typeof setTimeout>;
+    /** Free-space watch while recording */
+    diskTimer: ReturnType<typeof setInterval>;
     stopping: boolean;
 }
 
@@ -123,6 +129,11 @@ class RecordingService {
         if (this.live.has(key)) {
             throw new AppError("This meeting is already being recorded");
         }
+        const free = await freeBytes();
+        if (free !== null && free < minFreeBytes()) {
+            console.error(`[recording] refusing to start: ${Math.round(free / 1048576)} MB free in the recording directory`);
+            throw new AppError("Recording isn't available right now (the server is low on disk space)", 503);
+        }
 
         const conversation = await Conversation.findById(call.conversationId).select("groupName isGroup").lean();
         const meeting = await Meeting.findOne({ conversationId: call.conversationId }).select("_id title").lean();
@@ -135,6 +146,7 @@ class RecordingService {
             startedBy: oid(userId),
             startedAt,
             status: "recording",
+            host: recordingHost(),
         });
 
         const dir = this.dirFor(String(recording._id));
@@ -150,6 +162,15 @@ class RecordingService {
             stopping: false,
             // Safety stop
             limitTimer: setTimeout(() => void this.stop(key, null, "limit"), recordingConfig.maxMinutes * 60_000),
+            // Stop cleanly (files finalised) before the disk fills up, rather than crash mid-write
+            diskTimer: setInterval(() => {
+                void freeBytes().then((bytes) => {
+                    if (bytes !== null && bytes < minFreeBytes() / 2) {
+                        console.error(`[recording] ${Math.round(bytes / 1048576)} MB free: stopping recording ${String(recording._id)}`);
+                        void this.stop(key, null, "disk").catch(() => undefined);
+                    }
+                });
+            }, 30_000),
         };
         this.live.set(key, live);
 
@@ -180,7 +201,7 @@ class RecordingService {
             const members = await this.memberIds(recording);
             broadcastMessage(String(call.conversationId), members, notice);
         } catch (error) {
-            console.error("[recording] could not post the chat notice", error);
+            console.error("[recording] could not post the chat notice", safeError(error));
         }
         return { recordingId: String(recording._id), startedAt };
     }
@@ -236,9 +257,13 @@ class RecordingService {
                 handle,
             });
             producer.observer.once("close", () => this.endTrack(callId, producer.id));
+            // Recorded now (not at stop), so a crash can find and recover the file
+            await Recording.updateOne({ _id: live.recordingId }, {
+                $push: { liveTracks: { producerId: producer.id, userId: oid(userId), kind: producer.kind, source, file: handle.file, captureStartedAt: new Date() } },
+            }).catch((error) => console.error("[recording] could not persist track info:", safeError(error)));
         } catch (error) {
             // One stream failing must not stop the recording of everyone else
-            console.error(`[recording] could not capture ${name}:`, error);
+            console.error(`[recording] could not capture ${name}:`, safeError(error));
         }
     }
 
@@ -253,7 +278,7 @@ class RecordingService {
     }
 
     /** Stop by a moderator (userId), or automatically (call ended / time limit) with userId = null. */
-    async stop(callId: unknown, userId: string | null, reason: "user" | "ended" | "limit" = "user") {
+    async stop(callId: unknown, userId: string | null, reason: "user" | "ended" | "limit" | "disk" = "user") {
         const key = String(callId || "");
         const live = this.live.get(key);
         if (!live || live.stopping) {
@@ -267,6 +292,7 @@ class RecordingService {
         }
         live.stopping = true;
         clearTimeout(live.limitTimer);
+        clearInterval(live.diskTimer);
         this.live.delete(key);
         const endedAtMs = Date.now();
         const duration = this.offset(live, endedAtMs);
@@ -299,6 +325,7 @@ class RecordingService {
                 duration: Math.round(duration),
                 stoppedBy: userId ? oid(userId) : null,
                 tracks,
+                liveTracks: [],
                 timeline: live.events.map((e) => ({ ...e, userId: oid(e.userId) })),
             },
         }, { new: true });
@@ -316,7 +343,7 @@ class RecordingService {
     /** Call ended: stop its recording (if any). */
     stopForCall(callId: string): void {
         if (this.live.has(String(callId))) {
-            void this.stop(callId, null, "ended").catch((error) => console.error("[recording] auto-stop failed", error));
+            void this.stop(callId, null, "ended").catch((error) => console.error("[recording] auto-stop failed", safeError(error)));
         }
     }
 
@@ -325,14 +352,15 @@ class RecordingService {
      * processed again; transcripts that were waiting are queued again.
      */
     async recoverOnStartup(): Promise<void> {
-        const res = await Recording.updateMany(
-            { status: { $in: ["starting", "recording"] } },
-            { $set: { status: "failed", error: FRIENDLY.interrupted } },
-        );
-        if (res.modifiedCount) {
-            console.warn(`[recording] ${res.modifiedCount} interrupted recording(s) marked failed`);
+        const host = recordingHost();
+        // Only recordings captured by THIS host (its temp files are here). Records from before the host
+        // field existed keep the old behaviour. Another instance's live recordings are never touched.
+        const mine = { $or: [{ host }, { host: null }, { host: { $exists: false } }] };
+        const interrupted = await Recording.find({ status: { $in: ["starting", "recording", "recovering"] }, ...mine }).select("_id").lean();
+        for (const r of interrupted) {
+            await this.recoverInterrupted(String(r._id), host);
         }
-        const processing = await Recording.find({ status: "processing" }).select("tracks").lean();
+        const processing = await Recording.find({ status: "processing", ...mine }).select("tracks").lean();
         for (const r of processing) {
             const id = String(r._id);
             if ((r.tracks || []).some((t: any) => fs.existsSync(t.file))) {
@@ -346,22 +374,93 @@ class RecordingService {
             await Recording.updateOne({ _id: r._id }, { $set: { transcriptStatus: "pending", transcriptAttempts: 0 } });
             this.enqueueTranscript(String(r._id));
         }
-        // Retention lives in the bucket itself (a lifecycle rule), not only in this process
-        if (isStorageConfigured()) {
+        // Retention lives in the bucket itself (a lifecycle rule), not only in this process.
+        // S3_MANAGE_LIFECYCLE=false: the rule is managed elsewhere (infrastructure code, staging) — never touch bucket config
+        if (isStorageConfigured() && process.env.S3_MANAGE_LIFECYCLE !== "false") {
             try {
                 await storage.ensureExpiryRule(`${storageConfig.keyPrefix}/recordings/`, recordingConfig.retentionDays);
             } catch (error) {
-                console.error(`[recording] could not apply the ${recordingConfig.retentionDays}-day S3 lifecycle rule; set one on the recordings/ prefix manually:`, error);
+                console.error(`[recording] could not apply the ${recordingConfig.retentionDays}-day S3 lifecycle rule; set one on the recordings/ prefix manually:`, safeError(error));
             }
         }
+    }
+
+    /**
+     * One interrupted recording: claim it (exactly once, even with concurrent restarts), salvage what
+     * the partial track files hold, and hand it to the normal pipeline, or fail it with an accurate
+     * reason. Files are only deleted by the pipeline / temp cleanup afterwards, never here.
+     */
+    async recoverInterrupted(recordingId: string, host = recordingHost()): Promise<void> {
+        const claimed = await Recording.findOneAndUpdate(
+            { _id: recordingId, status: { $in: ["starting", "recording", "recovering"] }, $or: [{ host }, { host: null }, { host: { $exists: false } }] },
+            { $set: { status: "recovering", host } },
+            { new: true },
+        );
+        if (!claimed) return;
+        try {
+            const plan = await planRecovery(claimed.startedAt, (claimed.liveTracks || []).map((t: any) => ({
+                producerId: t.producerId, userId: String(t.userId), kind: t.kind, source: t.source, file: t.file, captureStartedAt: new Date(t.captureStartedAt),
+            })));
+            const recovery = { partial: true, audio: plan.audio, video: plan.video, seconds: Math.round(plan.duration), at: new Date() };
+            if (!plan.tracks.length) {
+                await Recording.updateOne({ _id: claimed._id, status: "recovering" }, { $set: { status: "failed", error: recoveryNote(plan), recovery, liveTracks: [] } });
+                console.warn(`[recording] ${recordingId}: interrupted, nothing recoverable (${plan.unreadable} unreadable, ${plan.missing} missing track file(s))`);
+                return;
+            }
+            const updated = await Recording.findOneAndUpdate({ _id: claimed._id, status: "recovering" }, {
+                $set: {
+                    status: "processing",
+                    endedAt: new Date(claimed.startedAt.getTime() + plan.duration * 1000),
+                    duration: Math.round(plan.duration),
+                    tracks: plan.tracks.map((t) => ({ ...t, userId: oid(t.userId) })),
+                    liveTracks: [],
+                    recovery,
+                    error: recoveryNote(plan),
+                },
+            }, { new: true });
+            console.warn(`[recording] ${recordingId}: interrupted; recovered ${plan.tracks.length} track(s), ~${Math.round(plan.duration)} s (audio: ${plan.audio}, video: ${plan.video})`);
+            if (updated) this.enqueueCompose(recordingId);
+        } catch (error) {
+            console.error(`[recording] recovery of ${recordingId} failed:`, safeError(error));
+            await Recording.updateOne({ _id: claimed._id, status: "recovering" }, { $set: { status: "failed", error: FRIENDLY.interrupted } });
+        }
+    }
+
+    /** Delete temp folders of finished / failed / unknown recordings after the retention period. */
+    async cleanupTempFiles(now = Date.now()): Promise<number> {
+        const liveIds = new Set([...this.live.values()].map((l) => l.recordingId));
+        const dirs = await staleTempDirs(async (ids) => {
+            const rows = await Recording.find({ _id: { $in: ids.map(oid) } }).select("status").lean();
+            return new Map(rows.map((r) => [String(r._id), String(r.status)]));
+        }, liveIds, now);
+        for (const dir of dirs) {
+            await fs.promises.rm(dir, { recursive: true, force: true }).catch((error) => console.error("[recording] temp cleanup failed:", safeError(error)));
+        }
+        if (dirs.length) console.log(`[recording] removed ${dirs.length} stale temp folder(s)`);
+        return dirs.length;
+    }
+
+    private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+    startTempCleanup(): void {
+        if (this.cleanupTimer) return;
+        void runAsSystem(() => this.cleanupTempFiles(), "recording-temp-cleanup").catch(() => undefined);
+        this.cleanupTimer = setInterval(() => void runAsSystem(() => this.cleanupTempFiles(), "recording-temp-cleanup").catch(() => undefined), 3600_000);
+        this.cleanupTimer.unref();
+    }
+
+    stopTempCleanup(): void {
+        if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+        this.cleanupTimer = null;
     }
 
     // ---------------------------------------------------------------- processing
 
     private enqueueCompose(recordingId: string): void {
         // Processing never blocks the meeting; jobs run one at a time
-        this.composeQueue = this.composeQueue.then(() => this.process(recordingId)).catch((error) => {
-            console.error(`[recording] processing ${recordingId} crashed:`, error);
+        // Background job: explicit system scope (processes the recording for all members, any context)
+        this.composeQueue = this.composeQueue.then(() => runAsSystem(() => this.process(recordingId), "recording-pipeline")).catch((error) => {
+            console.error(`[recording] processing ${recordingId} crashed:`, safeError(error));
         });
     }
 
@@ -436,7 +535,7 @@ class RecordingService {
                 await this.cleanup(recordingId);
             }
         } catch (error) {
-            console.error(`[recording] processing ${recordingId} failed:`, error);
+            console.error(`[recording] processing ${recordingId} failed:`, safeError(error));
             recording.status = "failed";
             recording.error = (error as { friendly?: string })?.friendly || FRIENDLY.processing;
             recording.transcriptStatus = "none";
@@ -456,8 +555,8 @@ class RecordingService {
         }
         this.queuedTranscripts.add(recordingId);
         this.transcriptQueue = this.transcriptQueue
-            .then(() => this.runTranscript(recordingId))
-            .catch((error) => console.error(`[recording] transcription ${recordingId} crashed:`, error))
+            .then(() => runAsSystem(() => this.runTranscript(recordingId), "transcription-pipeline"))
+            .catch((error) => console.error(`[recording] transcription ${recordingId} crashed:`, safeError(error)))
             .then(() => {
                 this.queuedTranscripts.delete(recordingId);
             });
@@ -490,7 +589,7 @@ class RecordingService {
                 await this.announce(recording, members, `Transcript ready: ${recording.title}`);
                 break;
             } catch (error) {
-                console.error(`[recording] transcription of ${recordingId} failed (attempt ${recording.transcriptAttempts}):`, error);
+                console.error(`[recording] transcription of ${recordingId} failed (attempt ${recording.transcriptAttempts}):`, safeError(error));
                 if (recording.transcriptAttempts >= transcriptionConfig.maxAttempts) {
                     recording.transcriptStatus = "failed";
                     recording.transcriptError = FRIENDLY.transcript;
@@ -632,8 +731,10 @@ class RecordingService {
                 recording: { recordingId: String(recording._id) },
             });
             broadcastMessage(String(recording.conversationId), members, card);
+            // Metadata only: apps fetch short-lived links via GET /v1/recordings/{id} (recordings:read)
+            publishWebhook({ type: "recording.available", conversationId: String(recording.conversationId), memberIds: members, data: { recordingId: String(recording._id), conversationId: String(recording.conversationId), title: recording.title, startedAt: recording.startedAt, durationSeconds: recording.duration } });
         } catch (error) {
-            console.error('[recording] could not post the chat card', error);
+            console.error('[recording] could not post the chat card', safeError(error));
         }
     }
 
@@ -674,7 +775,7 @@ class RecordingService {
                 text,
             })));
         } catch (error) {
-            console.error("[recording] could not send notifications", error);
+            console.error("[recording] could not send notifications", safeError(error));
         }
     }
 

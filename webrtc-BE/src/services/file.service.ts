@@ -1,3 +1,4 @@
+import { signLegacyUrl } from "./legacy-files.service";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
@@ -208,6 +209,41 @@ export async function storeUpload(file: Express.Multer.File | undefined, target:
     }
 }
 
+/** Content type of end-to-end encrypted attachments: the server only ever holds ciphertext. */
+export const ENCRYPTED_MIME = "application/octet-stream";
+/** AES-GCM adds a 16-byte tag; a little headroom for the client's framing. */
+const ENCRYPTION_OVERHEAD_BYTES = 64;
+
+/**
+ * Store an end-to-end encrypted chat attachment: opaque ciphertext the server can't inspect, so no
+ * content sniffing. The client declares only the media kind (visible metadata, used for size limits
+ * and folders); the real type, name and the key are inside the encrypted message.
+ */
+export async function storeEncryptedUpload(file: Express.Multer.File | undefined, conversationId: string, kindRaw: unknown, uploaderId: string): Promise<StoredUpload> {
+    try {
+        if (!file || !file.size) throw new AppError("No file uploaded");
+        const kind = (Object.keys(MEDIA_RULES) as MediaKind[]).find((k) => k === kindRaw);
+        if (!kind) throw new AppError("Unknown attachment kind");
+        const rule = MEDIA_RULES[kind];
+        if (file.size > rule.maxBytes + ENCRYPTION_OVERHEAD_BYTES) {
+            throw new AppError(`This file is too large. The limit is ${Math.round(rule.maxBytes / MB)} MB for this type.`, 413);
+        }
+        const target: UploadTarget = { purpose: "message", conversationId };
+        const key = buildKey(target, rule, "bin");
+        await storage.put({
+            key,
+            body: fs.createReadStream(file.path),
+            contentType: ENCRYPTED_MIME,
+            contentLength: file.size,
+            metadata: { "uploader-id": uploaderId, "original-name": "encrypted" },
+            cacheControl: "private, max-age=31536000, immutable",
+        });
+        return { stored: { storageKey: key, storageProvider: storageConfig.provider, mimeType: ENCRYPTED_MIME, originalName: "encrypted", size: file.size }, kind };
+    } finally {
+        if (file?.path) await fs.promises.rm(file.path, { force: true }).catch(() => undefined);
+    }
+}
+
 // ------------------------------------------------------------------ attach (verify a key a client sent back)
 
 async function verifiedObject(key: string, uploaderId: string): Promise<IStoredFile> {
@@ -273,6 +309,11 @@ function attachmentDisposition(name: string): string {
 
 /** URL fields a client renders for a message (pre-signed for stored files, as-is for legacy/call links). */
 export async function messageMedia(m: { file?: IStoredFile | null; fileUrl?: string; thumbnailUrl?: string }) {
+    if (m.file?.storageKey && m.file.mimeType === ENCRYPTED_MIME) {
+        // Ciphertext: one signed link the client downloads and decrypts; no name or inline rendering
+        const url = await signedMediaUrl(m.file.storageKey);
+        return { fileUrl: url, thumbnailUrl: "", downloadUrl: url, fileSize: m.file.size, encrypted: true };
+    }
     if (m.file?.storageKey) {
         const key = m.file.storageKey;
         const name = m.file.originalName || key.split("/").pop() || "file";
@@ -285,7 +326,11 @@ export async function messageMedia(m: { file?: IStoredFile | null; fileUrl?: str
         const inline = url || downloadUrl;
         return { fileUrl: inline, thumbnailUrl: downloadOnly ? "" : inline, downloadUrl, fileName: m.file.originalName, fileSize: m.file.size, mimeType: m.file.mimeType };
     }
-    return { fileUrl: m.fileUrl || "", thumbnailUrl: m.thumbnailUrl || m.fileUrl || "" };
+    // Legacy on-disk files: only a short-lived signed link, and only to whoever is reading this
+    // message (callers return messages after the conversation / membership check)
+    const fileUrl = signLegacyUrl(m.fileUrl || "") ?? (m.fileUrl || "");
+    const thumbnailUrl = m.thumbnailUrl ? (signLegacyUrl(m.thumbnailUrl) ?? m.thumbnailUrl) : fileUrl;
+    return { fileUrl, thumbnailUrl };
 }
 
 // ------------------------------------------------------------------ cleanup

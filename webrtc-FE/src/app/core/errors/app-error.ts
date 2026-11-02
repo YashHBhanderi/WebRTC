@@ -61,7 +61,8 @@ export function normalizeError(error: unknown, fallback = GENERIC): NormalizedEr
     }
     const code = (error.error?.error?.code as AppErrorCode) || CODE_BY_STATUS[error.status] || 'ACTIONABLE_USER_ERROR';
     // 4xx messages come from AppError on the server, which are written to be user-facing
-    const serverMessage = typeof error.error?.message === 'string' ? error.error.message : '';
+    // Legacy routes send { message }; /v1 sends { error: { code, message } }
+    const serverMessage = typeof error.error?.message === 'string' ? error.error.message : typeof error.error?.error?.message === 'string' ? error.error.error.message : '';
     return { code, message: serverMessage || DEFAULT_MESSAGE[code] || fallback, actionable: true, status: error.status };
   }
   if (typeof DOMException !== 'undefined' && error instanceof DOMException) {

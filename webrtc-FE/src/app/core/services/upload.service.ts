@@ -1,4 +1,7 @@
 import { HttpClient, HttpContext, HttpErrorResponse, HttpEventType } from '@angular/common/http';
+import { E2eeService } from '../crypto/e2ee.service';
+import { EncryptedFileInfo, encryptFile } from '../crypto/attachment-crypto';
+import { mediaKind } from './message-sender.service';
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Subscription } from 'rxjs';
 import { environment } from 'src/environments/environment';
@@ -69,9 +72,11 @@ export function validateUpload(file: File): string | null {
 export class UploadService {
   readonly jobs$ = new BehaviorSubject<UploadJob[]>([]);
   private running = new Map<string, Subscription>();
+  /** Per-job file key (kept in memory only until the encrypted message is sent) */
+  private secure = new Map<string, EncryptedFileInfo>();
   private seq = 0;
 
-  constructor(private http: HttpClient, private socket: SocketService, private sender: MessageSenderService) {}
+  constructor(private http: HttpClient, private socket: SocketService, private sender: MessageSenderService, private e2ee: E2eeService) {}
 
   jobsFor(conversationId: string): UploadJob[] {
     return this.jobs$.value.filter((j) => j.conversationId === conversationId);
@@ -116,12 +121,24 @@ export class UploadService {
     }
   }
 
+  /** Encrypt on this device, then upload only the ciphertext (no plaintext fallback). */
   private start(job: UploadJob): void {
     this.patch(job.id, { state: 'uploading', progress: 0 });
-    const form = new FormData();
-    form.append('purpose', 'message');
-    form.append('conversationId', job.conversationId);
-    form.append('file', job.file);
+    const kind = mediaKind(job.file.type);
+    encryptFile(job.file).then(({ ciphertext, info }) => {
+      if (!this.jobs$.value.some((j) => j.id === job.id)) return; // cancelled meanwhile
+      this.secure.set(job.id, info);
+      const form = new FormData();
+      form.append('purpose', 'message');
+      form.append('conversationId', job.conversationId);
+      form.append('encrypted', '1');
+      form.append('kind', kind);
+      form.append('file', ciphertext, 'encrypted.bin');
+      this.send(job, form);
+    }, () => this.patch(job.id, { state: 'failed', error: "This file couldn't be encrypted, so it wasn't sent." }));
+  }
+
+  private send(job: UploadJob, form: FormData): void {
     const sub = this.http
       .post<UploadResult>(`${environment.apiUrl}/upload`, form, {
         reportProgress: true,
@@ -135,7 +152,7 @@ export class UploadService {
             // Keep the last few percent for server-side processing
             this.patch(job.id, { progress: Math.min(95, Math.round((event.loaded / event.total) * 95)) });
           } else if (event.type === HttpEventType.Response && event.body) {
-            this.finish(job, event.body);
+            void this.finish(job, event.body);
           }
         },
         error: (error: HttpErrorResponse | string) => {
@@ -148,18 +165,28 @@ export class UploadService {
     this.running.set(job.id, sub);
   }
 
-  private finish(job: UploadJob, uploaded: UploadResult): void {
+  private async finish(job: UploadJob, uploaded: UploadResult): Promise<void> {
     this.running.delete(job.id);
-    this.socket.sendMessage({
-      user: this.sender.currentUserPayload(),
-      conversationId: job.conversationId,
-      content: job.caption,
-      type: uploaded.type,
-      storageKey: uploaded.storageKey,
-      replyTo: job.replyToId,
-      ...(job.mentionIds.length ? { mentions: job.mentionIds } : {}),
-    } as any);
-    this.remove(job.id);
+    const info = this.secure.get(job.id);
+    this.secure.delete(job.id);
+    try {
+      if (!info) throw new Error('missing file key');
+      // Caption, file name and the file's key travel only inside the encrypted message
+      const e2ee = await this.e2ee.encrypt(job.conversationId, { text: job.caption, file: { ...info, storageKey: uploaded.storageKey } });
+      this.socket.sendMessage({
+        user: this.sender.currentUserPayload(),
+        conversationId: job.conversationId,
+        content: '',
+        e2ee,
+        type: uploaded.type,
+        storageKey: uploaded.storageKey,
+        replyTo: job.replyToId,
+        ...(job.mentionIds.length ? { mentions: job.mentionIds } : {}),
+      } as any);
+      this.remove(job.id);
+    } catch {
+      this.patch(job.id, { state: 'failed', error: "This message couldn't be encrypted, so it wasn't sent." });
+    }
     this.pump();
   }
 

@@ -45,6 +45,17 @@ export function registerChatGateway(socket: AuthedSocket): void {
         return { conversationId: String(conversation._id), state: await chatState.setArchived(me(), String(conversation._id), false) };
     });
 
+    // Favorites: per user, for any conversation the user is a member of (chats, groups, channels)
+    onAck(socket, "chat:favorite", async ({ conversationId }) => {
+        const conversation = await getConversationForMember(conversationId, me());
+        return { conversationId: String(conversation._id), state: await chatState.setFavorite(me(), String(conversation._id), true) };
+    });
+
+    onAck(socket, "chat:unfavorite", async ({ conversationId }) => {
+        const conversation = await getConversationForMember(conversationId, me());
+        return { conversationId: String(conversation._id), state: await chatState.setFavorite(me(), String(conversation._id), false) };
+    });
+
     onAck(socket, "chat:clear", async ({ conversationId }) => {
         const conversation = await getConversationForMember(conversationId, me());
         return { conversationId: String(conversation._id), state: await chatState.clear(me(), String(conversation._id)) };

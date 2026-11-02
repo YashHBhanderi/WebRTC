@@ -11,6 +11,9 @@
     <!-- Default header: logged-in user + menu -->
     <header class="sidebar__header" *ngIf="sidebarMode === 'chats'; else archivedHeader">
       <h1 class="sidebar__title">Chats</h1>
+      <button type="button" class="icon-btn ms-auto" (click)="openNewChat()" aria-label="New chat" title="New chat">
+        <i class="ti ti-message-plus" aria-hidden="true"></i>
+      </button>
       <div ngbDropdown placement="bottom-end" class="d-inline-block">
         <button type="button" class="icon-btn" ngbDropdownToggle aria-label="Menu">
           <i class="ti ti-dots-vertical"></i>
@@ -75,43 +78,141 @@
         </div>
       </ng-container>
 
-      <div class="list-section" *ngIf="sidebarItems.length">
-        <ng-container [ngSwitch]="sidebarMode === 'archived' ? 'archived' : sidebarFilter">
-          <ng-container *ngSwitchCase="'archived'">Archived conversations</ng-container>
-          <ng-container *ngSwitchCase="'unread'">Unread</ng-container>
-          <ng-container *ngSwitchCase="'groups'">Groups</ng-container>
-          <ng-container *ngSwitchCase="'contacts'">Contacts</ng-container>
-          <ng-container *ngSwitchDefault>Recent conversations</ng-container>
+      <!-- "All": Favorites · Chats · Teams and channels (Teams-style) -->
+      <ng-container *ngIf="sectioned; else flatList">
+        <ng-container *ngIf="favoriteItems.length">
+          <button type="button" class="list-section list-section--toggle" (click)="toggleSection('favorites')" [attr.aria-expanded]="!collapsed.has('favorites')">
+            <i class="ti" [class.ti-chevron-down]="!collapsed.has('favorites')" [class.ti-chevron-right]="collapsed.has('favorites')" aria-hidden="true"></i>Favorites
+          </button>
+          <ul class="conv-list conv-list--section" *ngIf="!collapsed.has('favorites')">
+            <li *ngFor="let item of favoriteItems; trackBy: trackBySidebar"><ng-container *ngTemplateOutlet="convRow; context: { $implicit: item }"></ng-container></li>
+          </ul>
         </ng-container>
-      </div>
-      <ul class="conv-list" *ngIf="sidebarItems.length">
-        <li *ngFor="let item of sidebarItems; trackBy: trackBySidebar">
+
+        <ng-container *ngIf="recentItems.length">
+          <button type="button" class="list-section list-section--toggle" (click)="toggleSection('recent')" [attr.aria-expanded]="!collapsed.has('recent')">
+            <i class="ti" [class.ti-chevron-down]="!collapsed.has('recent')" [class.ti-chevron-right]="collapsed.has('recent')" aria-hidden="true"></i>Chats
+          </button>
+          <ul class="conv-list conv-list--section" *ngIf="!collapsed.has('recent')">
+            <li *ngFor="let item of recentItems; trackBy: trackBySidebar"><ng-container *ngTemplateOutlet="convRow; context: { $implicit: item }"></ng-container></li>
+          </ul>
+        </ng-container>
+
+        <ng-container *ngIf="inOrganization && (teamSections.length || !sidebarSearch)">
+          <div class="list-section-head">
+            <button type="button" class="list-section list-section--toggle" (click)="toggleSection('teams')" [attr.aria-expanded]="!collapsed.has('teams')">
+              <i class="ti" [class.ti-chevron-down]="!collapsed.has('teams')" [class.ti-chevron-right]="collapsed.has('teams')" aria-hidden="true"></i>Teams and channels
+            </button>
+            <div ngbDropdown placement="bottom-end" container="body" class="d-inline-block ms-auto">
+              <button type="button" class="icon-btn icon-btn--sm" ngbDropdownToggle aria-label="Teams and channels options" title="Teams and channels options">
+                <i class="ti ti-dots" aria-hidden="true"></i>
+              </button>
+              <div ngbDropdownMenu class="app-menu">
+                <button ngbDropdownItem type="button" *ngIf="canCreateTeams" (click)="createTeam()"><i class="ti ti-users-plus" aria-hidden="true"></i>Create team</button>
+                <button ngbDropdownItem type="button" *ngIf="channelTeams.length" (click)="createChannel()"><i class="ti ti-hash" aria-hidden="true"></i>Create channel</button>
+                <a ngbDropdownItem routerLink="/organization"><i class="ti ti-users-group" aria-hidden="true"></i>Browse and join teams</a>
+                <div class="dropdown-divider" *ngIf="isOrgAdmin"></div>
+                <a ngbDropdownItem routerLink="/organization/settings" [queryParams]="{ tab: 'teams' }" *ngIf="isOrgAdmin"><i class="ti ti-settings" aria-hidden="true"></i>Manage teams</a>
+              </div>
+            </div>
+          </div>
+          <ng-container *ngIf="!collapsed.has('teams')">
+            <div class="team-block team-block--section" *ngFor="let t of teamSections; trackBy: trackTeam">
+              <div class="team-row">
+                <button type="button" class="team-row__head" (click)="toggleSection('team:' + t.team.teamId)" [attr.aria-expanded]="!collapsed.has('team:' + t.team.teamId)">
+                  <i class="ti team-row__chev" [class.ti-chevron-down]="!collapsed.has('team:' + t.team.teamId)" [class.ti-chevron-right]="collapsed.has('team:' + t.team.teamId)" aria-hidden="true"></i>
+                  <span class="team-row__avatar" aria-hidden="true">{{ (t.team.name.trim()[0] || '?').toUpperCase() }}</span>
+                  <span class="team-row__name">{{ t.team.name }}</span>
+                </button>
+                <div ngbDropdown placement="bottom-end" container="body" class="team-row__menu">
+                  <button type="button" class="icon-btn icon-btn--sm" ngbDropdownToggle [attr.aria-label]="'Options for ' + t.team.name" title="More options">
+                    <i class="ti ti-dots" aria-hidden="true"></i>
+                  </button>
+                  <div ngbDropdownMenu class="app-menu">
+                    <button ngbDropdownItem type="button" *ngIf="t.team.myRole && t.team.myRole !== 'guest'" (click)="createChannel(t.team)"><i class="ti ti-hash" aria-hidden="true"></i>Add channel</button>
+                    <a ngbDropdownItem [routerLink]="['/teams', t.team.teamId]"><i class="ti ti-settings" aria-hidden="true"></i>Manage team</a>
+                    <div class="dropdown-divider"></div>
+                    <button ngbDropdownItem type="button" class="text-danger" (click)="leaveTeam(t.team)"><i class="ti ti-logout" aria-hidden="true"></i>Leave team</button>
+                  </div>
+                </div>
+              </div>
+              <ul class="conv-list conv-list--channels" *ngIf="!collapsed.has('team:' + t.team.teamId)">
+                <li *ngFor="let item of t.items; trackBy: trackBySidebar" class="channel-row" [class.channel-row--active]="isItemActive(item)">
+                  <button type="button" class="channel-row__name" (click)="openSidebarItem(item)" [attr.aria-current]="isItemActive(item) ? 'page' : null">{{ item.title }}</button>
+                  <div ngbDropdown placement="bottom-end" container="body" class="channel-row__menu">
+                    <button type="button" class="icon-btn icon-btn--sm" ngbDropdownToggle [attr.aria-label]="'Options for ' + item.title" title="More options">
+                      <i class="ti ti-dots" aria-hidden="true"></i>
+                    </button>
+                    <div ngbDropdownMenu class="app-menu">
+                      <button ngbDropdownItem type="button" (click)="toggleFavorite(item, $event)"><i class="ti" [class.ti-star]="!item.favorite" [class.ti-star-off]="item.favorite" aria-hidden="true"></i>{{ item.favorite ? 'Remove from favorites' : 'Add to favorites' }}</button>
+                      <a ngbDropdownItem [routerLink]="['/teams', t.team.teamId]"><i class="ti ti-settings" aria-hidden="true"></i>Manage channels</a>
+                      <ng-container *ngIf="item.source?.type !== 'standard'">
+                        <div class="dropdown-divider"></div>
+                        <button ngbDropdownItem type="button" class="text-danger" (click)="leaveChannel(t.team, item)"><i class="ti ti-logout" aria-hidden="true"></i>Leave channel</button>
+                      </ng-container>
+                    </div>
+                  </div>
+                </li>
+                <li class="team-empty" *ngIf="!t.items.length">No channels you're in yet</li>
+              </ul>
+            </div>
+            <div class="team-empty team-empty--section" *ngIf="!teamSections.length">
+              You're not in any team yet.
+              <a routerLink="/organization">Browse teams</a><ng-container *ngIf="canCreateTeams"> or <button type="button" class="link-btn" (click)="createTeam()">create one</button></ng-container>.
+            </div>
+          </ng-container>
+        </ng-container>
+      </ng-container>
+
+      <ng-template #flatList>
+        <div class="list-section" *ngIf="sidebarItems.length">
+          <ng-container [ngSwitch]="sidebarMode === 'archived' ? 'archived' : sidebarFilter">
+            <ng-container *ngSwitchCase="'archived'">Archived conversations</ng-container>
+            <ng-container *ngSwitchCase="'unread'">Unread</ng-container>
+            <ng-container *ngSwitchCase="'groups'">Groups</ng-container>
+            <ng-container *ngSwitchCase="'contacts'">Contacts</ng-container>
+            <ng-container *ngSwitchDefault>Recent conversations</ng-container>
+          </ng-container>
+        </div>
+        <ul class="conv-list" *ngIf="sidebarItems.length">
+          <li *ngFor="let item of sidebarItems; trackBy: trackBySidebar"><ng-container *ngTemplateOutlet="convRow; context: { $implicit: item }"></ng-container></li>
+        </ul>
+      </ng-template>
+
+      <!-- One row (chat, group, contact or channel); the star appears on hover / keyboard focus -->
+      <ng-template #convRow let-item let-inTeam="inTeam">
+        <div class="conv-item" [class.conv-item--fav]="item.favorite">
           <button
             type="button"
             class="conv"
             [class.conv--active]="isItemActive(item)"
             [class.conv--unread]="item.unread > 0"
-            [class.conv--compact]="!chatUi.showLastMessage"
+            [class.conv--compact]="!chatUi.showLastMessage || inTeam"
             (click)="openSidebarItem(item)"
           >
-            <app-avatar [src]="item.avatar" [name]="item.title" [size]="chatUi.showLastMessage ? 40 : 28" [presence]="item.kind !== 'group' ? item.presence : null"></app-avatar>
+            <span class="conv__channel" *ngIf="item.kind === 'channel'; else personAvatar" [class.conv__channel--sm]="!chatUi.showLastMessage || inTeam" aria-hidden="true">
+              <i class="ti" [class.ti-hash]="item.source?.type === 'standard'" [class.ti-lock]="item.source?.type === 'private'" [class.ti-world]="item.source?.type === 'shared'"></i>
+            </span>
+            <ng-template #personAvatar>
+              <app-avatar [src]="item.avatar" [name]="item.title" [size]="chatUi.showLastMessage ? 40 : 28" [presence]="item.kind !== 'group' ? item.presence : null"></app-avatar>
+            </ng-template>
             <span class="conv__body">
               <span class="conv__row">
                 <span class="conv__title">
                   <i *ngIf="item.kind === 'group'" class="ti ti-users conv__kind" aria-hidden="true"></i>
-                  {{ item.title }}
-                </span>
-                <span class="conv__time" *ngIf="chatUi.showLastMessage && item.time">{{ formatTimestamp(item.time) }}</span>
-                <span class="conv__badges" *ngIf="!chatUi.showLastMessage">
+                  {{ item.title }}                </span>
+                <span class="conv__time" *ngIf="chatUi.showLastMessage && item.time && !inTeam">{{ formatTimestamp(item.time) }}</span>
+                <span class="conv__badges" *ngIf="!chatUi.showLastMessage || inTeam">
                   <span class="call-live" *ngIf="item.hasActiveCall" title="Call in progress"><i class="ti ti-phone-call"></i></span>
                   <span class="badge-unread" *ngIf="item.unread > 0" [attr.aria-label]="item.unread + ' unread'">{{ item.unread > 99 ? '99+' : item.unread }}</span>
                 </span>
               </span>
-              <span class="conv__row" *ngIf="chatUi.showLastMessage">
+              <span class="conv__row" *ngIf="chatUi.showLastMessage && !inTeam">
                 <span class="conv__preview">
                   <ng-container *ngIf="item.kind === 'direct' && item.previewIsMine">
                     <i class="ti tick" [class.ti-checks]="item.previewRead" [class.ti-check]="!item.previewRead" [class.tick--read]="item.previewRead" aria-hidden="true"></i>
                   </ng-container>
+                  <i class="ti ti-users-group conv__kind" *ngIf="item.kind === 'channel'" aria-hidden="true"></i>
                   {{ item.preview }}
                 </span>
                 <span class="conv__badges">
@@ -121,10 +222,15 @@
               </span>
             </span>
           </button>
-        </li>
-      </ul>
+          <button type="button" class="conv-fav" *ngIf="item.conversationId && sidebarMode !== 'archived'" (click)="toggleFavorite(item, $event)"
+                  [attr.aria-pressed]="item.favorite" [attr.aria-label]="(item.favorite ? 'Remove from favorites: ' : 'Add to favorites: ') + item.title"
+                  [title]="item.favorite ? 'Remove from favorites' : 'Add to favorites'">
+            <i class="ti ti-star" [class.ti-fill]="item.favorite" aria-hidden="true"></i>
+          </button>
+        </div>
+      </ng-template>
 
-      <div class="empty-list" *ngIf="!listLoading && !sidebarItems.length">
+      <div class="empty-list" *ngIf="!listLoading && sidebarEmpty">
         <ng-container [ngSwitch]="true">
           <ng-container *ngSwitchCase="!!sidebarSearch">
             <i class="ti ti-search"></i>
@@ -146,7 +252,7 @@
           <ng-container *ngSwitchDefault>
             <i class="ti ti-messages"></i>
             <p>No conversations yet</p>
-            <button type="button" class="btn btn-sm btn-primary" (click)="setSidebarFilter('contacts')">Start a chat</button>
+            <button type="button" class="btn btn-sm btn-primary" (click)="openNewChat()">Start a chat</button>
           </ng-container>
         </ng-container>
       </div>
@@ -173,7 +279,10 @@
           [presence]="isGroupChat ? null : peerPresence"
         ></app-avatar>
         <span class="conv-header__text">
-          <span class="conv-header__name">{{ isGroupChat ? groupname : peerName }}</span>
+          <span class="conv-header__title">
+            <span class="conv-header__name">{{ isGroupChat ? groupname : peerName }}</span>
+            <span class="conv__external" *ngIf="openIsExternal" title="Includes people outside your organization. They see only this conversation."><i class="ti ti-users" aria-hidden="true"></i>External</span>
+          </span>
           <span class="conv-header__sub" [class.is-typing]="isTyping" [class.is-online]="!isGroupChat && isOnline && !isTyping">{{ headerSubtitle }}</span>
         </span>
       </button>
@@ -405,7 +514,11 @@
       <button type="button" class="btn btn-sm btn-outline-primary" (click)="toggleBlock()">Unblock</button>
     </div>
     <ng-template #composer>
-      <app-message-composer
+      <div class="e2ee-gate" *ngIf="e2eeBlocked" role="alert">
+        <i class="ti ti-lock-exclamation" aria-hidden="true"></i>
+        <span>{{ e2eeBlockedMessage }}</span>
+      </div>
+      <app-message-composer *ngIf="!e2eeBlocked"
         [submit]="sendDraft"
         [submitEdit]="saveEdit"
         [editing]="editing"

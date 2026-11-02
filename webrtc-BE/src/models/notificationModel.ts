@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { tenantScopePlugin } from "../tenancy/scope";
 
 export type NotificationType = "mention" | "reply" | "reaction" | "missed-call" | "meeting-invite" | "meeting-reminder" | "recording";
 export const NOTIFICATION_TYPES: NotificationType[] = ["mention", "reply", "reaction", "missed-call", "meeting-invite", "meeting-reminder", "recording"];
@@ -41,6 +42,24 @@ NotificationSchema.index({ userId: 1, createdAt: -1 });
 NotificationSchema.index({ userId: 1, readAt: 1 });
 // Activity is kept for 90 days
 NotificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
+
+// Scope follows the conversation the notification is about (directly, or via its meeting / recording)
+NotificationSchema.plugin(tenantScopePlugin, {
+    kind: "derived",
+    conversationIdOf: async (doc: any) => {
+        if (doc.conversationId) return doc.conversationId;
+        const { runAsSystem } = await import("../tenancy/context");
+        if (doc.meetingId) {
+            const m: any = await runAsSystem(() => mongoose.model("Meeting").findById(doc.meetingId).select("conversationId").lean());
+            if (m?.conversationId) return m.conversationId;
+        }
+        if (doc.recordingId) {
+            const r: any = await runAsSystem(() => mongoose.model("Recording").findById(doc.recordingId).select("conversationId").lean());
+            if (r?.conversationId) return r.conversationId;
+        }
+        return null;
+    },
+});
 
 const Notification = mongoose.model<INotification>("Notification", NotificationSchema);
 export default Notification;

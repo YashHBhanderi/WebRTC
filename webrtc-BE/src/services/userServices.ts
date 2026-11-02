@@ -13,6 +13,7 @@ export interface ProfileUpdate {
     username?: string;
     bio?: string;
     status?: (typeof USER_STATUSES)[number];
+    globalDiscoverable?: boolean;
 }
 
 /** Display name: letters (any language), digits, spaces and . _ ' - ; 3-30 characters. */
@@ -46,6 +47,12 @@ export function parseProfileUpdate(body: Record<string, unknown> | undefined): P
     if (body?.status !== undefined) {
         if (!USER_STATUSES.includes(body.status as ProfileUpdate['status'] & string)) throw new AppError('Invalid status');
         update.status = body.status as ProfileUpdate['status'];
+    }
+    if (body?.globalDiscoverable !== undefined) {
+        // multipart sends strings
+        const v = body.globalDiscoverable;
+        if (v !== true && v !== false && v !== 'true' && v !== 'false') throw new AppError('globalDiscoverable must be true or false');
+        update.globalDiscoverable = v === true || v === 'true';
     }
     return update;
 }

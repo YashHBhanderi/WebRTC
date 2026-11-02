@@ -1,6 +1,8 @@
 import mongoose, { Schema, Document } from "mongoose";
+import { tenantScopePlugin } from "../tenancy/scope";
 
-export type RecordingStatus = "recording" | "processing" | "completed" | "failed";
+/** recovering: an interrupted recording claimed by its host after a restart (see recording/recovery.ts) */
+export type RecordingStatus = "recording" | "recovering" | "processing" | "completed" | "failed";
 export type TranscriptStatus = "none" | "pending" | "processing" | "completed" | "failed";
 
 export interface ITranscriptSegment {
@@ -57,6 +59,12 @@ export interface IRecording extends Document {
     /** Safe, user-facing reason when failed (details are in the server log) */
     error?: string | null;
     tracks: IRecordingTrack[];
+    /** Server host + temp dir that captures it (recovery after a restart is done by that host only) */
+    host?: string | null;
+    /** Track files as they are captured, so a crash can be recovered (cleared when finalised) */
+    liveTracks: { producerId: string; userId: mongoose.Types.ObjectId; kind: "audio" | "video"; source: "camera" | "screen"; file: string; captureStartedAt: Date }[];
+    /** What a crash recovery produced */
+    recovery?: { partial: boolean; audio: boolean; video: boolean; seconds: number; at: Date } | null;
     timeline: ITimelineEvent[];
     speech: ISpeechInterval[];
     transcriptStatus: TranscriptStatus;
@@ -110,7 +118,20 @@ const RecordingSchema = new Schema<IRecording>({
     duration: { type: Number, default: 0 },
     size: { type: Number, default: 0 },
     storageKey: { type: String, default: null },
-    status: { type: String, enum: ["recording", "processing", "completed", "failed"], default: "recording" },
+    status: { type: String, enum: ["recording", "recovering", "processing", "completed", "failed"], default: "recording" },
+    host: { type: String, default: null },
+    liveTracks: {
+        type: [new Schema({
+            producerId: String,
+            userId: { type: Schema.Types.ObjectId, ref: "User" },
+            kind: { type: String, enum: ["audio", "video"] },
+            source: { type: String, enum: ["camera", "screen"], default: "camera" },
+            file: String,
+            captureStartedAt: Date,
+        }, { _id: false })],
+        default: [],
+    },
+    recovery: { type: { partial: Boolean, audio: Boolean, video: Boolean, seconds: Number, at: Date }, default: null, _id: false },
     error: { type: String, default: null },
     tracks: { type: [TrackSchema], default: [] },
     timeline: { type: [TimelineSchema], default: [] },
@@ -136,6 +157,8 @@ RecordingSchema.set("toJSON", {
         return ret;
     },
 });
+
+RecordingSchema.plugin(tenantScopePlugin, { kind: "derived" });
 
 const Recording = mongoose.model<IRecording>("Recording", RecordingSchema);
 export default Recording;

@@ -61,7 +61,10 @@ export interface PinnedMessage {
   messageId: string;
   pinnedBy: string;
   pinnedAt: string;
+  conversationId?: string;
   content: string;
+  /** End-to-end encrypted body (decrypted on this device into content / fileName) */
+  e2ee?: any;
   type: string;
   fileName?: string;
   createdAt: string;
@@ -113,6 +116,7 @@ export interface GroupSummary {
 
 export interface ChatState {
   isArchived: boolean;
+  isFavorite?: boolean;
   archivedAt: string | null;
   clearedAt: string | null;
   isGroup: boolean;

@@ -146,6 +146,10 @@
         <span class="bubble__spacer" *ngIf="!footRow" [class.bubble__spacer--tick]="showTicks" aria-hidden="true"></span>
       </p>
       <ng-template #metaRow><div class="bubble__meta-row" *ngIf="!footRow" aria-hidden="true"></div></ng-template>
+      <div class="bubble__e2ee" *ngIf="$any(message).e2ee && ($any(message).e2eeState !== 'ok' || $any(message).e2eeFileError)" role="note">
+        <i class="ti" [class.ti-lock-exclamation]="$any(message).e2eeState !== 'pending'" [class.ti-clock]="$any(message).e2eeState === 'pending'" aria-hidden="true"></i>
+        {{ $any(message).e2eeState === 'pending' ? 'Encrypted: waiting for the key from the sender\'s device' : ($any(message).e2eeFileError || 'Encrypted: this message can\'t be decrypted on this device') }}
+      </div>
 
       <div class="bubble__foot">
         <span class="bubble__foot-info" *ngIf="isVisualMedia"><ng-container *ngIf="message.fileSize">{{ message.fileSize | fileSize }} · </ng-container>{{ typeLabel }}</span>

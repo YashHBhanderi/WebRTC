@@ -1,8 +1,9 @@
 import { clerkClient } from "@clerk/express";
 import User, { IUser } from "../models/userModel";
-import { io } from "../realtime/io";
+import { emitToGlobalSockets } from "../realtime/io";
 import { AppError, ForbiddenError } from "../utils/errors";
 import { USERNAME_MAX, USERNAME_MIN } from "./userServices";
+import { safeError } from "../utils/safe-log";
 
 /**
  * Maps a Clerk user (session `sub`, e.g. "user_2abc…") to this app's MongoDB user, whose `_id`
@@ -69,7 +70,7 @@ async function lookupOrProvision(clerkUserId: string): Promise<string> {
             clerkId: clerkUserId,
             isVerified: true,
         });
-        announceNewUser(created);
+        // No announcement to other users: there is no public directory (people are found by exact email)
         return String(created._id);
     } catch (error) {
         // Another server process linked/created it at the same moment (unique email / clerkId)
@@ -80,18 +81,6 @@ async function lookupOrProvision(clerkUserId: string): Promise<string> {
     }
 }
 
-/**
- * Everyone connected adds the new account to their contact / member pickers live. Sent only after
- * the insert succeeded; the payload is what GET /web/users/except-current returns for a user.
- */
-function announceNewUser(user: IUser): void {
-    try {
-        io().emit("user:created", user.toJSON());
-    } catch (error) {
-        // Clients still pick the user up on their next (re)load / reconnect
-        console.error("[identity] could not announce the new user", error);
-    }
-}
 
 async function confirmLink(clerkUserId: string): Promise<string> {
     const user = await User.findOne({ clerkId: clerkUserId }).select("_id").lean();
