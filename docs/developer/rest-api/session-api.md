@@ -1,6 +1,6 @@
 # Session REST API (user-session endpoints)
 
-These are the REST endpoints a signed-in end user's browser or app calls with its own Clerk session token. The browser SDK (`@spreewe/chat-sdk`, see [../sdk-reference.md](../sdk-reference.md)) is built on them. They are the older, unversioned surface. For the versioned, uniformly enveloped API, see [./v1-api.md](./v1-api.md).
+These are the REST endpoints a signed-in end user's browser or app calls with its own Clerk session token. They are the older, unversioned surface. For the versioned, uniformly enveloped API, see [./v1-api.md](./v1-api.md).
 
 Messages are **not** sent over REST. Sending, editing, reacting, pinning and read receipts go over Socket.IO (`sendMessage`, `message:edit`, `reactToMessage`, `message:pin`, `markMessagesRead`, ...). See [../realtime-events.md](../realtime-events.md).
 

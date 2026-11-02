@@ -2,7 +2,7 @@
 
 This page covers how a client proves who it is to SpreeWe, which context (personal or workspace) a request runs in, and how end-to-end encryption (E2EE) devices are set up.
 
-Related: [Getting started](./getting-started.md) · [SDK reference](./sdk-reference.md) · [Realtime events](./realtime-events.md) · [/v1 REST API](./rest-api/v1-api.md) · [Session API](./rest-api/session-api.md) · [Organizations and workspaces](./organizations.md)
+Related: [Realtime events](./realtime-events.md) · [/v1 REST API](./rest-api/v1-api.md) · [Session API](./rest-api/session-api.md) · [Organizations and workspaces](./organizations.md)
 
 Every path below works with and without an `/api` prefix (for example `/api/v1/me` and `/v1/me`).
 
@@ -16,12 +16,12 @@ Every path below works with and without an `/api` prefix (for example `/api/v1/m
 
 ## 1. The two integration modes
 
-### (A) User session: the browser SDK
+### (A) User session: the end user's own client
 
-The end user signs in to SpreeWe (Clerk) inside your web app. You give the SDK a function that returns the user's **own** Clerk session token. `@spreewe/chat-sdk` calls this function before every request and every Socket.IO (re)connect.
+The end user signs in to SpreeWe (Clerk) in your client application. Your client sends the user's **own** Clerk session token on every REST request (`Authorization: Bearer`) and in every Socket.IO handshake (`auth.token`). Fetch a fresh token each time.
 
-- The SDK acts as the user, with the same permissions the user has in the SpreeWe web app.
-- E2EE works: the browser becomes one of the user's encryption devices.
+- The client acts as the user, with the same permissions the user has in the SpreeWe web app.
+- E2EE works if your client implements the Olm/Megolm device protocol on the user's device (see [section 9](#9-e2ee-device-lifecycle-mode-a-only)); the client becomes one of the user's encryption devices.
 - The active workspace is the user's Clerk active organization.
 
 Status: **Implemented and tested** at the protocol level (`webrtc-BE/test/sdk-e2e.test.ts`). **Implemented, not tested in a real browser**: nobody has tested the SDK in a real browser yet.

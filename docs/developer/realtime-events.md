@@ -4,9 +4,7 @@ This page lists every Socket.IO event that the SpreeWe backend handles or emits.
 
 Related pages:
 
-- [SDK reference](./sdk-reference.md): the `SpreeWeClient` API, which wraps most of these events.
 - [Authentication](./authentication.md): how to get Clerk session tokens and developer-app user tokens.
-- [Calling](./calling.md): the call flow and mediasoup signalling, step by step.
 
 **Test coverage labels** used in the tables:
 
@@ -258,7 +256,7 @@ None of the screen events is wrapped by the SDK.
 { error: 'Join the call before using media', code: 'NOT_JOINED' }
 ```
 
-Media flow has **not** been tested in a real browser through the SDK. The SDK's `calls.join()` drives these events (`packages/chat-sdk/src/calls-media.ts`). See [Calling](./calling.md).
+Media flow has **not** been tested in a real browser through the SDK. The SDK's `calls.join()` drives these events (`packages/chat-sdk/src/calls-media.ts`).
 
 | Event | Payload | Ack (success) | Errors / notes | Tests |
 |---|---|---|---|---|
@@ -400,7 +398,7 @@ Message content is end-to-end encrypted (Megolm). The server stores and relays o
 
 Both events go to **all** of your first-party sockets (user room), not just the latest one. Neither event is sent to developer-app sockets. Also run a sync after every reconnect, because the server does not replay these events.
 
-When you use the SDK, all of this is automatic: it syncs on `connect` and on both events, and emits `keys` when key state changes. See [SDK reference](./sdk-reference.md).
+When you use the SDK, all of this is automatic: it syncs on `connect` and on both events, and emits `keys` when key state changes.
 
 ---
 

@@ -1,6 +1,6 @@
 # Organizations and workspaces
 
-Related: [Authentication](./authentication.md) · [SDK reference](./sdk-reference.md) · [Realtime events](./realtime-events.md) · [/v1 REST API](./rest-api/v1-api.md) · [Getting started](./getting-started.md)
+Related: [Authentication](./authentication.md) · [Realtime events](./realtime-events.md) · [/v1 REST API](./rest-api/v1-api.md)
 
 ## 1. Context model
 
@@ -19,8 +19,8 @@ Status: **Implemented and tested** (`tenant-isolation.test.ts`, `fail-closed.tes
 ## 2. Switching workspace
 
 1. In the host app, call Clerk's `setActive({ organization })`, or `setActive({ organization: null })` for the personal context.
-2. REST calls pick up the new context straight away, because the SDK requests a fresh token for every call.
-3. **The socket keeps the context it had when it connected.** The SDK does not reconnect on its own when the organization changes (based on `packages/chat-sdk/src/client.ts`). After a switch, call `client.disconnect()` and then `client.connect()` so realtime events match the new workspace.
+2. REST calls pick up the new context straight away if your client fetches a fresh token for every call.
+3. **A socket keeps the context it had when it connected.** After a switch, disconnect the socket and connect again with a fresh token so realtime events match the new workspace.
 
 Status: **Implemented, not tested in a real browser.**
 
@@ -66,14 +66,12 @@ Only owners and admins can change policies. The change applies on every server i
 
 Status: **Implemented and tested** (`tenant-isolation.test.ts`, `socket-isolation.test.ts`, `p0-isolation.test.ts`).
 
-## 6. What the SDK exposes
+## 6. Organization endpoints
 
-| SDK call | REST endpoint |
-|---|---|
-| `client.organizations.mine()` | `GET /v1/organizations/mine`: the organizations the user belongs to |
-| `client.organizations.members()` | `GET /v1/workspace/organization/members`: members of the active workspace (not available to guests) |
+- `GET /v1/organizations/mine`: the organizations the user belongs to.
+- `GET /v1/workspace/organization/members`: members of the active workspace (not available to guests).
 
-Everything else is available only through the [/v1 REST API](./rest-api/v1-api.md), using the user's session token. That includes:
+The full set is in the [/v1 REST API](./rest-api/v1-api.md), called with the user's session token. That includes:
 
 - **Creating and finding organizations:** `POST /v1/organizations`, `GET /v1/organizations/discover`, `POST /v1/organizations/{organizationId}/join`, `/join-requests`
 - **Invitations:** `GET|POST /v1/workspace/invitations`, `.../resend`, `.../revoke`, `GET /v1/me/organization-invitations`, `POST /v1/organization-invitations/preview` and `/accept`
