@@ -13,6 +13,10 @@ import { MeetJoinComponent } from './shell/meet-join.component';
 import { RecordingPageComponent } from './shell/recording-page.component';
 import { ProfilePageComponent, SectionPlaceholderComponent, SettingsPageComponent } from './shell/section-pages.component';
 import { CreateOrganizationComponent } from './organizations/create-organization.component';
+import { DeveloperAppsComponent } from './developer/developer-apps.component';
+import { DeveloperAppComponent } from './developer/developer-app.component';
+import { DeveloperDocsComponent } from './developer/developer-docs.component';
+import { ConsentComponent } from './developer/consent.component';
 import { JoinOrganizationComponent } from './organizations/join-organization.component';
 import { InvitationAcceptComponent } from './organizations/invitation-accept.component';
 import { OrganizationHomeComponent } from './organizations/organization-home.component';
@@ -35,6 +39,11 @@ const routes: Routes = [
       { path: 'profile', component: ProfilePageComponent, title: 'Profile' },
       { path: 'settings', component: SettingsPageComponent, title: 'Settings' },
       { path: 'organizations/new', component: CreateOrganizationComponent, title: 'Create an organization' },
+      // Developer Portal (register applications, credentials, permissions, webhooks, usage) + end-user consent
+      { path: 'developer', component: DeveloperAppsComponent, title: 'Developer portal' },
+      { path: 'developer/docs', component: DeveloperDocsComponent, title: 'API documentation' },
+      { path: 'developer/apps/:appId', component: DeveloperAppComponent, title: 'Application' },
+      { path: 'consent', component: ConsentComponent, title: 'Authorize application' },
       { path: 'organizations/join', component: JoinOrganizationComponent, title: 'Join an organization' },
       { path: 'organizations/invitation', component: InvitationAcceptComponent, title: 'Organization invitation' },
       { path: 'organization', component: OrganizationHomeComponent, title: 'Organization' },

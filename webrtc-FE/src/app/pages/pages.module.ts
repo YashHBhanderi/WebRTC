@@ -45,6 +45,10 @@ import { RecordingPageComponent } from './shell/recording-page.component';
 import { ProfilePageComponent, SectionPlaceholderComponent, SettingsPageComponent } from './shell/section-pages.component';
 import { WorkspaceListComponent } from './shell/workspace-list.component';
 import { CreateOrganizationComponent } from './organizations/create-organization.component';
+import { DeveloperAppsComponent } from './developer/developer-apps.component';
+import { DeveloperAppComponent } from './developer/developer-app.component';
+import { DeveloperDocsComponent } from './developer/developer-docs.component';
+import { ConsentComponent } from './developer/consent.component';
 import { JoinOrganizationComponent } from './organizations/join-organization.component';
 import { InvitationAcceptComponent } from './organizations/invitation-accept.component';
 import { OrganizationHomeComponent } from './organizations/organization-home.component';
@@ -93,6 +97,10 @@ import { PersonPickerComponent } from './shared/person-picker.component';
     SettingsPageComponent,
     WorkspaceListComponent,
     CreateOrganizationComponent,
+    DeveloperAppsComponent,
+    DeveloperAppComponent,
+    DeveloperDocsComponent,
+    ConsentComponent,
     JoinOrganizationComponent,
     InvitationAcceptComponent,
     OrganizationHomeComponent,
