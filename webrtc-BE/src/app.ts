@@ -3,7 +3,7 @@ import path from "path";
 import cors from "cors";
 import router from "./routes/routes";
 import { uploadSingle } from "./utils/multer";
-import verifyToken from "./middleware/authMiddleware";
+import { requireUser } from "./middleware/authMiddleware";
 import uploadFile from "./controllers/upload.controller";
 import { logger } from "./utils/logger";
 import { storageConfig } from "./config/storage";
@@ -88,7 +88,7 @@ export function createApp(corsOrigin: string[] | "*") {
     api.use(router);
     api.use(tenantRouter);
     // Stored files (S3): upload needs a session; clients read straight from S3 (see file.service)
-    api.post("/upload", verifyToken, uploadSingle("file"), uploadFile);
+    api.post("/upload", requireUser("files:write"), uploadSingle("file"), uploadFile);
     // Public client settings (no secrets): bucket address for public pictures, Clerk publishable key
     // Load-balancer probes (unauthenticated, no internal details)
     api.get("/health/live", liveness);

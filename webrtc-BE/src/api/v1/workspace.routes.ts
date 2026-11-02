@@ -15,7 +15,7 @@ const oid = (id: string) => new mongoose.Types.ObjectId(id);
 const admin = (role: string | null) => role === "owner" || role === "admin";
 
 defineRoute({
-    method: "get", path: "/workspace/members", tag: "Workspace", workspace: true, paginated: true,
+    method: "get", path: "/workspace/members", scope: "organizations:read", tag: "Workspace", workspace: true, paginated: true,
     summary: "Members of the active workspace with role and status (roles / invitations are managed in Clerk)",
     query: S.object({ limit: S.int({ optional: true, min: 1, max: 100, default: 50 }), cursor: S.objectId({ optional: true }) }),
     response: S.doc({ type: "object", properties: { userId: { type: "string" }, username: { type: "string" }, avatar: { type: "string" }, role: { type: "string", enum: ["owner", "admin", "member", "guest"] }, status: { type: "string", enum: ["active", "removed"] }, lastSeenAt: { type: "string", format: "date-time" } } }),

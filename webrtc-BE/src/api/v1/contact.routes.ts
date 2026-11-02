@@ -15,7 +15,7 @@ const body = S.object({
 const person = { _id: { type: "string" }, username: { type: "string" }, avatar: { type: "string" } };
 
 defineRoute({
-    method: "post", path: "/contacts/lookup", tag: "People", auth: "firstParty", sensitive: true, errors: [400, 403, 429],
+    method: "post", path: "/contacts/lookup", tag: "People", scope: "directory:read", sensitive: true, errors: [400, 403, 429],
     summary: "Find an eligible person by exact email. Unregistered, blocked or unavailable people all get found=false",
     body,
     response: S.doc({ type: "object", properties: { found: { type: "boolean" }, message: { type: "string" }, user: { type: "object", properties: person }, external: { type: "boolean" }, conversationId: { type: "string", nullable: true } } }),
@@ -23,7 +23,7 @@ defineRoute({
 });
 
 defineRoute({
-    method: "post", path: "/contacts/start", tag: "People", auth: "firstParty", sensitive: true, errors: [400, 403, 404, 429],
+    method: "post", path: "/contacts/start", tag: "People", scope: "contacts:write", sensitive: true, errors: [400, 403, 404, 429],
     summary: "Open (or reuse) a direct conversation with the person behind this email; external conversations only where the organization allows them",
     body,
     response: S.doc({ type: "object", properties: { conversationId: { type: "string" }, external: { type: "boolean" } } }),

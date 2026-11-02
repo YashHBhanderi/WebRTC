@@ -102,6 +102,13 @@ function scopesFrom(value: unknown, allowed: readonly string[] = ALL_SCOPES): st
     return out as string[];
 }
 
+/** Refuses scopes that grant nothing yet, except ones already present (kept for continuity) */
+function availableScopes(scopes: string[], already: readonly string[] = []): string[] {
+    const blocked = scopes.filter((s) => UNAVAILABLE_SCOPES.has(s) && !already.includes(s));
+    if (blocked.length) throw new AppError(`Not available yet: ${blocked.join(", ")}`);
+    return scopes;
+}
+
 function quotasFrom(input: Record<string, unknown> | undefined, env: AppEnvironment, current?: IDeveloperApp["quotas"]) {
     const q = { ...(current || { rateLimitPerMinute: 60, maxConnections: 20, messagesPerDay: 1000 }) };
     for (const [k, v] of Object.entries(input || {})) {
@@ -194,7 +201,7 @@ export async function createApp(ctx: RequestContext, input: any) {
         tenantId: input.tenantBound ? oid(ctx.tenantId!) : null,
         environment,
         status: "active",
-        scopes: scopesFrom(input.scopes ?? []),
+        scopes: availableScopes(scopesFrom(input.scopes ?? [])),
         allowedOrigins: (input.allowedOrigins ?? []).map((o: unknown) => origin(o, environment, "origin")),
         callbackUrls: (input.callbackUrls ?? []).map((o: unknown) => origin(o, environment, "callback")),
         quotas: quotasFrom(input.quotas, environment),
@@ -222,7 +229,8 @@ export async function updateApp(ctx: RequestContext, appId: string, patch: any) 
     if (patch.name !== undefined) set.name = patch.name;
     if (patch.description !== undefined) set.description = String(patch.description).trim();
     if (patch.websiteUrl !== undefined) set.websiteUrl = websiteUrlFrom(patch.websiteUrl);
-    if (patch.scopes !== undefined) set.scopes = scopesFrom(patch.scopes);
+    // Unavailable scopes can't be newly added (ones an app already had are kept, still granting nothing)
+    if (patch.scopes !== undefined) set.scopes = availableScopes(scopesFrom(patch.scopes), app.scopes);
     if (patch.allowedOrigins !== undefined) set.allowedOrigins = patch.allowedOrigins.map((o: unknown) => origin(o, app.environment, "origin"));
     if (patch.callbackUrls !== undefined) set.callbackUrls = patch.callbackUrls.map((o: unknown) => origin(o, app.environment, "callback"));
     if (patch.quotas !== undefined) set.quotas = quotasFrom(patch.quotas, app.environment, app.quotas);
@@ -406,7 +414,11 @@ export async function grantApp(ctx: RequestContext, appId: string, input: { scop
 // ------------------------------------------------------------------ consent requests (app-initiated)
 
 const CONSENT_TTL_MS = 10 * 60_000;
-const SENSITIVE_SCOPES = new Set(["messages:read", "messages:write", "recordings:read", "directory:read"]);
+/** Highlighted on the consent screen: content access, people data, or administrative power */
+const SENSITIVE_SCOPES = new Set([
+    "messages:read", "messages:write", "messages:edit", "messages:delete", "e2ee:device", "recordings:read", "recordings:write",
+    "directory:read", "files:read", "search:read", "groups:manage", "conversations:delete", "calls:manage", "organizations:manage",
+]);
 
 /** Scope catalogue for developers: description, whether consent highlights it, whether it grants anything today */
 export function scopeCatalog() {

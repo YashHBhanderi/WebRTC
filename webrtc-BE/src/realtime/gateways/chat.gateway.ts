@@ -2,7 +2,7 @@ import Conversation from "../../models/conversationModel";
 import chatState from "../../services/chat-state.service";
 import blockService from "../../services/block.service";
 import { getConversationForMember } from "../../services/authorization.service";
-import { AuthedSocket, onAck } from "../io";
+import { AuthedSocket, onAck, shadowRoom } from "../io";
 
 /**
  * chat:* — per-user chat state (archive, clear), contact blocking, rooms and typing.
@@ -27,7 +27,8 @@ export function registerChatGateway(socket: AuthedSocket): void {
     // Typing only to rooms this socket was allowed to join; the sender id is the socket's user
     const typing = (isTyping: boolean) => (conversationId: unknown) => {
         const room = String(conversationId || "");
-        if (!room || !socket.rooms.has(room)) {
+        // Developer-app sockets are in the room's messages:read shadow instead (io.ts, useAppRooms)
+        if (!room || !(socket.rooms.has(room) || socket.rooms.has(shadowRoom("messages:read", room)))) {
             return;
         }
         socket.broadcast.to(room).emit("userTyping", { userId: me(), isTyping, conversationId: room });

@@ -13,7 +13,7 @@ import { createApp } from "./app";
 import { installShutdownHandlers } from "./shutdown";
 import { stopSocketRevalidation } from "./realtime/revalidate";
 import { startWebhookWorker, stopWebhookWorker } from "./webhooks/worker";
-import { io } from "./realtime/io";
+import { installAppRoomShadows, io } from "./realtime/io";
 import { setUpCluster, stopCluster } from "./realtime/cluster";
 import { markShuttingDown } from "./health";
 import { startClockMonitor, stopClockMonitor } from "./config/clock";
@@ -63,6 +63,8 @@ connectDB()
     }
     // Shared Socket.IO events between instances (SOCKET_ADAPTER=mongo) + instance heartbeat
     await setUpCluster(io());
+    // The cluster adapter is a new adapter instance: re-attach developer-app room shadows to it
+    installAppRoomShadows(io());
     await mediasoupService.init();
     // Meeting reminders (5 minutes before each occurrence)
     meetingService.startReminders();

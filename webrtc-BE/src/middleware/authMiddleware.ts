@@ -6,6 +6,10 @@ import { resolveLocalUserId } from "../services/identity.service";
 import { resolveContext } from "../tenancy/tenant.service";
 import { runWithContext } from "../tenancy/context";
 import { AppError, publicMessage } from "../utils/errors";
+import { AppScope } from "../developer/scopes";
+import { looksLikeAppToken } from "../developer/tokens";
+import { verifyUserToken } from "../developer/app.service";
+import { meterAppRequest } from "../developer/app-request";
 
 /** Writes an authentication failure. Legacy routes keep `{ success, message }`; /v1 uses its envelope. */
 export type AuthFailure = (res: Response, status: number, message: string) => void;
@@ -54,6 +58,71 @@ export function createVerifyToken(fail: AuthFailure = legacyFailure) {
 }
 
 const verifyToken = createVerifyToken();
+
+/**
+ * Session routes that developer applications may also call: a Clerk session works exactly as with
+ * verifyToken; a developer-app user token is verified against the live app / grant / tenant state and
+ * must carry `scope`. The handler is the same either way (same membership / role checks), and app
+ * requests are metered and limited by the app's quota. `scope: null` = SpreeWe sessions only.
+ */
+export function requireUser(scope: AppScope | null) {
+    const middleware = async function userOrApp(req: Request, res: Response, next: NextFunction): Promise<void> {
+        const token = /^Bearer (.+)$/.exec(req.headers.authorization || "")?.[1]?.trim() ?? null;
+        if (!looksLikeAppToken(token)) {
+            return verifyToken(req, res, next);
+        }
+        if (!scope) {
+            legacyFailure(res, 403, "This endpoint needs a signed-in SpreeWe session");
+            return;
+        }
+        let ctx;
+        try {
+            ctx = await verifyUserToken(token!, { origin: typeof req.headers.origin === "string" ? req.headers.origin : null });
+        } catch {
+            // One answer for every token failure (expired, revoked, disabled app, removed member…)
+            legacyFailure(res, 401, "Invalid or expired token");
+            return;
+        }
+        if (!ctx.app!.scopes.includes(scope)) {
+            legacyFailure(res, 403, `The token lacks the ${scope} scope`);
+            return;
+        }
+        (req as CustomRequest).userId = ctx.userId;
+        (req as CustomRequest).ctx = ctx;
+        withoutCiphertext(res);
+        meterAppRequest(req, res, () => runWithContext(ctx, () => next()));
+    };
+    // Exposed so tests can check that every session route made an explicit app-access decision
+    return Object.assign(middleware, { appScope: scope });
+}
+
+/**
+ * Developer apps hold no encryption device, so message ciphertext is never sent to them (same rule
+ * as for app sockets and /v1): any `e2ee` object in a JSON response (history, saved messages, pins,
+ * replies, search…) is replaced by `encrypted: true` with `content: null`.
+ */
+function withoutCiphertext(res: Response): void {
+    const json = res.json.bind(res);
+    res.json = (body: unknown) => json(stripE2ee(body, 0));
+}
+
+function stripE2ee(value: unknown, depth: number): unknown {
+    if (depth > 12 || value === null || typeof value !== "object") return value;
+    if (value instanceof Date) return value;
+    if (Array.isArray(value)) return value.map((v) => stripE2ee(v, depth + 1));
+    const source = typeof (value as any).toJSON === "function" ? (value as any).toJSON() : value;
+    if (source === null || typeof source !== "object" || source instanceof Date) return source;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(source as Record<string, unknown>)) {
+        if (k === "e2ee") continue;
+        out[k] = stripE2ee(v, depth + 1);
+    }
+    if ("e2ee" in (source as Record<string, unknown>) && (source as any).e2ee) {
+        out.encrypted = true;
+        out.content = null;
+    }
+    return out;
+}
 
 const lastLogged = new Map<string, number>();
 

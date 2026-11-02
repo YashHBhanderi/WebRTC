@@ -14,14 +14,14 @@ const teamParams = S.object({ teamId: S.objectId() });
 const base = { tag: "Teams", auth: "firstParty" as const, workspace: true };
 
 defineRoute({
-    ...base, method: "get", path: "/teams",
+    ...base, method: "get", path: "/teams", scope: "organizations:read",
     summary: "Teams I can see: public teams and teams I belong to (guests: only their teams)",
     response: S.doc({ type: "array", items: { type: "object", properties: { ...team, memberCount: { type: "integer" }, myRole: { type: "string", nullable: true } } } }),
     handler: ({ ctx }) => teams.listTeams(ctx),
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams", sensitive: true, errors: [409],
+    ...base, method: "post", path: "/teams", scope: "organizations:write", sensitive: true, errors: [409],
     summary: "Create a team (owners / admins; members if the organization allows). You become its owner; it gets a General channel",
     body: S.object({ name: S.string({ min: 2, max: 80, trim: true }), description: S.string({ optional: true, max: 500 }), visibility: S.enum(["public", "private"] as const, { optional: true }) }),
     response: S.doc({ type: "object", properties: { teamId: { type: "string" }, name: { type: "string" }, visibility: { type: "string" } } }),
@@ -29,7 +29,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "get", path: "/teams/:teamId", errors: [404],
+    ...base, method: "get", path: "/teams/:teamId", scope: "organizations:read", errors: [404],
     summary: "A team (404 for private teams I'm not in)",
     params: teamParams,
     response: S.doc({ type: "object", properties: { ...team, myRole: { type: "string", nullable: true }, canManage: { type: "boolean" } } }),
@@ -37,7 +37,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "patch", path: "/teams/:teamId", sensitive: true, errors: [404, 409],
+    ...base, method: "patch", path: "/teams/:teamId", scope: "organizations:manage", sensitive: true, errors: [404, 409],
     summary: "Update a team (team owners, organization owners / admins)",
     params: teamParams,
     body: S.object({
@@ -50,7 +50,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/archive", sensitive: true, errors: [404],
+    ...base, method: "post", path: "/teams/:teamId/archive", scope: "organizations:manage", sensitive: true, errors: [404],
     summary: "Delete (archive) a team and its channels; history is kept but nobody can read them",
     params: teamParams,
     response: S.doc({ type: "object", properties: { archived: { type: "boolean" } } }),
@@ -58,7 +58,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/join", errors: [404],
+    ...base, method: "post", path: "/teams/:teamId/join", scope: "organizations:write", errors: [404],
     summary: "Join a public team (organization members, not guests)",
     params: teamParams,
     response: S.doc({ type: "object", properties: { joined: { type: "boolean" } } }),
@@ -66,7 +66,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "get", path: "/teams/:teamId/members", errors: [404],
+    ...base, method: "get", path: "/teams/:teamId/members", scope: "organizations:read", errors: [404],
     summary: "Members of a team",
     params: teamParams,
     response: S.doc({ type: "array", items: { type: "object", properties: { userId: { type: "string" }, username: { type: "string" }, avatar: { type: "string" }, role: { type: "string", enum: [...TEAM_ROLE] } } } }),
@@ -74,7 +74,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/members", sensitive: true, errors: [404],
+    ...base, method: "post", path: "/teams/:teamId/members", scope: "organizations:write", sensitive: true, errors: [404],
     summary: "Add organization members to a team (team owners / managers)",
     params: teamParams,
     body: S.object({ userIds: S.array(S.objectId(), { max: 200 }), role: S.enum(TEAM_ROLE, { optional: true }) }),
@@ -83,7 +83,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "patch", path: "/teams/:teamId/members/:userId", sensitive: true, errors: [404, 409],
+    ...base, method: "patch", path: "/teams/:teamId/members/:userId", scope: "organizations:manage", sensitive: true, errors: [404, 409],
     summary: "Change a team role (team owners)",
     params: S.object({ teamId: S.objectId(), userId: S.objectId() }), body: S.object({ role: S.enum(TEAM_ROLE) }),
     response: S.doc({ type: "object", properties: { userId: { type: "string" }, role: { type: "string" } } }),
@@ -91,7 +91,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/members/:userId/remove", sensitive: true, errors: [404, 409],
+    ...base, method: "post", path: "/teams/:teamId/members/:userId/remove", scope: "organizations:manage", sensitive: true, errors: [404, 409],
     summary: "Remove someone from a team, or leave it (your own id). The last owner can't",
     params: S.object({ teamId: S.objectId(), userId: S.objectId() }),
     response: S.doc({ type: "object", properties: { removed: { type: "boolean" } } }),
@@ -99,7 +99,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "get", path: "/teams/:teamId/channels", errors: [404],
+    ...base, method: "get", path: "/teams/:teamId/channels", scope: "organizations:read", errors: [404],
     summary: "Channels of a team (private channels only for their members)",
     params: teamParams,
     response: S.doc({ type: "array", items: { type: "object", properties: channel } }),
@@ -107,7 +107,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/channels", sensitive: true, errors: [404],
+    ...base, method: "post", path: "/teams/:teamId/channels", scope: "organizations:write", sensitive: true, errors: [404],
     summary: "Create a channel: standard (whole team), private (chosen team members) or shared (with approved external people; policy permitting)",
     params: teamParams,
     body: S.object({
@@ -122,7 +122,7 @@ defineRoute({
 const channelParams = S.object({ teamId: S.objectId(), channelId: S.objectId() });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/channels/:channelId/members", sensitive: true, errors: [404],
+    ...base, method: "post", path: "/teams/:teamId/channels/:channelId/members", scope: "organizations:write", sensitive: true, errors: [404],
     summary: "Add team members to a private or shared channel (channel / team owners)",
     params: channelParams, body: S.object({ userIds: S.array(S.objectId(), { max: 200 }) }),
     response: S.doc({ type: "object", properties: { added: { type: "integer" } } }),
@@ -130,7 +130,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/channels/:channelId/members/:userId/remove", sensitive: true, errors: [404],
+    ...base, method: "post", path: "/teams/:teamId/channels/:channelId/members/:userId/remove", scope: "organizations:manage", sensitive: true, errors: [404],
     summary: "Remove someone from a private or shared channel (or leave it)",
     params: S.object({ teamId: S.objectId(), channelId: S.objectId(), userId: S.objectId() }),
     response: S.doc({ type: "object", properties: { removed: { type: "boolean" } } }),
@@ -138,7 +138,7 @@ defineRoute({
 });
 
 defineRoute({
-    ...base, method: "post", path: "/teams/:teamId/channels/:channelId/delete", sensitive: true, errors: [404],
+    ...base, method: "post", path: "/teams/:teamId/channels/:channelId/delete", scope: "organizations:manage", sensitive: true, errors: [404],
     summary: "Delete (archive) a channel; history is kept but nobody can read it",
     params: channelParams,
     response: S.doc({ type: "object", properties: { deleted: { type: "boolean" } } }),

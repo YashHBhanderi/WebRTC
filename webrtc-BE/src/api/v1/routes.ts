@@ -57,7 +57,7 @@ defineRoute({
 });
 
 defineRoute({
-    method: "get", path: "/workspace", tag: "Workspace", workspace: true,
+    method: "get", path: "/workspace", scope: "organizations:read", tag: "Workspace", workspace: true,
     summary: "Active workspace: name, my role, policies and my permissions",
     response: S.doc({
         type: "object",
@@ -71,7 +71,7 @@ defineRoute({
 });
 
 defineRoute({
-    method: "patch", path: "/workspace/policies", tag: "Workspace", workspace: true, sensitive: true,
+    method: "patch", path: "/workspace/policies", scope: "organizations:manage", tag: "Workspace", workspace: true, sensitive: true,
     summary: "Change workspace policies (owner / admin only)",
     body: S.object({
         allowExternalChat: S.bool({ optional: true }),
@@ -84,7 +84,7 @@ defineRoute({
 });
 
 defineRoute({
-    method: "get", path: "/workspaces", tag: "Workspace", summary: "Workspaces I have used (switching happens in Clerk)",
+    method: "get", path: "/workspaces", scope: "organizations:read", tag: "Workspace", summary: "Workspaces I have used (switching happens in Clerk)",
     response: S.doc({
         type: "array",
         items: { type: "object", properties: { tenantId: { type: "string" }, clerkOrgId: { type: "string" }, name: { type: "string" }, slug: { type: "string" }, role: { type: "string" }, active: { type: "boolean" } } },
@@ -172,7 +172,7 @@ defineRoute({
 });
 
 defineRoute({
-    method: "post", path: "/conversations/external", tag: "Conversations", workspace: true, sensitive: true,
+    method: "post", path: "/conversations/external", scope: "conversations:write", tag: "Conversations", workspace: true, sensitive: true,
     summary: "Start (or reopen) an external 1:1 chat with someone outside the workspace", errors: [404],
     description: "Requires the workspace policy allowExternalChat, and admin role unless membersCanStartExternal.",
     body: S.object({ userId: S.objectId({ description: "The outside person" }) }),

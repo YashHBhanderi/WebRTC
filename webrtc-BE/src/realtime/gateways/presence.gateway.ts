@@ -42,22 +42,7 @@ export function registerPresenceGateway(socket: AuthedSocket): void {
     // Messages sent while this user was away have now reached a device
     receiptsService.markAllDelivered(userId).catch((error) => console.error(`Failed to mark deliveries for ${userId}:`, safeError(error)));
 
-    // Status picker (Available / Busy / Do not disturb / Away / Appear offline) and status message
-    socket.on("presence:set", async (data: { status?: unknown; statusMessage?: unknown }, ack?: (r: unknown) => void) => {
-        try {
-            const presence = await presenceService.setStatus(userId, data?.status, data?.statusMessage);
-            ack?.({ success: true, presence });
-        } catch (error) {
-            ack?.({ error: publicMessage(error, "We couldn't update your status. Please try again.") });
-        }
-    });
-
-    // The client reports when the user has been idle (no input) for a while, and when they are back
-    socket.on("presence:idle", (data: { idle?: unknown }) => {
-        presenceService.setIdle(userId, data?.idle === true).catch((error) =>
-            console.error(`Failed to update idle state for ${userId}:`, safeError(error))
-        );
-    });
+    registerPresenceEvents(socket);
 
     socket.on("disconnect", async () => {
         const disconnectedSocketId = socket.id;
@@ -104,5 +89,31 @@ export function registerPresenceGateway(socket: AuthedSocket): void {
                 }
             }
         }, CALL_RECONNECT_GRACE_MS);
+    });
+}
+
+/**
+ * Presence requests (status picker, idle). Shared with developer-app sockets, which get only these
+ * handlers, never the connection bookkeeping above (an app connection must not become the user's
+ * primary socket, mark them online, or hold a media peer).
+ */
+export function registerPresenceEvents(socket: AuthedSocket): void {
+    const userId = socket.data.userId;
+
+    // Status picker (Available / Busy / Do not disturb / Away / Appear offline) and status message
+    socket.on("presence:set", async (data: { status?: unknown; statusMessage?: unknown }, ack?: (r: unknown) => void) => {
+        try {
+            const presence = await presenceService.setStatus(userId, data?.status, data?.statusMessage);
+            ack?.({ success: true, presence });
+        } catch (error) {
+            ack?.({ error: publicMessage(error, "We couldn't update your status. Please try again.") });
+        }
+    });
+
+    // The client reports when the user has been idle (no input) for a while, and when they are back
+    socket.on("presence:idle", (data: { idle?: unknown }) => {
+        presenceService.setIdle(userId, data?.idle === true).catch((error) =>
+            console.error(`Failed to update idle state for ${userId}:`, safeError(error))
+        );
     });
 }

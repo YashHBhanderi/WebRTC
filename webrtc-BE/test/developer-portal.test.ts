@@ -152,7 +152,7 @@ describe("Developer Portal backend: permission catalogue", () => {
         expect(rows.map((r) => r.scope).sort()).toEqual([...ALL_SCOPES].sort());
         expect(rows.every((r) => r.description.length > 10)).toBe(true);
         expect(rows.find((r) => r.scope === "messages:write")).toMatchObject({ available: false, sensitive: true });
-        expect(rows.filter((r) => !r.available).map((r) => r.scope)).toEqual(["messages:write"]);
+        expect(rows.filter((r) => !r.available).map((r) => r.scope).sort()).toEqual(["calls:manage", "calls:write", "e2ee:device", "messages:edit", "messages:write", "recordings:write"]);
 
         const reg = await userToken(owner, { user: await makeUser() }, ["profile:read"]);
         expect((await http().get("/v1/scopes").set(bearer(reg.accessToken))).status).toBe(403);

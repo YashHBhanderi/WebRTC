@@ -110,7 +110,6 @@ async function assertExternalAllowed(ctx: RequestContext): Promise<void> {
 }
 
 export async function lookupContact(ctx: RequestContext, input: { email: unknown; scope?: ContactScope }): Promise<ContactLookup> {
-    if (ctx.app) throw new ForbiddenError("Apps cannot look people up");
     const scope: ContactScope = input.scope === "external" ? "external" : "member";
     const email = normalizeEmail(input.email);
     if (scope === "external") await assertExternalAllowed(ctx);
@@ -127,7 +126,6 @@ export async function lookupContact(ctx: RequestContext, input: { email: unknown
 
 /** Open (or reuse) a direct conversation with the person behind this email, re-checking eligibility. */
 export async function startConversation(ctx: RequestContext, input: { email: unknown; scope?: ContactScope }): Promise<{ conversationId: string; external: boolean }> {
-    if (ctx.app) throw new ForbiddenError("Apps cannot start conversations this way");
     const scope: ContactScope = input.scope === "external" ? "external" : "member";
     const email = normalizeEmail(input.email);
     if (scope === "external") await assertExternalAllowed(ctx);

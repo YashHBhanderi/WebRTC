@@ -171,7 +171,6 @@ export interface CreateOrganizationInput {
 }
 
 export async function createOrganization(ctx: RequestContext, input: CreateOrganizationInput) {
-    if (ctx.app) throw new ForbiddenError("Apps cannot create organizations");
     const name = String(input.name || "").trim();
     const slug = String(input.slug || "").trim().toLowerCase();
     if (name.length < 2 || name.length > 80) throw new AppError("Organization name must be 2–80 characters");
@@ -533,7 +532,6 @@ export async function previewInvitation(ctx: RequestContext, by: { token?: strin
 }
 
 export async function acceptInvitation(ctx: RequestContext, by: { token?: string; invitationId?: string }) {
-    if (ctx.app) throw new ForbiddenError("Apps cannot accept invitations");
     const { inv, tenant } = await invitationForCaller(ctx, by);
     const settings = settingsOf(tenant);
     if (!domainAllowed(settings, inv.email)) throw new ForbiddenError("This organization only accepts other email domains");
@@ -577,7 +575,6 @@ async function callerEmailAllowed(ctx: RequestContext, settings: ITenantSettings
 
 /** Join directly: with a valid join code (any visibility), or an open + discoverable organization. */
 export async function join(ctx: RequestContext, organizationId: string, code?: string) {
-    if (ctx.app) throw new ForbiddenError("Apps cannot join organizations");
     const generic = new NotFoundError("Organization not found or not open for joining");
     if (!mongoose.isValidObjectId(organizationId)) throw generic;
     const tenant = await managedTenant(organizationId).catch(() => { throw generic; });
@@ -599,7 +596,6 @@ export async function join(ctx: RequestContext, organizationId: string, code?: s
 }
 
 export async function requestToJoin(ctx: RequestContext, organizationId: string, message?: string) {
-    if (ctx.app) throw new ForbiddenError("Apps cannot join organizations");
     const generic = new NotFoundError("Organization not found or not accepting requests");
     if (!mongoose.isValidObjectId(organizationId)) throw generic;
     const tenant = await managedTenant(organizationId).catch(() => { throw generic; });

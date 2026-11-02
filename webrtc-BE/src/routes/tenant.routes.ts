@@ -1,5 +1,5 @@
 import { Request, Response, Router } from "express";
-import verifyToken from "../middleware/authMiddleware";
+import { requireUser } from "../middleware/authMiddleware";
 import CustomRequest from "../types/customRequest";
 import { sendError } from "../utils/errors";
 import {
@@ -23,19 +23,19 @@ const handle = (fn: (req: Request) => Promise<unknown>, fallback: string) => asy
 };
 
 /** Active workspace: name, my role, policies and what I may change */
-router.get("/tenant/current", verifyToken, handle((req) => tenantSummary(ctx(req)), "We couldn't load the workspace."));
+router.get("/tenant/current", requireUser("organizations:read"), handle((req) => tenantSummary(ctx(req)), "We couldn't load the workspace."));
 
 /** Owner / admin: switch external chat, calls, files and who may start external chats */
-router.patch("/tenant/current/policies", verifyToken, handle((req) => updateWorkspacePolicies(ctx(req), req.body), "We couldn't update the workspace policies."));
+router.patch("/tenant/current/policies", requireUser("organizations:manage"), handle((req) => updateWorkspacePolicies(ctx(req), req.body), "We couldn't update the workspace policies."));
 
 /** Workspaces I've used (switching happens in Clerk; the new session token carries the org) */
-router.get("/tenant/workspaces", verifyToken, handle((req) => myWorkspaces(ctx(req)), "We couldn't load your workspaces."));
+router.get("/tenant/workspaces", requireUser("organizations:read"), handle((req) => myWorkspaces(ctx(req)), "We couldn't load your workspaces."));
 
 /** People I can start a conversation with in the active context */
-router.get("/directory", verifyToken, handle((req) => directory(ctx(req), { q: req.query.q }), "We couldn't load the people list."));
+router.get("/directory", requireUser("directory:read"), handle((req) => directory(ctx(req), { q: req.query.q }), "We couldn't load the people list."));
 
 /** Start (or reopen) an external 1:1 chat with someone outside the workspace (policy-gated) */
-router.post("/tenant/external-conversations", verifyToken, handle(async (req) => {
+router.post("/tenant/external-conversations", requireUser("conversations:write"), handle(async (req) => {
     const conversation = await createExternalConversation(ctx(req), req.body?.userId);
     return { conversationId: String(conversation._id), scope: "external" };
 }, "We couldn't start the external chat."));

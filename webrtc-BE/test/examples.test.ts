@@ -16,7 +16,7 @@ describe("developer examples work end to end", () => {
     it("backend exchange → browser REST + realtime, with no credential in the browser client", async () => {
         const [owner, alice, bob] = await Promise.all([makeUser(), makeUser(), makeUser()]);
         const name = uniq("Example");
-        const app = (await api({ user: owner }).post("/v1/apps").send({ name, environment: "development", callbackUrls: ["https://yourapp.example.com/spreewe/callback"], scopes: ["profile:read", "conversations:read", "realtime:connect", "messages:read", "messages:write"] })).body.data;
+        const app = (await api({ user: owner }).post("/v1/apps").send({ name, environment: "development", callbackUrls: ["https://yourapp.example.com/spreewe/callback"], scopes: ["profile:read", "conversations:read", "realtime:connect", "messages:read"] })).body.data;
         const cred = (await api({ user: owner }).post(`/v1/apps/${app._id}/credentials`).send({ confirm: name })).body.data;
         const base = `http://localhost:${server.port}`;
         const backend = new SpreeWeServerClient(base, cred.credential.keyId, cred.secret);
@@ -24,7 +24,7 @@ describe("developer examples work end to end", () => {
         // Before consent the backend gets a clear 403
         await expect(backend.userToken(`yourapp-user-${alice._id}`)).rejects.toBeInstanceOf(SpreeWeApiError);
         // Consent flow: YOUR backend starts it (credential), the user approves in SpreeWe, SpreeWe redirects back with state
-        const scopes = ["profile:read", "conversations:read", "realtime:connect", "messages:read", "messages:write"];
+        const scopes = ["profile:read", "conversations:read", "realtime:connect", "messages:read"];
         const { consentUrl } = await backend.startConsent(`yourapp-user-${alice._id}`, scopes, "https://yourapp.example.com/spreewe/callback", "csrf-state-abc123");
         const requestId = new URL(consentUrl, "https://spreewe.example.com").searchParams.get("request")!;
         const approved = await api({ user: alice }).post(`/v1/consent-requests/${requestId}/approve`).send({ scopes });

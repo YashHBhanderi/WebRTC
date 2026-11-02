@@ -8,6 +8,7 @@ import { securityConfig } from "../../config/security";
 import { AppScope } from "../../developer/scopes";
 import { looksLikeAppToken } from "../../developer/tokens";
 import { authenticateCredential, recordUsage, verifyUserToken } from "../../developer/app.service";
+import { appRateLimit, countAppErrors } from "../../developer/app-request";
 import { IAppCredential, IDeveloperApp } from "../../developer/models";
 import { Schema, ValidationError, validate } from "./schema";
 
@@ -103,13 +104,6 @@ const bearer = (req: Request) => {
 
 const clerkAuth = createVerifyToken((res, status, message) => sendV1Error(res, new AppError(message, status)));
 
-/** Usage: an authenticated app request that ends with status >= 400 (failures before the app is known are not attributable) */
-function countErrors(res: Response, appId: string): void {
-    res.once("finish", () => {
-        if (res.statusCode >= 400) recordUsage(appId, "apiErrors");
-    });
-}
-
 /** Clerk session, or a developer-app user token (verified against live app / grant / tenant state). */
 function userAuth(allowAppTokens: boolean) {
     return async (req: Request, res: Response, next: NextFunction) => {
@@ -130,7 +124,7 @@ function userAuth(allowAppTokens: boolean) {
         (req as CustomRequest).userId = ctx.userId;
         (req as CustomRequest).ctx = ctx;
         recordUsage(ctx.app!.appId, "apiRequests");
-        countErrors(res, ctx.app!.appId);
+        countAppErrors(res, ctx.app!.appId);
         runWithContext(ctx, () => next());
     };
 }
@@ -139,7 +133,7 @@ async function credentialAuth(req: Request, res: Response, next: NextFunction) {
     try {
         (req as any).appAuth = await authenticateCredential(req.headers.authorization);
         recordUsage(String((req as any).appAuth.app._id), "apiRequests");
-        countErrors(res, String((req as any).appAuth.app._id));
+        countAppErrors(res, String((req as any).appAuth.app._id));
         next();
     } catch (error) {
         sendV1Error(res, error);
@@ -154,13 +148,8 @@ export function buildV1Router(defs: RouteDef[] = routes): Router {
         standardHeaders: "draft-7", legacyHeaders: false, handler: tooMany,
     });
     // Per app (app tokens): the app's own quota; keyed by app so many users / IPs share it
-    const perApp = rateLimit({
-        windowMs: 60_000,
-        limit: (req) => (req as CustomRequest).ctx?.app?.quotas.rateLimitPerMinute ?? 60,
-        keyGenerator: (req) => `app:${(req as CustomRequest).ctx?.app?.appId}`,
-        skip: (req) => !(req as CustomRequest).ctx?.app,
-        standardHeaders: "draft-7", legacyHeaders: false, handler: tooMany,
-    });
+    // Per app (app tokens): one budget shared with the session routes (developer/app-request.ts)
+    const perApp = appRateLimit;
     // Per credential (token exchange / revoke)
     const perCredential = rateLimit({
         windowMs: 60_000,

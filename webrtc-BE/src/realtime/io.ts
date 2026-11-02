@@ -4,7 +4,7 @@ import { AppError, publicMessage } from "../utils/errors";
 import { RequestContext } from "../tenancy/context";
 import { securityConfig } from "../config/security";
 import { isAppOrigin } from "../developer/origins";
-import { DELIVERED_EVENT_SCOPES } from "../developer/scopes";
+import { ALL_SCOPES, DELIVERED_EVENT_SCOPES } from "../developer/scopes";
 import { ScopeInfo, cachedConversationScope, conversationScope, visibleIn } from "../tenancy/scope";
 import { safeError } from "../utils/safe-log";
 import { onCluster, publish, userRoom } from "./cluster";
@@ -76,8 +76,72 @@ export function appMayReceive(ctx: RequestContext | undefined, event: string): b
 
 /** Developer-app sockets never get ciphertext of end-to-end encrypted messages (they can't decrypt it). */
 function forSocket(ctx: RequestContext | undefined, payload: unknown): unknown {
+    return ctx?.app ? forApp(payload) : payload;
+}
+
+function forApp(payload: unknown): unknown {
     const p = payload as Record<string, unknown> | null;
-    return ctx?.app && p && typeof p === "object" && p.e2ee ? { ...p, e2ee: undefined, content: null, encrypted: true } : payload;
+    return p && typeof p === "object" && p.e2ee ? { ...p, e2ee: undefined, content: null, encrypted: true } : payload;
+}
+
+// ------------------------------------------------------------------ developer-app rooms
+
+/**
+ * Room broadcasts (io.to(room).emit, socket.to(room).emit, socket.broadcast…) skip the per-event
+ * scope filter of `deliver`, so developer-app sockets never join real rooms. Joining a room puts an
+ * app socket in one SHADOW room per scope it holds (`app:<scope>:<room>`), and every room broadcast of
+ * an event that some scope covers (DELIVERED_EVENT_SCOPES) is mirrored, app-safe, to that scope's
+ * shadow room. Leaving a room (socketsLeave, closeRooms, revocation) leaves the shadows too.
+ * Hooked on the adapter at the origin, so shadows travel through the cluster like any broadcast.
+ */
+export const APP_ROOM_PREFIX = "app:";
+export const shadowRoom = (scope: string, room: string) => `${APP_ROOM_PREFIX}${scope}:${room}`;
+const isShadow = (room: unknown) => String(room).startsWith(APP_ROOM_PREFIX);
+const allShadows = (rooms: Iterable<unknown>) => [...rooms].filter((r) => !isShadow(r)).flatMap((r) => ALL_SCOPES.map((s) => shadowRoom(s, String(r))));
+
+export function installAppRoomShadows(server: Server): void {
+    const adapter = server.of("/").adapter as any;
+    if (adapter.__appShadows) {
+        return;
+    }
+    adapter.__appShadows = true;
+    const broadcast = adapter.broadcast.bind(adapter);
+    adapter.broadcast = (packet: any, opts: any) => {
+        const result = broadcast(packet, opts);
+        // Socket.IO EVENT packet: data = [event, ...args]
+        if (packet?.type === 2 && Array.isArray(packet.data) && opts?.rooms?.size) {
+            const [event, ...args] = packet.data;
+            const scope = DELIVERED_EVENT_SCOPES[event];
+            // Rooms named after a single socket (direct `deliver`) are already filtered per socket
+            const rooms = [...opts.rooms].filter((r: unknown) => !isShadow(r) && !server.of("/").sockets.has(String(r)));
+            if (scope && rooms.length) {
+                broadcast({ ...packet, data: [event, ...args.map(forApp)] }, { ...opts, rooms: new Set(rooms.map((r: unknown) => shadowRoom(scope, String(r)))) });
+            }
+        }
+        return result;
+    };
+    for (const method of ["addSockets", "delSockets"] as const) {
+        const original = adapter[method].bind(adapter);
+        adapter[method] = (opts: any, rooms: string[]) => {
+            original(opts, rooms);
+            const shadows = allShadows(rooms);
+            if (!shadows.length) return;
+            // App sockets are members of the shadows of the selecting rooms (e.g. a user room) too
+            const selecting = opts?.rooms?.size ? new Set([...opts.rooms, ...allShadows(opts.rooms)]) : opts?.rooms;
+            original({ ...opts, rooms: selecting }, shadows);
+        };
+    }
+}
+
+/** For developer-app sockets: join() puts the socket in the shadow rooms of the scopes it holds. */
+export function useAppRooms(socket: Socket, scopes: readonly string[]): void {
+    const join = socket.join.bind(socket);
+    const leave = socket.leave.bind(socket);
+    // Rooms that are already shadows (the adapter making sockets join / leave them, e.g. on revocation)
+    // pass through unchanged; any other room becomes the shadows of the scopes this socket holds
+    const expand = (rooms: string | string[]) => (Array.isArray(rooms) ? rooms : [rooms]).flatMap((r) => (isShadow(r) ? [r] : scopes.map((s) => shadowRoom(s, r))));
+    (socket as any).join = (rooms: string | string[]) => join(expand(rooms));
+    (socket as any).leave = (room: string) => Promise.all(expand(room).map((r) => leave(r)));
 }
 
 function deliver(socketId: string, userId: string, info: ScopeInfo | null, event: string, payload: unknown): void {
@@ -268,9 +332,14 @@ export function removeUserFromRoom(userId: string, room: string): void {
 }
 
 function removeUserFromRoomLocally(userId: string, room: string): void {
+    // No realtime server in this process (e.g. a REST-only worker): there are no sockets to remove
+    if (!ioServer) {
+        return;
+    }
     // EVERY socket of the user (each tab / device), not only the latest: a removed member's other
-    // connections must stop receiving the room's broadcasts too (userRoom holds all first-party sockets)
-    io().in(userRoom(String(userId))).socketsLeave(String(room));
+    // connections must stop receiving the room's broadcasts too (userRoom holds all first-party sockets,
+    // and the shadow rooms of developer-app sockets follow, see installAppRoomShadows)
+    ioServer.in(userRoom(String(userId))).socketsLeave(String(room));
 }
 
 export type AuthedSocket = Socket & { data: { userId: string; deviceId: string; ctx: RequestContext } };

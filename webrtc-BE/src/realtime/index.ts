@@ -2,7 +2,7 @@ import http from "http";
 import { verifyToken } from "@clerk/express";
 import { authConfig, isAuthConfigured } from "../config/auth";
 import { resolveLocalUserId } from "../services/identity.service";
-import { AuthedSocket, addAppSocket, createIo, removeAppSocket, socketContexts } from "./io";
+import { AuthedSocket, addAppSocket, createIo, installAppRoomShadows, removeAppSocket, socketContexts, useAppRooms } from "./io";
 import { userRoom } from "./cluster";
 import { looksLikeAppToken, verifyAppTokenSignature } from "../developer/tokens";
 import { recordUsage, verifyUserToken } from "../developer/app.service";
@@ -11,7 +11,7 @@ import { orgClaimsFromPayload, resolveContext } from "../tenancy/tenant.service"
 import { runWithContext } from "../tenancy/context";
 import { sharedSocketLimiter } from "./rate-limit";
 import { startSocketRevalidation } from "./revalidate";
-import { registerPresenceGateway } from "./gateways/presence.gateway";
+import { registerPresenceEvents, registerPresenceGateway } from "./gateways/presence.gateway";
 import { registerChatGateway } from "./gateways/chat.gateway";
 import { registerMessageGateway } from "./gateways/message.gateway";
 import { registerGroupGateway } from "./gateways/group.gateway";
@@ -44,6 +44,7 @@ function logRejection(error: unknown): void {
 
 export function startRealtime(server: http.Server, corsOrigin: string[] | "*") {
     const io = createIo(server, corsOrigin);
+    installAppRoomShadows(io);
     startSocketRevalidation();
 
     io.use(async (socket, next) => {
@@ -178,8 +179,10 @@ function setUpAppSocket(socket: AuthedSocket, ctx: AuthedSocket["data"]["ctx"]):
         appConnections.set(app.appId, Math.max(0, (appConnections.get(app.appId) || 1) - 1));
         appConnections.set(userKey, Math.max(0, (appConnections.get(userKey) || 1) - 1));
     });
-    // Rooms would deliver un-filtered broadcasts: app sockets never join any
-    (socket as any).join = () => undefined;
+    // Rooms deliver un-filtered broadcasts: app sockets join per-scope shadow rooms instead (io.ts),
+    // through the same handlers (joinConversation checks membership), plus the user's own room
+    useAppRooms(socket, app.scopes);
+    void socket.join(userRoom(String(ctx.userId)));
 
     const allow = sharedSocketLimiter(`app:${userKey}`);
     socket.use((packet, next) => {
@@ -202,7 +205,9 @@ function setUpAppSocket(socket: AuthedSocket, ctx: AuthedSocket["data"]["ctx"]):
     });
     socket.on("error", () => undefined);
     runWithContext(ctx, () => {
+        registerPresenceEvents(socket);
         registerChatGateway(socket);
         registerMessageGateway(socket);
+        registerGroupGateway(socket);
     });
 }

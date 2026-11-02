@@ -22,7 +22,7 @@ app.post("/spreewe/token", async (req, res) => {
     if (!me) return res.status(401).json({ message: "Sign in first" });
     try {
         // The ref must be the one this user consented with in SpreeWe (POST /v1/apps/{appId}/grants)
-        const token = await spreewe.userToken(`yourapp-user-${me.id}`, ["realtime:connect", "messages:read", "messages:write"]);
+        const token = await spreewe.userToken(`yourapp-user-${me.id}`, ["realtime:connect", "messages:read"]);
         res.json({ accessToken: token.accessToken, expiresAt: token.expiresAt });
     } catch (error) {
         if (error instanceof SpreeWeApiError && error.status === 403) {

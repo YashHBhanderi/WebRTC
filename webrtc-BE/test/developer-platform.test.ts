@@ -186,10 +186,15 @@ describe("scoped user tokens (req. 2, 4, 5)", () => {
         expect((await http().get("/v1/me").set(bearer(good))).body.data.user._id).toBe(String(alice._id));
         // Wrong scope for the route
         expect((await http().get("/v1/directory").set(bearer(good))).status).toBe(403);
-        // First-party-only and legacy routes refuse app tokens
+        // First-party-only routes refuse app tokens; other routes need the matching scope
         expect((await http().get("/v1/apps").set(bearer(good))).status).toBe(403);
-        expect((await http().get("/v1/workspaces").set(bearer(good))).status).toBe(403);
-        expect((await http().get("/conversations").set(bearer(good))).status).toBe(401);
+        expect((await http().get("/v1/workspaces").set(bearer(good))).status).toBe(403); // organizations:read not granted
+        expect((await http().delete(`/web/deleteUser/${alice._id}`).set(bearer(good))).status).toBe(403); // SpreeWe sessions only
+        // Session routes accept app tokens with the route's scope (conversations:read) …
+        expect((await http().get("/conversations").set(bearer(good))).status).toBe(200);
+        // … and refuse them without it (groups:read, notifications:read)
+        expect((await http().get("/groupConversations").set(bearer(good))).status).toBe(403);
+        expect((await http().get("/notifications").set(bearer(good))).status).toBe(403);
 
         const [h, p] = good.split(".");
         const claims = JSON.parse(Buffer.from(p, "base64url").toString());
@@ -321,7 +326,10 @@ describe("app sockets and connection limits (req. 11, 12, 13)", () => {
     beforeAll(async () => {
         server = await startSocketServer();
         [owner, alice, bob] = await Promise.all([makeUser(), makeUser(), makeUser()]);
-        reg = await registerApp({ user: owner }, { name: uniq("Rt"), scopes: ["realtime:connect", "messages:read", "messages:write", "profile:read"], quotas: { messagesPerDay: 2 } });
+        reg = await registerApp({ user: owner }, { name: uniq("Rt"), scopes: ["realtime:connect", "messages:read", "profile:read"], quotas: { messagesPerDay: 2 } });
+        // An app registered before messages:write became unavailable still holds it (kept for continuity);
+        // its sends must still be refused because the app has no encryption device
+        await runAsSystem(() => DeveloperApp.updateOne({ _id: reg.app._id }, { $addToSet: { scopes: "messages:write" } }), "test-legacy-app");
         await grant({ user: alice }, reg.app._id, ["realtime:connect", "messages:read", "messages:write", "profile:read"]);
     });
     afterAll(async () => {
@@ -442,6 +450,7 @@ describe("validation defaults and OpenAPI security (req. 14)", () => {
         expect(doc.paths["/v1/app-tokens"].post.security).toEqual([{ appCredential: [] }]);
         expect(doc.paths["/v1/me"].get.security).toEqual([{ clerkSession: [] }, { appUserToken: ["profile:read"] }]);
         expect(doc.paths["/v1/apps"].post.security).toEqual([{ clerkSession: [] }]);
-        expect(doc.paths["/v1/workspace/policies"].patch.security).toEqual([{ clerkSession: [] }]);
+        expect(doc.paths["/v1/workspace/policies"].patch.security).toEqual([{ clerkSession: [] }, { appUserToken: ["organizations:manage"] }]);
+        expect(doc.paths["/v1/workspace/organization/delete"].post.security).toEqual([{ clerkSession: [] }]);
     });
 });

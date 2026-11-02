@@ -114,10 +114,13 @@ paths:
       tags:
         - Workspace
       summary: "Active workspace: name, my role, policies and my permissions"
-      description: "Active workspace: name, my role, policies and my permissions. Access: Signed-in user (Clerk session) or an app user token. Requires an active workspace (organization) in the session."
+      description: "Active workspace: name, my role, policies and my permissions. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getWorkspace
       security:
         - clerkSession: []
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
       x-auth: user
       responses:
         "200":
@@ -201,10 +204,13 @@ paths:
       tags:
         - Workspace
       summary: Change workspace policies (owner / admin only)
-      description: "Change workspace policies (owner / admin only). Access: Signed-in user (Clerk session) or an app user token. Requires an active workspace (organization) in the session."
+      description: "Change workspace policies (owner / admin only). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: patchWorkspacePolicies
       security:
         - clerkSession: []
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
       x-auth: user
       requestBody:
         required: true
@@ -273,10 +279,13 @@ paths:
       tags:
         - Workspace
       summary: Workspaces I have used (switching happens in Clerk)
-      description: "Workspaces I have used (switching happens in Clerk). Access: Signed-in user (Clerk session) or an app user token."
+      description: "Workspaces I have used (switching happens in Clerk). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope."
       operationId: getWorkspaces
       security:
         - clerkSession: []
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
       x-auth: user
       responses:
         "200":
@@ -659,6 +668,9 @@ paths:
       operationId: postConversationsExternal
       security:
         - clerkSession: []
+        - appUserToken:
+            - "conversations:write"
+      x-required-scope: "conversations:write"
       x-auth: user
       requestBody:
         required: true
@@ -996,14 +1008,38 @@ paths:
                     type: string
                     enum:
                       - "profile:read"
+                      - "profile:write"
                       - "directory:read"
+                      - "contacts:write"
                       - "conversations:read"
+                      - "conversations:write"
+                      - "conversations:delete"
+                      - "groups:read"
+                      - "groups:write"
+                      - "groups:manage"
                       - "messages:read"
+                      - "messages:react"
+                      - "messages:delete"
                       - "messages:write"
+                      - "messages:edit"
+                      - "e2ee:device"
+                      - "files:read"
+                      - "files:write"
                       - "calls:read"
+                      - "calls:write"
+                      - "calls:manage"
+                      - "meetings:read"
+                      - "meetings:write"
                       - "recordings:read"
+                      - "recordings:write"
+                      - "notifications:read"
+                      - "notifications:write"
+                      - "search:read"
+                      - "organizations:read"
+                      - "organizations:write"
+                      - "organizations:manage"
                       - "realtime:connect"
-                  maxItems: 8
+                  maxItems: 32
                 allowedOrigins:
                   type: array
                   items:
@@ -1077,12 +1113,36 @@ paths:
                           type: string
                           enum:
                             - "profile:read"
+                            - "profile:write"
                             - "directory:read"
+                            - "contacts:write"
                             - "conversations:read"
+                            - "conversations:write"
+                            - "conversations:delete"
+                            - "groups:read"
+                            - "groups:write"
+                            - "groups:manage"
                             - "messages:read"
+                            - "messages:react"
+                            - "messages:delete"
                             - "messages:write"
+                            - "messages:edit"
+                            - "e2ee:device"
+                            - "files:read"
+                            - "files:write"
                             - "calls:read"
+                            - "calls:write"
+                            - "calls:manage"
+                            - "meetings:read"
+                            - "meetings:write"
                             - "recordings:read"
+                            - "recordings:write"
+                            - "notifications:read"
+                            - "notifications:write"
+                            - "search:read"
+                            - "organizations:read"
+                            - "organizations:write"
+                            - "organizations:manage"
                             - "realtime:connect"
                       allowedOrigins:
                         type: array
@@ -1184,12 +1244,36 @@ paths:
                             type: string
                             enum:
                               - "profile:read"
+                              - "profile:write"
                               - "directory:read"
+                              - "contacts:write"
                               - "conversations:read"
+                              - "conversations:write"
+                              - "conversations:delete"
+                              - "groups:read"
+                              - "groups:write"
+                              - "groups:manage"
                               - "messages:read"
+                              - "messages:react"
+                              - "messages:delete"
                               - "messages:write"
+                              - "messages:edit"
+                              - "e2ee:device"
+                              - "files:read"
+                              - "files:write"
                               - "calls:read"
+                              - "calls:write"
+                              - "calls:manage"
+                              - "meetings:read"
+                              - "meetings:write"
                               - "recordings:read"
+                              - "recordings:write"
+                              - "notifications:read"
+                              - "notifications:write"
+                              - "search:read"
+                              - "organizations:read"
+                              - "organizations:write"
+                              - "organizations:manage"
                               - "realtime:connect"
                         allowedOrigins:
                           type: array
@@ -1297,12 +1381,36 @@ paths:
                           type: string
                           enum:
                             - "profile:read"
+                            - "profile:write"
                             - "directory:read"
+                            - "contacts:write"
                             - "conversations:read"
+                            - "conversations:write"
+                            - "conversations:delete"
+                            - "groups:read"
+                            - "groups:write"
+                            - "groups:manage"
                             - "messages:read"
+                            - "messages:react"
+                            - "messages:delete"
                             - "messages:write"
+                            - "messages:edit"
+                            - "e2ee:device"
+                            - "files:read"
+                            - "files:write"
                             - "calls:read"
+                            - "calls:write"
+                            - "calls:manage"
+                            - "meetings:read"
+                            - "meetings:write"
                             - "recordings:read"
+                            - "recordings:write"
+                            - "notifications:read"
+                            - "notifications:write"
+                            - "search:read"
+                            - "organizations:read"
+                            - "organizations:write"
+                            - "organizations:manage"
                             - "realtime:connect"
                       allowedOrigins:
                         type: array
@@ -1399,14 +1507,38 @@ paths:
                     type: string
                     enum:
                       - "profile:read"
+                      - "profile:write"
                       - "directory:read"
+                      - "contacts:write"
                       - "conversations:read"
+                      - "conversations:write"
+                      - "conversations:delete"
+                      - "groups:read"
+                      - "groups:write"
+                      - "groups:manage"
                       - "messages:read"
+                      - "messages:react"
+                      - "messages:delete"
                       - "messages:write"
+                      - "messages:edit"
+                      - "e2ee:device"
+                      - "files:read"
+                      - "files:write"
                       - "calls:read"
+                      - "calls:write"
+                      - "calls:manage"
+                      - "meetings:read"
+                      - "meetings:write"
                       - "recordings:read"
+                      - "recordings:write"
+                      - "notifications:read"
+                      - "notifications:write"
+                      - "search:read"
+                      - "organizations:read"
+                      - "organizations:write"
+                      - "organizations:manage"
                       - "realtime:connect"
-                  maxItems: 8
+                  maxItems: 32
                 allowedOrigins:
                   type: array
                   items:
@@ -1478,12 +1610,36 @@ paths:
                           type: string
                           enum:
                             - "profile:read"
+                            - "profile:write"
                             - "directory:read"
+                            - "contacts:write"
                             - "conversations:read"
+                            - "conversations:write"
+                            - "conversations:delete"
+                            - "groups:read"
+                            - "groups:write"
+                            - "groups:manage"
                             - "messages:read"
+                            - "messages:react"
+                            - "messages:delete"
                             - "messages:write"
+                            - "messages:edit"
+                            - "e2ee:device"
+                            - "files:read"
+                            - "files:write"
                             - "calls:read"
+                            - "calls:write"
+                            - "calls:manage"
+                            - "meetings:read"
+                            - "meetings:write"
                             - "recordings:read"
+                            - "recordings:write"
+                            - "notifications:read"
+                            - "notifications:write"
+                            - "search:read"
+                            - "organizations:read"
+                            - "organizations:write"
+                            - "organizations:manage"
                             - "realtime:connect"
                       allowedOrigins:
                         type: array
@@ -1603,12 +1759,36 @@ paths:
                           type: string
                           enum:
                             - "profile:read"
+                            - "profile:write"
                             - "directory:read"
+                            - "contacts:write"
                             - "conversations:read"
+                            - "conversations:write"
+                            - "conversations:delete"
+                            - "groups:read"
+                            - "groups:write"
+                            - "groups:manage"
                             - "messages:read"
+                            - "messages:react"
+                            - "messages:delete"
                             - "messages:write"
+                            - "messages:edit"
+                            - "e2ee:device"
+                            - "files:read"
+                            - "files:write"
                             - "calls:read"
+                            - "calls:write"
+                            - "calls:manage"
+                            - "meetings:read"
+                            - "meetings:write"
                             - "recordings:read"
+                            - "recordings:write"
+                            - "notifications:read"
+                            - "notifications:write"
+                            - "search:read"
+                            - "organizations:read"
+                            - "organizations:write"
+                            - "organizations:manage"
                             - "realtime:connect"
                       allowedOrigins:
                         type: array
@@ -1728,12 +1908,36 @@ paths:
                           type: string
                           enum:
                             - "profile:read"
+                            - "profile:write"
                             - "directory:read"
+                            - "contacts:write"
                             - "conversations:read"
+                            - "conversations:write"
+                            - "conversations:delete"
+                            - "groups:read"
+                            - "groups:write"
+                            - "groups:manage"
                             - "messages:read"
+                            - "messages:react"
+                            - "messages:delete"
                             - "messages:write"
+                            - "messages:edit"
+                            - "e2ee:device"
+                            - "files:read"
+                            - "files:write"
                             - "calls:read"
+                            - "calls:write"
+                            - "calls:manage"
+                            - "meetings:read"
+                            - "meetings:write"
                             - "recordings:read"
+                            - "recordings:write"
+                            - "notifications:read"
+                            - "notifications:write"
+                            - "search:read"
+                            - "organizations:read"
+                            - "organizations:write"
+                            - "organizations:manage"
                             - "realtime:connect"
                       allowedOrigins:
                         type: array
@@ -1867,12 +2071,36 @@ paths:
                           type: string
                           enum:
                             - "profile:read"
+                            - "profile:write"
                             - "directory:read"
+                            - "contacts:write"
                             - "conversations:read"
+                            - "conversations:write"
+                            - "conversations:delete"
+                            - "groups:read"
+                            - "groups:write"
+                            - "groups:manage"
                             - "messages:read"
+                            - "messages:react"
+                            - "messages:delete"
                             - "messages:write"
+                            - "messages:edit"
+                            - "e2ee:device"
+                            - "files:read"
+                            - "files:write"
                             - "calls:read"
+                            - "calls:write"
+                            - "calls:manage"
+                            - "meetings:read"
+                            - "meetings:write"
                             - "recordings:read"
+                            - "recordings:write"
+                            - "notifications:read"
+                            - "notifications:write"
+                            - "search:read"
+                            - "organizations:read"
+                            - "organizations:write"
+                            - "organizations:manage"
                             - "realtime:connect"
                       allowedOrigins:
                         type: array
@@ -2640,14 +2868,38 @@ paths:
                     type: string
                     enum:
                       - "profile:read"
+                      - "profile:write"
                       - "directory:read"
+                      - "contacts:write"
                       - "conversations:read"
+                      - "conversations:write"
+                      - "conversations:delete"
+                      - "groups:read"
+                      - "groups:write"
+                      - "groups:manage"
                       - "messages:read"
+                      - "messages:react"
+                      - "messages:delete"
                       - "messages:write"
+                      - "messages:edit"
+                      - "e2ee:device"
+                      - "files:read"
+                      - "files:write"
                       - "calls:read"
+                      - "calls:write"
+                      - "calls:manage"
+                      - "meetings:read"
+                      - "meetings:write"
                       - "recordings:read"
+                      - "recordings:write"
+                      - "notifications:read"
+                      - "notifications:write"
+                      - "search:read"
+                      - "organizations:read"
+                      - "organizations:write"
+                      - "organizations:manage"
                       - "realtime:connect"
-                  maxItems: 8
+                  maxItems: 32
               required:
                 - scopes
       responses:
@@ -2882,14 +3134,38 @@ paths:
                     type: string
                     enum:
                       - "profile:read"
+                      - "profile:write"
                       - "directory:read"
+                      - "contacts:write"
                       - "conversations:read"
+                      - "conversations:write"
+                      - "conversations:delete"
+                      - "groups:read"
+                      - "groups:write"
+                      - "groups:manage"
                       - "messages:read"
+                      - "messages:react"
+                      - "messages:delete"
                       - "messages:write"
+                      - "messages:edit"
+                      - "e2ee:device"
+                      - "files:read"
+                      - "files:write"
                       - "calls:read"
+                      - "calls:write"
+                      - "calls:manage"
+                      - "meetings:read"
+                      - "meetings:write"
                       - "recordings:read"
+                      - "recordings:write"
+                      - "notifications:read"
+                      - "notifications:write"
+                      - "search:read"
+                      - "organizations:read"
+                      - "organizations:write"
+                      - "organizations:manage"
                       - "realtime:connect"
-                  maxItems: 8
+                  maxItems: 32
                 state:
                   type: string
                   minLength: 8
@@ -3079,14 +3355,38 @@ paths:
                     type: string
                     enum:
                       - "profile:read"
+                      - "profile:write"
                       - "directory:read"
+                      - "contacts:write"
                       - "conversations:read"
+                      - "conversations:write"
+                      - "conversations:delete"
+                      - "groups:read"
+                      - "groups:write"
+                      - "groups:manage"
                       - "messages:read"
+                      - "messages:react"
+                      - "messages:delete"
                       - "messages:write"
+                      - "messages:edit"
+                      - "e2ee:device"
+                      - "files:read"
+                      - "files:write"
                       - "calls:read"
+                      - "calls:write"
+                      - "calls:manage"
+                      - "meetings:read"
+                      - "meetings:write"
                       - "recordings:read"
+                      - "recordings:write"
+                      - "notifications:read"
+                      - "notifications:write"
+                      - "search:read"
+                      - "organizations:read"
+                      - "organizations:write"
+                      - "organizations:manage"
                       - "realtime:connect"
-                  maxItems: 8
+                  maxItems: 32
               required:
                 - scopes
       responses:
@@ -3259,14 +3559,38 @@ paths:
                     type: string
                     enum:
                       - "profile:read"
+                      - "profile:write"
                       - "directory:read"
+                      - "contacts:write"
                       - "conversations:read"
+                      - "conversations:write"
+                      - "conversations:delete"
+                      - "groups:read"
+                      - "groups:write"
+                      - "groups:manage"
                       - "messages:read"
+                      - "messages:react"
+                      - "messages:delete"
                       - "messages:write"
+                      - "messages:edit"
+                      - "e2ee:device"
+                      - "files:read"
+                      - "files:write"
                       - "calls:read"
+                      - "calls:write"
+                      - "calls:manage"
+                      - "meetings:read"
+                      - "meetings:write"
                       - "recordings:read"
+                      - "recordings:write"
+                      - "notifications:read"
+                      - "notifications:write"
+                      - "search:read"
+                      - "organizations:read"
+                      - "organizations:write"
+                      - "organizations:manage"
                       - "realtime:connect"
-                  maxItems: 8
+                  maxItems: 32
                 ttlSeconds:
                   type: integer
                   minimum: 60
@@ -3457,12 +3781,36 @@ paths:
                             type: string
                             enum:
                               - "profile:read"
+                              - "profile:write"
                               - "directory:read"
+                              - "contacts:write"
                               - "conversations:read"
+                              - "conversations:write"
+                              - "conversations:delete"
+                              - "groups:read"
+                              - "groups:write"
+                              - "groups:manage"
                               - "messages:read"
+                              - "messages:react"
+                              - "messages:delete"
                               - "messages:write"
+                              - "messages:edit"
+                              - "e2ee:device"
+                              - "files:read"
+                              - "files:write"
                               - "calls:read"
+                              - "calls:write"
+                              - "calls:manage"
+                              - "meetings:read"
+                              - "meetings:write"
                               - "recordings:read"
+                              - "recordings:write"
+                              - "notifications:read"
+                              - "notifications:write"
+                              - "search:read"
+                              - "organizations:read"
+                              - "organizations:write"
+                              - "organizations:manage"
                               - "realtime:connect"
                         allowedOrigins:
                           type: array
@@ -4742,10 +5090,13 @@ paths:
       tags:
         - Workspace
       summary: Members of the active workspace with role and status (roles / invitations are managed in Clerk)
-      description: "Members of the active workspace with role and status (roles / invitations are managed in Clerk). Access: Signed-in user (Clerk session) or an app user token. Requires an active workspace (organization) in the session."
+      description: "Members of the active workspace with role and status (roles / invitations are managed in Clerk). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getWorkspaceMembers
       security:
         - clerkSession: []
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
       x-auth: user
       parameters:
         - name: limit
@@ -4993,11 +5344,14 @@ paths:
       tags:
         - Organizations
       summary: "Create an organization; the caller becomes its owner (switch to it with the returned clerkOrgId)"
-      description: "Create an organization; the caller becomes its owner (switch to it with the returned clerkOrgId). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Create an organization; the caller becomes its owner (switch to it with the returned clerkOrgId). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:write` scope."
       operationId: postOrganizations
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:write"
+      x-required-scope: "organizations:write"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -5095,11 +5449,14 @@ paths:
       tags:
         - Organizations
       summary: Organizations I belong to (for the workspace switcher)
-      description: "Organizations I belong to (for the workspace switcher). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Organizations I belong to (for the workspace switcher). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope."
       operationId: getOrganizationsMine
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
+      x-auth: user
       responses:
         "200":
           description: Success
@@ -5184,11 +5541,14 @@ paths:
       tags:
         - Organizations
       summary: Search organizations that chose to be discoverable (private organizations are never listed)
-      description: "Search organizations that chose to be discoverable (private organizations are never listed). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Search organizations that chose to be discoverable (private organizations are never listed). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope."
       operationId: getOrganizationsDiscover
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
+      x-auth: user
       parameters:
         - name: q
           in: query
@@ -5281,11 +5641,14 @@ paths:
       tags:
         - Organizations
       summary: "Join with a join code, or directly if the organization is discoverable and open"
-      description: "Join with a join code, or directly if the organization is discoverable and open. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Join with a join code, or directly if the organization is discoverable and open. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:write` scope."
       operationId: postOrganizationsOrganizationIdJoin
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:write"
+      x-required-scope: "organizations:write"
+      x-auth: user
       parameters:
         - name: organizationId
           in: path
@@ -5387,11 +5750,14 @@ paths:
       tags:
         - Organizations
       summary: "Ask to join a discoverable organization whose policy is 'request'"
-      description: "Ask to join a discoverable organization whose policy is 'request'. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Ask to join a discoverable organization whose policy is 'request'. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:write` scope."
       operationId: postOrganizationsOrganizationIdJoin-requests
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:write"
+      x-required-scope: "organizations:write"
+      x-auth: user
       parameters:
         - name: organizationId
           in: path
@@ -5475,11 +5841,14 @@ paths:
       tags:
         - Organizations
       summary: My requests to join organizations
-      description: "My requests to join organizations. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "My requests to join organizations. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope."
       operationId: getMeJoin-requests
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
+      x-auth: user
       responses:
         "200":
           description: Success
@@ -5558,11 +5927,14 @@ paths:
       tags:
         - Organizations
       summary: Withdraw my pending join request
-      description: "Withdraw my pending join request. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Withdraw my pending join request. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:write` scope."
       operationId: postMeJoin-requestsRequestIdCancel
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:write"
+      x-required-scope: "organizations:write"
+      x-auth: user
       parameters:
         - name: requestId
           in: path
@@ -5627,11 +5999,14 @@ paths:
       tags:
         - Organizations
       summary: Pending invitations addressed to my verified email addresses
-      description: "Pending invitations addressed to my verified email addresses. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Pending invitations addressed to my verified email addresses. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope."
       operationId: getMeOrganization-invitations
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
+      x-auth: user
       responses:
         "200":
           description: Success
@@ -5710,11 +6085,14 @@ paths:
       tags:
         - Organizations
       summary: "What an invitation (link token or my invitation id) is for — only if it is addressed to one of my verified emails"
-      description: "What an invitation (link token or my invitation id) is for — only if it is addressed to one of my verified emails. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "What an invitation (link token or my invitation id) is for — only if it is addressed to one of my verified emails. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope."
       operationId: postOrganization-invitationsPreview
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -5812,11 +6190,14 @@ paths:
       tags:
         - Organizations
       summary: Accept an invitation addressed to one of my verified emails (single use)
-      description: "Accept an invitation addressed to one of my verified emails (single use). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Accept an invitation addressed to one of my verified emails (single use). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:write` scope."
       operationId: postOrganization-invitationsAccept
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:write"
+      x-required-scope: "organizations:write"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -5920,11 +6301,14 @@ paths:
       tags:
         - Organization admin
       summary: "The active organization: details, my role and permissions (settings for owners / admins)"
-      description: "The active organization: details, my role and permissions (settings for owners / admins). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "The active organization: details, my role and permissions (settings for owners / admins). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getWorkspaceOrganization
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
+      x-auth: user
       responses:
         "200":
           description: Success
@@ -5979,11 +6363,14 @@ paths:
       tags:
         - Organization admin
       summary: Update details and membership / visibility settings (owners / admins)
-      description: "Update details and membership / visibility settings (owners / admins). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Update details and membership / visibility settings (owners / admins). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: patchWorkspaceOrganization
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -6236,11 +6623,14 @@ paths:
       tags:
         - Organization admin
       summary: Leave the active organization (the last owner must transfer ownership first)
-      description: "Leave the active organization (the last owner must transfer ownership first). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Leave the active organization (the last owner must transfer ownership first). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:write` scope. Requires an active workspace (organization) in the session."
       operationId: postWorkspaceLeave
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:write"
+      x-required-scope: "organizations:write"
+      x-auth: user
       responses:
         "201":
           description: Success
@@ -6299,11 +6689,14 @@ paths:
       tags:
         - Organization admin
       summary: "Members of the active organization (removed members: owners / admins with includeRemoved)"
-      description: "Members of the active organization (removed members: owners / admins with includeRemoved). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Members of the active organization (removed members: owners / admins with includeRemoved). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getWorkspaceOrganizationMembers
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:read"
+      x-required-scope: "organizations:read"
+      x-auth: user
       parameters:
         - name: limit
           in: query
@@ -6400,11 +6793,14 @@ paths:
       tags:
         - Organization admin
       summary: "Change a member's role (owners: any; admins: member ↔ guest). Never your own"
-      description: "Change a member's role (owners: any; admins: member ↔ guest). Never your own. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Change a member's role (owners: any; admins: member ↔ guest). Never your own. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: patchWorkspaceOrganizationMembersUserId
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       parameters:
         - name: userId
           in: path
@@ -6495,11 +6891,14 @@ paths:
       tags:
         - Organization admin
       summary: "Remove a member (access ends immediately, on every instance within MEMBERSHIP_CHECK_CACHE_MS)"
-      description: "Remove a member (access ends immediately, on every instance within MEMBERSHIP_CHECK_CACHE_MS). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Remove a member (access ends immediately, on every instance within MEMBERSHIP_CHECK_CACHE_MS). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postWorkspaceOrganizationMembersUserIdRemove
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       parameters:
         - name: userId
           in: path
@@ -6571,11 +6970,14 @@ paths:
       tags:
         - Organization admin
       summary: "Invite people by email; returns each single-use link once (no email provider is configured yet)"
-      description: "Invite people by email; returns each single-use link once (no email provider is configured yet). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Invite people by email; returns each single-use link once (no email provider is configured yet). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postWorkspaceInvitations
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -6673,11 +7075,14 @@ paths:
       tags:
         - Organization admin
       summary: Invitations of the active organization
-      description: "Invitations of the active organization. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Invitations of the active organization. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: getWorkspaceInvitations
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       parameters:
         - name: status
           in: query
@@ -6771,11 +7176,14 @@ paths:
       tags:
         - Organization admin
       summary: New link for a pending invitation (the previous link stops working)
-      description: "New link for a pending invitation (the previous link stops working). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "New link for a pending invitation (the previous link stops working). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postWorkspaceInvitationsInvitationIdResend
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       parameters:
         - name: invitationId
           in: path
@@ -6848,11 +7256,14 @@ paths:
       tags:
         - Organization admin
       summary: Revoke a pending invitation
-      description: "Revoke a pending invitation. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Revoke a pending invitation. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postWorkspaceInvitationsInvitationIdRevoke
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       parameters:
         - name: invitationId
           in: path
@@ -6918,11 +7329,14 @@ paths:
       tags:
         - Organization admin
       summary: Join requests (owners / admins)
-      description: "Join requests (owners / admins). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Join requests (owners / admins). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: getWorkspaceJoin-requests
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       parameters:
         - name: status
           in: query
@@ -7154,11 +7568,14 @@ paths:
       tags:
         - Organization admin
       summary: "Create a new join code (shown once; replaces the old one) or disable joining by code"
-      description: "Create a new join code (shown once; replaces the old one) or disable joining by code. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Create a new join code (shown once; replaces the old one) or disable joining by code. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postWorkspaceJoin-code
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -7227,11 +7644,14 @@ paths:
       tags:
         - Organization admin
       summary: Administrative audit log of the active organization (owners / admins)
-      description: "Administrative audit log of the active organization (owners / admins). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Administrative audit log of the active organization (owners / admins). Access: Signed-in user (Clerk session) or an app user token. App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: getWorkspaceAudit
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "organizations:manage"
+      x-required-scope: "organizations:manage"
+      x-auth: user
       parameters:
         - name: limit
           in: query
@@ -7314,10 +7734,11 @@ paths:
       tags:
         - Teams
       summary: "Teams I can see: public teams and teams I belong to (guests: only their teams)"
-      description: "Teams I can see: public teams and teams I belong to (guests: only their teams). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Teams I can see: public teams and teams I belong to (guests: only their teams). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getTeams
       security:
         - clerkSession: []
+      x-required-scope: "organizations:read"
       x-auth: firstParty
       responses:
         "200":
@@ -7388,10 +7809,11 @@ paths:
       tags:
         - Teams
       summary: "Create a team (owners / admins; members if the organization allows). You become its owner; it gets a General channel"
-      description: "Create a team (owners / admins; members if the organization allows). You become its owner; it gets a General channel. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Create a team (owners / admins; members if the organization allows). You become its owner; it gets a General channel. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:write` scope. Requires an active workspace (organization) in the session."
       operationId: postTeams
       security:
         - clerkSession: []
+      x-required-scope: "organizations:write"
       x-auth: firstParty
       requestBody:
         required: true
@@ -7477,10 +7899,11 @@ paths:
       tags:
         - Teams
       summary: "A team (404 for private teams I'm not in)"
-      description: "A team (404 for private teams I'm not in). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "A team (404 for private teams I'm not in). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getTeamsTeamId
       security:
         - clerkSession: []
+      x-required-scope: "organizations:read"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -7562,10 +7985,11 @@ paths:
       tags:
         - Teams
       summary: "Update a team (team owners, organization owners / admins)"
-      description: "Update a team (team owners, organization owners / admins). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Update a team (team owners, organization owners / admins). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: patchTeamsTeamId
       security:
         - clerkSession: []
+      x-required-scope: "organizations:manage"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -7664,10 +8088,11 @@ paths:
       tags:
         - Teams
       summary: "Delete (archive) a team and its channels; history is kept but nobody can read them"
-      description: "Delete (archive) a team and its channels; history is kept but nobody can read them. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Delete (archive) a team and its channels; history is kept but nobody can read them. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdArchive
       security:
         - clerkSession: []
+      x-required-scope: "organizations:manage"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -7734,10 +8159,11 @@ paths:
       tags:
         - Teams
       summary: "Join a public team (organization members, not guests)"
-      description: "Join a public team (organization members, not guests). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Join a public team (organization members, not guests). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:write` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdJoin
       security:
         - clerkSession: []
+      x-required-scope: "organizations:write"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -7804,10 +8230,11 @@ paths:
       tags:
         - Teams
       summary: Members of a team
-      description: "Members of a team. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Members of a team. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getTeamsTeamIdMembers
       security:
         - clerkSession: []
+      x-required-scope: "organizations:read"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -7885,10 +8312,11 @@ paths:
       tags:
         - Teams
       summary: Add organization members to a team (team owners / managers)
-      description: "Add organization members to a team (team owners / managers). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Add organization members to a team (team owners / managers). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:write` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdMembers
       security:
         - clerkSession: []
+      x-required-scope: "organizations:write"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -7977,10 +8405,11 @@ paths:
       tags:
         - Teams
       summary: Change a team role (team owners)
-      description: "Change a team role (team owners). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Change a team role (team owners). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: patchTeamsTeamIdMembersUserId
       security:
         - clerkSession: []
+      x-required-scope: "organizations:manage"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -8077,10 +8506,11 @@ paths:
       tags:
         - Teams
       summary: "Remove someone from a team, or leave it (your own id). The last owner can't"
-      description: "Remove someone from a team, or leave it (your own id). The last owner can't. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Remove someone from a team, or leave it (your own id). The last owner can't. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdMembersUserIdRemove
       security:
         - clerkSession: []
+      x-required-scope: "organizations:manage"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -8159,10 +8589,11 @@ paths:
       tags:
         - Teams
       summary: Channels of a team (private channels only for their members)
-      description: "Channels of a team (private channels only for their members). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Channels of a team (private channels only for their members). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:read` scope. Requires an active workspace (organization) in the session."
       operationId: getTeamsTeamIdChannels
       security:
         - clerkSession: []
+      x-required-scope: "organizations:read"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -8248,10 +8679,11 @@ paths:
       tags:
         - Teams
       summary: "Create a channel: standard (whole team), private (chosen team members) or shared (with approved external people; policy permitting)"
-      description: "Create a channel: standard (whole team), private (chosen team members) or shared (with approved external people; policy permitting). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Create a channel: standard (whole team), private (chosen team members) or shared (with approved external people; policy permitting). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:write` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdChannels
       security:
         - clerkSession: []
+      x-required-scope: "organizations:write"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -8372,10 +8804,11 @@ paths:
       tags:
         - Teams
       summary: Add team members to a private or shared channel (channel / team owners)
-      description: "Add team members to a private or shared channel (channel / team owners). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Add team members to a private or shared channel (channel / team owners). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:write` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdChannelsChannelIdMembers
       security:
         - clerkSession: []
+      x-required-scope: "organizations:write"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -8464,10 +8897,11 @@ paths:
       tags:
         - Teams
       summary: Remove someone from a private or shared channel (or leave it)
-      description: "Remove someone from a private or shared channel (or leave it). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Remove someone from a private or shared channel (or leave it). Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdChannelsChannelIdMembersUserIdRemove
       security:
         - clerkSession: []
+      x-required-scope: "organizations:manage"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -8546,10 +8980,11 @@ paths:
       tags:
         - Teams
       summary: "Delete (archive) a channel; history is kept but nobody can read it"
-      description: "Delete (archive) a channel; history is kept but nobody can read it. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). Requires an active workspace (organization) in the session."
+      description: "Delete (archive) a channel; history is kept but nobody can read it. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused). App tokens need the `organizations:manage` scope. Requires an active workspace (organization) in the session."
       operationId: postTeamsTeamIdChannelsChannelIdDelete
       security:
         - clerkSession: []
+      x-required-scope: "organizations:manage"
       x-auth: firstParty
       parameters:
         - name: teamId
@@ -8622,11 +9057,14 @@ paths:
       tags:
         - People
       summary: "Find an eligible person by exact email. Unregistered, blocked or unavailable people all get found=false"
-      description: "Find an eligible person by exact email. Unregistered, blocked or unavailable people all get found=false. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Find an eligible person by exact email. Unregistered, blocked or unavailable people all get found=false. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `directory:read` scope."
       operationId: postContactsLookup
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "directory:read"
+      x-required-scope: "directory:read"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -8713,11 +9151,14 @@ paths:
       tags:
         - People
       summary: "Open (or reuse) a direct conversation with the person behind this email; external conversations only where the organization allows them"
-      description: "Open (or reuse) a direct conversation with the person behind this email; external conversations only where the organization allows them. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      description: "Open (or reuse) a direct conversation with the person behind this email; external conversations only where the organization allows them. Access: Signed-in user (Clerk session) or an app user token. App tokens need the `contacts:write` scope."
       operationId: postContactsStart
       security:
         - clerkSession: []
-      x-auth: firstParty
+        - appUserToken:
+            - "contacts:write"
+      x-required-scope: "contacts:write"
+      x-auth: user
       requestBody:
         required: true
         content:
@@ -9415,14 +9856,38 @@ components:
         clientCredentials:
           tokenUrl: /api/v1/app-tokens
           scopes:
-            "profile:read": "Read the user's own profile (GET /v1/me)"
-            "directory:read": "List people the user can contact in the app's context (GET /v1/directory)"
-            "conversations:read": "List the user's conversations (GET /v1/conversations)"
-            "messages:read": Read messages (GET /v1/conversations/{id}/messages) and receive new / edited / deleted message events over Socket.IO
-            "messages:write": "Not available: messages are end-to-end encrypted on the user's own devices, so apps cannot send them (every app sendMessage is refused). Reserved."
-            "calls:read": "Read the user's call history (GET /v1/calls)"
-            "recordings:read": Read recording details and short-lived download links (GET /v1/recordings/{id})
-            "realtime:connect": "Open a Socket.IO connection; receive presence of people visible in the app's context"
+            "profile:read": "Read the user's own profile (GET /v1/me, GET /web/user/me) and profiles of people visible to the user"
+            "profile:write": "Update the user's profile (name, bio, picture) and set their presence status"
+            "directory:read": "List and look up people the user can contact in the app's context (directory, contact lookup)"
+            "contacts:write": "Start conversations with contacts found by lookup, and block or unblock people for the user"
+            "conversations:read": "List the user's direct conversations and read their state (archived, favourite, unread)"
+            "conversations:write": "Open direct conversations, external conversations, and archive / favourite / clear chats for the user"
+            "conversations:delete": Delete group conversations the user administers
+            "groups:read": "List the user's groups and read group details and members"
+            "groups:write": "Create groups and update group name, description and picture"
+            "groups:manage": "Add and remove group members, promote or demote admins, and leave groups for the user"
+            "messages:read": "Read message history and metadata, search, receive message / typing / receipt events, send typing indicators and read / delivery receipts. Encrypted content is never included."
+            "messages:react": "Add or remove reactions, pin messages, and save (star) messages for the user"
+            "messages:delete": "Delete the user's own messages"
+            "messages:write": "Send end-to-end encrypted messages from an encryption device the app registers for the user (requires e2ee:device)"
+            "messages:edit": "Edit the user's own end-to-end encrypted messages (requires e2ee:device)"
+            "e2ee:device": "Register an end-to-end encryption device for the user. The app's device can read the user's messages in conversations it receives keys for; it is listed, labelled with the app's name, in the user's devices and can be revoked."
+            "files:read": "List the user's files and the shared media of conversations (encrypted attachments stay encrypted)"
+            "files:write": "Upload files (encrypted attachments, group and profile pictures) for the user"
+            "calls:read": "Read the user's call history and the state of calls they are in"
+            "calls:write": "Start, accept, reject, join, leave and end audio / video calls, including media and screen sharing"
+            "calls:manage": "Host controls in calls the user hosts: mute, remove, admit, co-hosts and call settings"
+            "meetings:read": "Read the user's scheduled meetings and meeting links"
+            "meetings:write": "Schedule, update and cancel meetings, and join meetings by code"
+            "recordings:read": "Read recordings of the user's conversations, transcripts and short-lived download links"
+            "recordings:write": Start and stop call recordings and retry transcriptions
+            "notifications:read": "Read the user's notifications and unread count, and receive new-notification events"
+            "notifications:write": "Mark the user's notifications as read"
+            "search:read": "Search across the user's people, conversations, messages and files"
+            "organizations:read": "Read the user's organizations, workspaces, members, teams and channels, and their invitations"
+            "organizations:write": "Create and join organizations, request to join, accept invitations, and create or join teams and channels"
+            "organizations:manage": "Administer workspaces the user administers: members, roles, invitations, join requests, settings, teams and channels (the user's own role still applies)"
+            "realtime:connect": "Open a Socket.IO connection and receive presence of people visible in the app's context"
     appCredential:
       type: http
       scheme: basic
