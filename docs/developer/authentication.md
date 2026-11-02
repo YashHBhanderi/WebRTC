@@ -32,7 +32,7 @@ Your backend holds an app credential (a key id and a secret). It asks the user f
 
 - Access is limited to the scopes in [section 7](#7-scopes).
 - No E2EE: no devices, no sending, and no message content (see the box above).
-- Conversations, groups, profiles, contacts, uploads, meetings, recordings (read), notifications, search, organizations and realtime events, each behind its scope ([section 7](#7-scopes)). Call signaling and media arrive in Phase 2; sending encrypted messages in Phase 3. App management stays SpreeWe-session only.
+- Conversations, groups, profiles, contacts, uploads, calls (signaling, media, screen sharing, host controls), meetings, recordings, notifications, search, organizations and realtime events, each behind its scope ([section 7](#7-scopes)). Sending encrypted messages arrives in Phase 3. App management stays SpreeWe-session only.
 
 Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`).
 
@@ -43,7 +43,7 @@ Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`)
 | Embed chat (send and read messages) in a web app where the user signs in to SpreeWe | A |
 | Read or send end-to-end encrypted message content | A (B from Phase 3, through a consented app encryption device) |
 | Groups, uploads, meetings, notifications, organizations | A, or B with the matching scopes |
-| Calls and media | A (B in Phase 2) |
+| Calls and media | A, or B with `calls:read` / `calls:write` / `calls:manage` |
 | Read a user's profile, directory, conversation list, call history or recording links from your server | B |
 | Learn on your server that messages were created, edited or deleted (without their content) | B with `messages:read` |
 | Work while the user's browser is closed | B (read-only scopes) |
@@ -192,10 +192,13 @@ The live catalogue (with descriptions, `sensitive` and `available`) is `GET /v1/
 | `messages:delete`\* | `DELETE /messages/:id` | | |
 | `files:read`\* | `GET /files`, `GET /conversations/:id/media` | | |
 | `files:write` | `POST /upload` | | |
-| `calls:read` | `GET /v1/calls`, `GET /calls` | | |
+| `calls:read` | `GET /v1/calls`, `GET /calls` | `call:getState`, `call:getActive`, `call:session` | `call:incoming`, `call:pending-rings`, `call:meeting-active`, `call:started`, `call:ended`, `call:participant-joined`, `call:participant-left`, `call:participant-rejected`, `call:error` |
+| `calls:write` | | `call:start`, `call:accept`, `call:reject`, `call:leave`, `call:end`, `call:upgrade`, `call:media-state`, `call:hand`, `call:reaction`, `call:takeover`, `ice:getServers`, every `mediasoup:*` request, `screen:join`, `screen:start`, `screen:stop`, `screen:getState` | `call:media-updated`, `call:settings`, `call:lobby`, `call:admitted`, `call:denied`, `call:removed`, `call:force-muted`, `call:force-leave`, `call:audio-levels`, `call:hand`, `call:reaction`, `call:share-stopped`, `mediasoup:newProducer`, `mediasoup:producerClosed`, `screen:started`, `screen:stopped` |
+| `calls:manage`\* | | `call:mute-participant`, `call:mute-all`, `call:remove-participant`, `call:admit`, `call:deny`, `call:set-cohost`, `call:settings` (host or co-host of a group call, in the call) | |
 | `meetings:read` | `GET /meetings`, `GET /meetings/:id`, `GET /meetings/code/:code` | | `meeting:updated` |
 | `meetings:write` | `POST /meetings`, `PATCH /meetings/:id`, `DELETE /meetings/:id`, `POST /meetings/code/:code/join` | | |
-| `recordings:read`\* | `GET /v1/recordings/:id`, `GET /recordings/:id`, `…/transcript`, `…/transcript/export`, `GET /conversations/:id/recordings` | | `recording:updated` |
+| `recordings:read`\* | `GET /v1/recordings/:id`, `GET /recordings/:id`, `…/transcript`, `…/transcript/export`, `GET /conversations/:id/recordings` | | `recording:updated`, `call:recording` |
+| `recordings:write`\* | `POST /recordings/:id/transcript/retry` | `call:record-start`, `call:record-stop` (the server decides who may record) | |
 | `notifications:read` | `GET /notifications`, `GET /notifications/unread-count` | | `notification:new`, `notification:read` |
 | `notifications:write` | `POST /notifications/read` | | |
 | `search:read`\* | `GET /search` | | |
@@ -206,8 +209,9 @@ The live catalogue (with descriptions, `sensitive` and `available`) is `GET /v1/
 
 \*Sensitive: highlighted on the consent screen.
 
+**Calls:** an app takes part in a call as another device of its user. SpreeWe allows one media session per user, so while the app is in a call the user's other devices get `IN_CALL_ELSEWHERE`, exactly as with two SpreeWe devices. The media flow and its order (join before transports) are in [Realtime events](./realtime-events.md). If an app socket disconnects mid-call, it leaves the call after the same reconnect grace period as SpreeWe clients.
+
 **Not available yet** (listed in `GET /v1/scopes` with `available: false`, and refused when you add them to an app):
-- `calls:write`, `calls:manage`, `recordings:write`: call signaling, media and host controls, recording control and transcript retry. Phase 2.
 - `messages:write`, `messages:edit`, `e2ee:device`: sending and editing end-to-end encrypted messages from an encryption device the app registers with the user's consent. Phase 3. Apps registered before these became unavailable may still hold `messages:write`; their sends are refused (`message:rejected`, reason `e2ee`).
 
 **Always SpreeWe-session only:** developer-app management, consent decisions, the E2EE device and key endpoints (until Phase 3), deleting or transferring an organization, `/v1/workspace/apps` and app-grant revocation, and `DELETE /web/deleteUser/:id`.
