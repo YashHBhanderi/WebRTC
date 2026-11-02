@@ -223,6 +223,8 @@ export interface IConsentRequest {
     externalUserRef: string | null;
     redirectUri: string;
     state: string;
+    /** OAuth 2.0 authorization-code flow: the PKCE S256 challenge (null = server consent flow) */
+    codeChallenge: string | null;
     status: "pending" | "approved" | "denied";
     decidedBy: mongoose.Types.ObjectId | null;
     decidedAt: Date | null;
@@ -237,6 +239,7 @@ const ConsentRequestSchema = new Schema<IConsentRequest>({
     externalUserRef: { type: String, default: null, maxlength: 200 },
     redirectUri: { type: String, required: true, maxlength: 300 },
     state: { type: String, required: true, maxlength: 200 },
+    codeChallenge: { type: String, default: null, maxlength: 128 },
     status: { type: String, enum: ["pending", "approved", "denied"], default: "pending" },
     decidedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     decidedAt: { type: Date, default: null },
@@ -246,3 +249,64 @@ const ConsentRequestSchema = new Schema<IConsentRequest>({
 ConsentRequestSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 86_400 });
 
 export const ConsentRequest = mongoose.model<IConsentRequest>("ConsentRequest", ConsentRequestSchema, "app_consent_requests");
+
+// ------------------------------------------------------------------ OAuth 2.0 (authorization code + PKCE)
+
+/** One-time authorization code (stored as its SHA-256), exchanged at POST /oauth/token within minutes. */
+export interface IOAuthCode {
+    _id: string;
+    appId: mongoose.Types.ObjectId;
+    userId: mongoose.Types.ObjectId;
+    scopes: string[];
+    redirectUri: string;
+    /** PKCE S256 challenge from /oauth/authorize */
+    codeChallenge: string;
+    expiresAt: Date;
+    usedAt: Date | null;
+}
+
+const OAuthCodeSchema = new Schema<IOAuthCode>({
+    _id: { type: String, required: true },
+    appId: { type: Schema.Types.ObjectId, ref: "DeveloperApp", required: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    scopes: { type: [String], default: [] },
+    redirectUri: { type: String, required: true, maxlength: 300 },
+    codeChallenge: { type: String, required: true, maxlength: 128 },
+    expiresAt: { type: Date, required: true },
+    usedAt: { type: Date, default: null },
+}, { versionKey: false });
+OAuthCodeSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 3600 });
+
+export const OAuthCode = mongoose.model<IOAuthCode>("OAuthCode", OAuthCodeSchema, "app_oauth_codes");
+
+/**
+ * Refresh token (stored as its SHA-256). Rotated on every use; all tokens descending from one
+ * authorization share a family, and presenting an already-used token revokes the whole family.
+ */
+export interface IRefreshToken {
+    _id: string;
+    familyId: string;
+    appId: mongoose.Types.ObjectId;
+    userId: mongoose.Types.ObjectId;
+    scopes: string[];
+    expiresAt: Date;
+    usedAt: Date | null;
+    revokedAt: Date | null;
+    createdAt: Date;
+}
+
+const RefreshTokenSchema = new Schema<IRefreshToken>({
+    _id: { type: String, required: true },
+    familyId: { type: String, required: true },
+    appId: { type: Schema.Types.ObjectId, ref: "DeveloperApp", required: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    scopes: { type: [String], default: [] },
+    expiresAt: { type: Date, required: true },
+    usedAt: { type: Date, default: null },
+    revokedAt: { type: Date, default: null },
+}, { timestamps: { createdAt: true, updatedAt: false }, versionKey: false });
+RefreshTokenSchema.index({ familyId: 1 });
+RefreshTokenSchema.index({ appId: 1, userId: 1 });
+RefreshTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 86_400 });
+
+export const RefreshToken = mongoose.model<IRefreshToken>("RefreshToken", RefreshTokenSchema, "app_refresh_tokens");

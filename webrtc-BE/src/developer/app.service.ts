@@ -9,6 +9,7 @@ import {
 } from "./models";
 import { ALL_SCOPES, APP_SCOPES, UNAVAILABLE_SCOPES, isScope } from "./scopes";
 import { revokeAppDevices } from "../e2ee/e2ee.service";
+import { createAuthorizationCode, revokeRefreshTokens } from "./oauth.service";
 import { forgetAppOrigins } from "./origins";
 import { AppTokenClaims, AppTokenError, defaultTtlSeconds, maxTtlSeconds, signAppToken, verifyAppTokenSignature } from "./tokens";
 
@@ -258,7 +259,10 @@ export async function setAppStatus(ctx: RequestContext, appId: string, action: "
     forgetAppOrigins();
     await audit(app._id, ctx, actor, `app.${action === "suspend" ? "suspended" : action === "reactivate" ? "reactivated" : "revoked"}`);
     // Deleted: every encryption device the app holds is revoked (suspension keeps them; its tokens fail meanwhile)
-    if (action === "revoke") await revokeAppDevices(String(app._id));
+    if (action === "revoke") {
+        await revokeAppDevices(String(app._id));
+        await revokeRefreshTokens(String(app._id));
+    }
     return publicApp(updated!);
 }
 
@@ -266,6 +270,8 @@ export async function revokeAllTokens(ctx: RequestContext, appId: string, confir
     const { app } = await managedApp(ctx, appId);
     requireConfirmation(app, ctx, confirm);
     await sys(() => DeveloperApp.updateOne({ _id: app._id }, { $inc: { tokenVersion: 1 } }), "app-tokens");
+    // Refresh tokens could otherwise mint new access tokens: they end too
+    await revokeRefreshTokens(String(app._id));
     await audit(app._id, ctx, "owner", "tokens.revoked_all");
     return { revoked: true };
 }
@@ -434,7 +440,7 @@ export function scopeCatalog() {
 }
 
 /** App server: start a consent flow for one of its users. Returns the URL to send the user to. */
-export async function createConsentRequest(auth: { app: IDeveloperApp }, input: { redirectUri: string; scopes: string[]; state: string; externalUserRef?: string }) {
+export async function createConsentRequest(auth: { app: IDeveloperApp }, input: { redirectUri: string; scopes: string[]; state: string; externalUserRef?: string; codeChallenge?: string }) {
     const { app } = auth;
     // Exact match against registered callback URLs (no prefix / wildcard matching)
     let normalized: string;
@@ -448,7 +454,7 @@ export async function createConsentRequest(auth: { app: IDeveloperApp }, input: 
     if (!scopes.length) throw new AppError("Request at least one scope");
     const id = crypto.randomBytes(18).toString("base64url");
     await sys(() => ConsentRequest.create({
-        _id: id, appId: app._id, scopes, externalUserRef: input.externalUserRef ?? null, redirectUri: normalized, state: input.state,
+        _id: id, appId: app._id, scopes, externalUserRef: input.externalUserRef ?? null, redirectUri: normalized, state: input.state, codeChallenge: input.codeChallenge ?? null,
         status: "pending", expiresAt: new Date(Date.now() + CONSENT_TTL_MS),
     }), "consent-request");
     const base = (process.env.APP_PUBLIC_URL || "").replace(/\/+$/, "");
@@ -509,8 +515,13 @@ export async function decideConsentRequest(ctx: RequestContext, requestId: strin
             if (!chosen.includes("e2ee:device")) await revokeAppDevices(String(app._id), String(ctx.userId));
             const url = new URL(req.redirectUri);
             url.searchParams.set("state", req.state);
-            url.searchParams.set("result", "approved");
-            url.searchParams.set("grant", String(grant!._id));
+            if (req.codeChallenge) {
+                // OAuth 2.0: a one-time code (PKCE-bound) the app exchanges at POST /oauth/token
+                url.searchParams.set("code", await createAuthorizationCode(app, ctx.userId, chosen, req.redirectUri, req.codeChallenge));
+            } else {
+                url.searchParams.set("result", "approved");
+                url.searchParams.set("grant", String(grant!._id));
+            }
             return { redirectUrl: url.toString(), scopes: chosen };
         } catch (error: any) {
             if (error?.code === 11000) throw new AppError("This account link is already used by another SpreeWe account", 409);
@@ -542,8 +553,9 @@ export async function revokeMyGrant(ctx: RequestContext, grantId: string) {
     const grant = await sys(() => AppGrant.findOneAndUpdate({ _id: oid(grantId), userId: oid(ctx.userId), status: "active" }, { $set: { status: "revoked" }, $inc: { version: 1 } }, { new: true }).lean(), "app-grant");
     if (!grant) throw new NotFoundError("Grant not found");
     await audit(grant.appId, ctx, "user", "grant.revoked");
-    // The app's encryption devices for this user stop receiving keys
+    // The app's encryption devices for this user stop receiving keys, and its refresh tokens end
     await revokeAppDevices(String(grant.appId), String(ctx.userId));
+    await revokeRefreshTokens(String(grant.appId), String(ctx.userId));
     return { revoked: true };
 }
 
@@ -554,7 +566,14 @@ export async function revokeMyGrant(ctx: RequestContext, grantId: string) {
  * It identifies the user by SpreeWe user id or by the externalUserRef the user consented with.
  */
 export async function issueToken(auth: { app: IDeveloperApp; credential: IAppCredential }, input: { userId?: string; externalUserRef?: string; scopes?: string[]; ttlSeconds?: number }) {
-    const { app } = auth;
+    return mintUserToken(auth.app, input);
+}
+
+/**
+ * A user token for one user who granted the app (server exchange and OAuth alike): the grant must be
+ * active, scopes are within grant ∩ app, the user and (workspace apps) their membership are checked.
+ */
+export async function mintUserToken(app: IDeveloperApp, input: { userId?: string; externalUserRef?: string; scopes?: string[]; ttlSeconds?: number }) {
     if (!!input.userId === !!input.externalUserRef) throw new AppError("Send exactly one of userId or externalUserRef");
     const filter: Record<string, unknown> = { appId: app._id, status: "active" };
     if (input.userId) filter.userId = oid(input.userId);

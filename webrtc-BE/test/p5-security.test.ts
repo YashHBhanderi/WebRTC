@@ -160,8 +160,11 @@ describe("F3/F5 — concurrent rotation and resource caps", () => {
 });
 
 // ---------------------------------------------------------------- F4: CORS for app origins
-describe("F4 — CORS: app origins only for /v1, only while the app is active, never credentialed", () => {
-    it("allows a registered app origin on /v1 preflight, not on legacy routes, not after suspension", async () => {
+// Since phase 1 of the third-party API, session routes accept app tokens (by scope), so browser apps need
+// CORS there too. Still: only registered origins of ACTIVE apps, never credentialed; app tokens are bound to
+// their own app's origins and SpreeWe session tokens to CLERK_AUTHORIZED_PARTIES (SEC-015).
+describe("F4 — CORS: registered app origins on API routes, only while the app is active, never credentialed", () => {
+    it("allows a registered app origin on /v1 and session routes, not unknown origins, not after suspension", async () => {
         const owner = await makeUser();
         const origin = `https://${uniq("app")}.example.com`;
         const reg = await registerApp({ user: owner }, { environment: "production", allowedOrigins: [origin], callbackUrls: [] });
@@ -171,10 +174,13 @@ describe("F4 — CORS: app origins only for /v1, only while the app is active, n
         const ok = await pre("/api/v1/me");
         expect(ok.headers["access-control-allow-origin"]).toBe(origin);
         expect(ok.headers["access-control-allow-credentials"]).toBeUndefined();
-        expect((await pre("/conversations")).headers["access-control-allow-origin"]).toBeUndefined();
+        expect((await pre("/conversations")).headers["access-control-allow-origin"]).toBe(origin);
+        expect((await pre("/conversations")).headers["access-control-allow-credentials"]).toBeUndefined();
+        expect((await pre("/conversations", "https://evil.example.com")).headers["access-control-allow-origin"]).toBeUndefined();
         expect((await pre("/api/v1/me", "https://evil.example.com")).headers["access-control-allow-origin"]).toBeUndefined();
         await api({ user: owner }).post(`/v1/apps/${reg.app._id}/suspend`).send({});
         expect((await pre("/api/v1/me")).headers["access-control-allow-origin"]).toBeUndefined();
+        expect((await pre("/conversations")).headers["access-control-allow-origin"]).toBeUndefined();
         // First-party origin still works everywhere
         expect((await pre("/conversations", "https://spreewe.example.com")).headers["access-control-allow-origin"]).toBe("https://spreewe.example.com");
     });

@@ -1,4 +1,5 @@
 import express from "express";
+import oauthRouter from "./api/oauth.routes";
 import path from "path";
 import cors from "cors";
 import router from "./routes/routes";
@@ -37,13 +38,13 @@ export function createApp(corsOrigin: string[] | "*") {
     app.use(logger);
     // Security headers. Media links are loaded by the web app from another origin.
     app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-    // First-party origins everywhere; registered developer-app origins additionally for /v1 only.
+    // First-party origins everywhere; registered developer-app origins too (their tokens are bound to
+    // their own origins, session tokens to CLERK_AUTHORIZED_PARTIES, and nothing uses cookies).
     // Never with credentials (no cookies): tokens are sent in the Authorization header.
     const firstParty = (origin: string) => corsOrigin === "*" || corsOrigin.includes(origin);
     app.use(cors((req, callback) => {
         const origin = req.headers.origin;
-        const v1 = /^\/(api\/)?v1(\/|$)/.test(req.path);
-        if (!origin || firstParty(origin) || !v1) {
+        if (!origin || firstParty(origin)) {
             return callback(null, { origin: corsOrigin, credentials: false });
         }
         isAppOrigin(origin).then((ok) => callback(null, { origin: ok ? origin : false, credentials: false }), () => callback(null, { origin: false }));
@@ -85,6 +86,8 @@ export function createApp(corsOrigin: string[] | "*") {
     const api = express.Router();
     // Versioned API: every /v1 route is authenticated, context-scoped, validated (src/api/v1)
     api.use("/v1", buildV1Router());
+    // OAuth 2.0 (authorization code + PKCE, refresh tokens) for developer apps: public endpoints
+    api.use("/oauth", oauthRouter);
     api.use(router);
     api.use(tenantRouter);
     // Stored files (S3): upload needs a session; clients read straight from S3 (see file.service)
