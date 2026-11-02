@@ -6,11 +6,11 @@ Related: [Realtime events](./realtime-events.md) · [/v1 REST API](./rest-api/v1
 
 Every path below works with and without an `/api` prefix (for example `/api/v1/me` and `/v1/me`).
 
-> **Important: developer-application tokens cannot use end-to-end encryption.**
-> In the current implementation, a developer-application token cannot register an encryption device, upload or claim keys, or send end-to-end encrypted messages. Every E2EE endpoint refuses app tokens ("Apps can't take part in end-to-end encryption"). Every chat message is end-to-end encrypted, so an app cannot send messages.
-> The `messages:write` scope exists, but **it currently grants nothing**. The server rejects every `sendMessage` from an app socket and emits `message:rejected` with `reason: "e2ee"`.
-> With `messages:read`, an app receives message events with the encrypted content removed (`content: null`, `encrypted: true`).
-> If your product needs to send or read message content, use the user-session mode (A).
+> **End-to-end encryption and developer applications.**
+> Messages are encrypted on devices; the SpreeWe server only relays ciphertext. An app can take part only through **its own encryption device**, registered with the `e2ee:device` scope that the user approves on the consent screen. That device is listed in the user's devices as `<app name> (app)` and the user can revoke it at any time.
+> **What this means for the user:** an app with `e2ee:device` can read the user's messages in every conversation whose keys reach its device, and send messages as the user (`messages:write`). The consent screen says so. Treat `e2ee:device` as the most sensitive permission.
+> Apps **without** `e2ee:device` never receive ciphertext: message events and history show `encrypted: true` and `content: null`.
+> A developer's server can hold an app device (SpreeWe can't tell where a device runs). The guarantee that holds is that **SpreeWe's server never sees plaintext or private keys**.
 
 ---
 
@@ -32,7 +32,7 @@ Your backend holds an app credential (a key id and a secret). It asks the user f
 
 - Access is limited to the scopes in [section 7](#7-scopes).
 - No E2EE: no devices, no sending, and no message content (see the box above).
-- Conversations, groups, profiles, contacts, uploads, calls (signaling, media, screen sharing, host controls), meetings, recordings, notifications, search, organizations and realtime events, each behind its scope ([section 7](#7-scopes)). Sending encrypted messages arrives in Phase 3. App management stays SpreeWe-session only.
+- Conversations, groups, profiles, contacts, uploads, calls (signaling, media, screen sharing, host controls), meetings, recordings, notifications, search, organizations and realtime events, each behind its scope ([section 7](#7-scopes)). Encrypted messaging through an app encryption device (`e2ee:device`, `messages:write`, `messages:edit`). App management stays SpreeWe-session only.
 
 Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`).
 
@@ -41,13 +41,13 @@ Status: **Implemented and tested** (`webrtc-BE/test/developer-platform.test.ts`)
 | You need to... | Use |
 |---|---|
 | Embed chat (send and read messages) in a web app where the user signs in to SpreeWe | A |
-| Read or send end-to-end encrypted message content | A (B from Phase 3, through a consented app encryption device) |
+| Read or send end-to-end encrypted message content | A, or B with `e2ee:device` + `messages:read` / `messages:write` (the app runs its own encryption device) |
 | Groups, uploads, meetings, notifications, organizations | A, or B with the matching scopes |
 | Calls and media | A, or B with `calls:read` / `calls:write` / `calls:manage` |
 | Read a user's profile, directory, conversation list, call history or recording links from your server | B |
 | Learn on your server that messages were created, edited or deleted (without their content) | B with `messages:read` |
 | Work while the user's browser is closed | B (read-only scopes) |
-| Send messages from a bot or a backend | Neither. This is not supported today |
+| Send messages from a bot or a backend | B with `e2ee:device` + `messages:write`, running an encryption device on your server (the user consents to it) |
 
 ---
 
@@ -190,6 +190,9 @@ The live catalogue (with descriptions, `sensitive` and `available`) is `GET /v1/
 | `messages:read`\* | `GET /v1/conversations/:id/messages`, `GET /messages/:id`, `…/search`, `…/position/:messageId`, `GET /saved-messages` | `joinConversation`, `typing`, `stopTyping`, `markMessagesRead`, `message:delivered` | `receiveMessage`, `message:updated`, `message:deleted`, `message:rejected`, `message:pins`, `messageReactionUpdated`, `messagesMarkedRead`, `receipts:updated`, `userTyping` |
 | `messages:react` | `PUT /messages/:id/save` | `reactToMessage`, `message:pin` | |
 | `messages:delete`\* | `DELETE /messages/:id` | | |
+| `messages:write`\* | | `sendMessage` (from a device the app registered: the payload's `device_id` must be one of its active devices; counts against `messagesPerDay`) | |
+| `messages:edit`\* | | `message:edit` (own messages, re-encrypted on the app's device) | |
+| `e2ee:device`\* | all `/v1/e2ee/*` routes, always naming the app's own device in `X-SpreeWe-Device` | | `e2ee:to-device`, `e2ee:devices-changed`; message events and history **with ciphertext** |
 | `files:read`\* | `GET /files`, `GET /conversations/:id/media` | | |
 | `files:write` | `POST /upload` | | |
 | `calls:read` | `GET /v1/calls`, `GET /calls` | `call:getState`, `call:getActive`, `call:session` | `call:incoming`, `call:pending-rings`, `call:meeting-active`, `call:started`, `call:ended`, `call:participant-joined`, `call:participant-left`, `call:participant-rejected`, `call:error` |
@@ -211,12 +214,9 @@ The live catalogue (with descriptions, `sensitive` and `available`) is `GET /v1/
 
 **Calls:** an app takes part in a call as another device of its user. SpreeWe allows one media session per user, so while the app is in a call the user's other devices get `IN_CALL_ELSEWHERE`, exactly as with two SpreeWe devices. The media flow and its order (join before transports) are in [Realtime events](./realtime-events.md). If an app socket disconnects mid-call, it leaves the call after the same reconnect grace period as SpreeWe clients.
 
-**Not available yet** (listed in `GET /v1/scopes` with `available: false`, and refused when you add them to an app):
-- `messages:write`, `messages:edit`, `e2ee:device`: sending and editing end-to-end encrypted messages from an encryption device the app registers with the user's consent. Phase 3. Apps registered before these became unavailable may still hold `messages:write`; their sends are refused (`message:rejected`, reason `e2ee`).
+**Always SpreeWe-session only:** developer-app management, consent decisions, deleting or transferring an organization, `/v1/workspace/apps` and app-grant revocation, and `DELETE /web/deleteUser/:id`.
 
-**Always SpreeWe-session only:** developer-app management, consent decisions, the E2EE device and key endpoints (until Phase 3), deleting or transferring an organization, `/v1/workspace/apps` and app-grant revocation, and `DELETE /web/deleteUser/:id`.
-
-**Message content:** apps never receive ciphertext. REST responses and socket events replace each encrypted message's `e2ee` with `encrypted: true` and `content: null`.
+**Message content:** apps without `e2ee:device` never receive ciphertext: REST responses and socket events replace each encrypted message's `e2ee` with `encrypted: true` and `content: null`. Apps with `e2ee:device` receive the ciphertext and decrypt it on their device.
 
 **Realtime rooms:** an app socket joins rooms through the same requests as SpreeWe's clients (`joinConversation` checks membership). It receives only the events its scopes cover. When the user is removed from a group, the app socket loses that group's events too, on every server instance.
 
@@ -253,6 +253,12 @@ Messages are encrypted in the browser with Olm/Megolm, using the Matrix Rust cry
 What the server **can** see: who talks to whom and when, conversation membership, message metadata, device public keys and to-device message routing.
 What the server **cannot** see: message plaintext and private keys.
 
-Status: **Implemented and tested** at the protocol level (`e2ee.test.ts`, `e2ee-real-crypto.test.ts`, `sdk-e2e.test.ts`). **Implemented, not tested in a real browser**, including IndexedDB persistence and behaviour across several tabs.
+Status: **Implemented and tested** at the protocol level (`e2ee.test.ts`, `e2ee-real-crypto.test.ts`, and `developer-api-e2ee.test.ts` for app devices, all with the real Olm/Megolm library). **Not tested in a real browser or app.**
 
-To repeat: **every E2EE endpoint refuses developer-application tokens.**
+### App encryption devices (`e2ee:device`)
+
+- **Register** with the app token: `POST /v1/e2ee/devices` and a new `X-SpreeWe-Device` id. The device is bound to your app for life and labelled `<app name> (app)` (any `displayName` you send is ignored).
+- **Only your own devices:** every `/v1/e2ee/*` request from an app token must name one of the app's active devices. Your app can't use (or sync as) the user's SpreeWe devices, and SpreeWe clients can't use your app's device.
+- **Same protocol as SpreeWe clients:** upload keys, query and claim keys, share room keys, `GET /v1/e2ee/sync` (listen for `e2ee:to-device`), encrypt with Megolm, send with `sendMessage`. Check on decryption that the sending device key belongs to the claimed sender, as SpreeWe clients do.
+- **Revocation:** the user can revoke the device (`POST /v1/e2ee/devices/{deviceId}/revoke` from SpreeWe). An app can revoke only its own devices. All of the app's devices for a user are revoked automatically when the user withdraws the app's access, when the user's new grant leaves out `e2ee:device`, when the developer removes `e2ee:device` from the app, or when the app is deleted. Suspending an app keeps its devices (its tokens fail meanwhile).
+- **No key backup:** a new app device can't read messages sent before it existed.
