@@ -62,7 +62,15 @@ export const DEFAULT_TENANT_SETTINGS: ITenantSettings = {
  * tenant-scoped record references.
  */
 export interface ITenant extends Document {
-    /** Clerk organization id ("org_…"), stable external reference */
+    /**
+     * organization (or missing): a Clerk / SpreeWe organization workspace.
+     * app: the dedicated workspace of ONE developer application. Its members are only the users that
+     * application registered (User.tenantId); no Clerk session can ever enter it.
+     */
+    kind?: "organization" | "app";
+    /** kind "app": the application this tenant belongs to */
+    appId?: mongoose.Types.ObjectId | null;
+    /** Clerk organization id ("org_…"), stable external reference. Absent for application tenants. */
     clerkOrgId: string;
     name: string;
     slug: string;
@@ -95,7 +103,12 @@ const PoliciesSchema = new Schema<ITenantPolicies>({
 }, { _id: false });
 
 const TenantSchema = new Schema<ITenant>({
-    clerkOrgId: { type: String, required: true, match: /^org_[A-Za-z0-9]+$/ },
+    kind: { type: String, enum: ["organization", "app"], default: "organization" },
+    appId: { type: Schema.Types.ObjectId, ref: "DeveloperApp", default: null },
+    clerkOrgId: {
+        type: String, match: /^org_[A-Za-z0-9]+$/, default: undefined,
+        required: [function (this: ITenant) { return this.kind !== "app"; }, "clerkOrgId is required for organizations"],
+    },
     name: { type: String, default: "", maxlength: 200 },
     slug: { type: String, default: "", maxlength: 200 },
     status: { type: String, enum: ["active", "suspended", "deleted"], default: "active" },
@@ -121,7 +134,17 @@ const TenantSchema = new Schema<ITenant>({
     createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
 }, { timestamps: true });
 
-TenantSchema.index({ clerkOrgId: 1 }, { unique: true });
+// Application tenants have no Clerk organization: unique among the tenants that have one
+TenantSchema.index({ clerkOrgId: 1 }, { unique: true, partialFilterExpression: { clerkOrgId: { $type: "string" } } });
+// One dedicated tenant per application
+TenantSchema.index({ appId: 1 }, { unique: true, partialFilterExpression: { kind: "app" } });
+// An application tenant never carries a Clerk organization id
+TenantSchema.pre("validate", function (this: ITenant) {
+    if (this.kind === "app") {
+        if (!this.appId) this.invalidate("appId", "An application tenant needs its appId");
+        if (this.clerkOrgId) this.invalidate("clerkOrgId", "An application tenant has no Clerk organization");
+    }
+});
 // SpreeWe-managed organizations have unique slugs (legacy Clerk tenants may share or lack one)
 TenantSchema.index({ slug: 1 }, { unique: true, partialFilterExpression: { managedBy: "spreewe" } });
 TenantSchema.index({ "settings.discoverable": 1, status: 1 });

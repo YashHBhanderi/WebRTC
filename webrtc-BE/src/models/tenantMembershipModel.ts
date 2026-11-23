@@ -21,7 +21,7 @@ export interface ITenantMembership extends Document {
     userId: mongoose.Types.ObjectId;
     role: MembershipRole;
     /** How the membership started (spreewe-managed organizations) */
-    source?: "creator" | "invitation" | "request" | "code" | "open" | "clerk" | null;
+    source?: "creator" | "invitation" | "request" | "code" | "open" | "clerk" | "app" | null;
     joinedAt?: Date | null;
     status: "active" | "removed";
     /** When Clerk removed the membership; tokens issued before this are refused for the workspace */
@@ -37,7 +37,7 @@ const TenantMembershipSchema = new Schema<ITenantMembership>({
     tenantId: { type: Schema.Types.ObjectId, ref: "Tenant", required: true },
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     role: { type: String, enum: ["owner", "admin", "member", "guest"], default: "member" },
-    source: { type: String, enum: ["creator", "invitation", "request", "code", "open", "clerk", null], default: null },
+    source: { type: String, enum: ["creator", "invitation", "request", "code", "open", "clerk", "app", null], default: null },
     joinedAt: { type: Date, default: null },
     status: { type: String, enum: ["active", "removed"], default: "active" },
     removedAt: { type: Date, default: null },

@@ -321,13 +321,14 @@ export async function createChannel(ctx: RequestContext, teamId: string, input: 
     if (input.type === "shared") {
         const { tenant, role } = await activeOrg(ctx, "org:read");
         const policies = { ...DEFAULT_TENANT_POLICIES, ...(tenant.policies || {}) };
+        if (ctx.realm) throw new ForbiddenError("This organization doesn't allow shared channels with external people");
         if (!policies.allowExternalChat || !(ORG_ADMIN.includes(role) || policies.membersCanStartExternal)) throw new ForbiddenError("This organization doesn't allow shared channels with external people");
         externalUserIds = [...new Set((input.externalUserIds || []).map(String))];
         if (!externalUserIds.length || externalUserIds.length > 50) throw new AppError("Add 1–50 external people");
         // External = NOT members of this organization (members are added as normal channel members)
         const insiders = await sys(() => TenantMembership.find({ tenantId: oid(ctx.tenantId), userId: { $in: externalUserIds.map(oid) }, status: "active" }).select("userId").lean(), "channel-shared");
         if (insiders.length) throw new AppError("Organization members can't be added as external participants");
-        const exist = await sys(() => User.countDocuments({ _id: { $in: externalUserIds.map(oid) } }), "channel-shared");
+        const exist = await sys(() => User.countDocuments({ _id: { $in: externalUserIds.map(oid) }, tenantId: null }), "channel-shared");
         if (exist !== externalUserIds.length) throw new AppError("Some people could not be found");
     }
     const channel = await createChannelDoc(ctx, a.team, { name, description: input.description, type: input.type, memberIds, externalUserIds });

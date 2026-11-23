@@ -6,7 +6,7 @@ All management calls use your **SpreeWe session** (`Authorization: Bearer <Clerk
 
 ## 1. Create the app
 
-- **Global app:** call from your personal context (no active organization).
+- **App with its own tenant (default):** call from your personal context (no active organization). The app gets a dedicated tenant, created with it; you register its users yourself (section 4a). `dedicatedTenant: true` and the `tenantId` are in the response.
 - **Workspace app:** call from inside the workspace, as owner or admin, with `"tenantBound": true`. It can only ever act in that workspace.
 
 ```http
@@ -47,7 +47,25 @@ POST /api/v1/apps/{appId}/credentials/{credentialId}/revoke   { "confirm": "<app
 2. Deploy the new secret to all your servers within the grace period.
 3. Optionally revoke the old credential early.
 
-## 4. Users authorise your app (consent)
+## 4a. Register your users (apps with their own tenant)
+
+Your server registers each of your users once, with the app credential. They exist only in your app's tenant and can only find and talk to other users your app registered.
+
+```http
+POST /api/v1/app-users
+Authorization: Basic base64(swk_test_…:sws_…)
+{ "externalUserId": "yourapp-user-42", "name": "Asha Rao", "email": "asha@example.com" }
+→ 201 { "data": { "_id": "6b01…", "externalUserId": "yourapp-user-42", "status": "active", "tenantId": "6ad9…" } }
+```
+
+- `externalUserId` is your own id for the person; it is unique within your app (`409` if already registered). `email` and `avatarUrl` are optional.
+- `GET /v1/app-users`, `GET|PATCH|DELETE /v1/app-users/{externalUserId}`: list, read, update, deactivate (`PATCH { "active": true }` brings a user back). Deactivating stops the user's tokens at once.
+- Then ask for tokens with `POST /v1/app-tokens { "externalUserRef": "yourapp-user-42" }`. There is no consent screen: these accounts are yours.
+- Limits: 1,000 registered users for development apps, 100,000 for production apps.
+
+## 4. Users authorise your app (consent): workspace apps and apps created before dedicated tenants
+
+Apps with their own tenant don't use consent or OAuth (`409`); SpreeWe accounts can't be linked to them.
 
 Each user authorises your app **themselves**, from their signed-in SpreeWe session:
 - **Workspace apps:** from inside that workspace.

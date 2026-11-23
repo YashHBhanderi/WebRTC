@@ -5,7 +5,7 @@ import * as sdk from "@matrix-org/matrix-sdk-crypto-wasm";
 import Message from "../src/models/messageModel";
 import { E2eeDevice, E2eeOneTimeKey, E2eeToDevice } from "../src/e2ee/models";
 import { runAsSystem } from "../src/tenancy/context";
-import { api, connect, makeUser, nextEvent, Session, sleep, startSocketServer, testApp, uniq } from "./helpers";
+import { api, connect, makeUser, nextEvent, Session, sleep, startSocketServer, testApp, uniq, legacyGlobal } from "./helpers";
 
 /**
  * Phase 3 of the third-party API: a developer app takes part in end-to-end encryption through its own
@@ -117,6 +117,7 @@ describe("end-to-end encrypted messaging for developer apps (e2ee:device)", () =
     async function app(user: Session, scopes: string[]) {
         const owner: Session = { user: await makeUser() };
         const created = (await api(owner).post("/v1/apps").send({ name: uniq("Chat app"), environment: "development", callbackUrls: ["https://example.com/cb"], scopes })).body.data;
+        await legacyGlobal(created?._id);
         expect(created?._id, "app registration").toBeTruthy();
         const cred = (await api(owner).post(`/v1/apps/${created._id}/credentials`).send({ confirm: created.name })).body.data;
         expect((await api(user).post(`/v1/apps/${created._id}/grants`).send({ scopes })).status).toBe(201);

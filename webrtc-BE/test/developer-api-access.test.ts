@@ -8,7 +8,7 @@ import { routes as v1Routes } from "../src/api/v1/registry";
 import "../src/api/v1/routes";
 import sessionRouter from "../src/routes/routes";
 import tenantRouter from "../src/routes/tenant.routes";
-import { api, connect, enc, makeUser, nextEvent, oid, Session, sleep, startSocketServer, testApp, uniq } from "./helpers";
+import { api, connect, enc, makeUser, nextEvent, oid, Session, sleep, startSocketServer, testApp, uniq, legacyGlobal } from "./helpers";
 
 /**
  * Phase 1 of the third-party API: developer-app user tokens reach the existing session routes, /v1
@@ -23,6 +23,7 @@ const http = () => request(testApp());
 async function appToken(user: Session, scopes: string[], owner?: Session): Promise<string> {
     const own = owner || { user: await makeUser() };
     const app = (await api(own).post("/v1/apps").send({ name: uniq("API"), environment: "development", callbackUrls: ["https://example.com/cb"], scopes })).body.data;
+    await legacyGlobal(app?._id);
     expect(app?._id, "app registration").toBeTruthy();
     const cred = (await api(own).post(`/v1/apps/${app._id}/credentials`).send({ confirm: app.name })).body.data;
     expect((await api(user).post(`/v1/apps/${app._id}/grants`).send({ scopes })).status).toBe(201);
@@ -142,6 +143,7 @@ describe("REST access with app tokens", () => {
     it("counts app requests and errors on the session routes too", async () => {
         const owner: Session = { user: await makeUser() };
         const app = (await api(owner).post("/v1/apps").send({ name: uniq("M"), environment: "development", scopes: ["conversations:read"] })).body.data;
+        await legacyGlobal(app?._id);
         const cred = (await api(owner).post(`/v1/apps/${app._id}/credentials`).send({ confirm: app.name })).body.data;
         await api(alice).post(`/v1/apps/${app._id}/grants`).send({ scopes: ["conversations:read"] });
         const t = (await http().post("/v1/app-tokens").set(basic(cred.credential.keyId, cred.secret)).send({ userId: String(alice.user._id) })).body.data.accessToken;

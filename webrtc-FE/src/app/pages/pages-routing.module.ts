@@ -17,6 +17,8 @@ import { DeveloperAppsComponent } from './developer/developer-apps.component';
 import { DeveloperAppComponent } from './developer/developer-app.component';
 import { DeveloperDocsComponent } from './developer/developer-docs.component';
 import { ConsentComponent } from './developer/consent.component';
+import { DeveloperShellComponent } from './developer/developer-shell.component';
+import { requirePortal } from '../core/guards/portal.guard';
 import { JoinOrganizationComponent } from './organizations/join-organization.component';
 import { InvitationAcceptComponent } from './organizations/invitation-accept.component';
 import { OrganizationHomeComponent } from './organizations/organization-home.component';
@@ -30,20 +32,39 @@ const placeholder = (title: string, icon: string, emptyTitle: string, emptyText:
 });
 
 const routes: Routes = [
+  // End-user consent for a third-party application (OAuth). Portal-neutral: whoever the app sends
+  // here approves for their own account, whichever portal this browser last used.
+  {
+    path: 'consent',
+    component: ConsentComponent,
+    canActivate: [AuthGuard],
+    data: { realtime: false },
+    title: 'Authorize application',
+  },
+  // Developer Portal: its own frame, developer modules only (no chat, calls or realtime socket).
+  // Credentials, permissions, webhooks, usage and audit are tabs of an application.
+  {
+    path: 'developer',
+    component: DeveloperShellComponent,
+    canActivate: [AuthGuard, requirePortal('developer')],
+    data: { realtime: false },
+    children: [
+      { path: '', pathMatch: 'full', component: DeveloperAppsComponent, title: 'Applications · SpreeWe Developers' },
+      { path: 'docs', component: DeveloperDocsComponent, title: 'API documentation · SpreeWe Developers' },
+      { path: 'apps/:appId', component: DeveloperAppComponent, title: 'Application · SpreeWe Developers' },
+      { path: '**', redirectTo: '' },
+    ],
+  },
+  // Personal SpreeWe app
   {
     path: '',
     component: ShellComponent,
-    canActivate: [AuthGuard],
+    canActivate: [AuthGuard, requirePortal('personal')],
     children: [
       { path: 'chat', component: ChatComponent, title: 'Chat' },
       { path: 'profile', component: ProfilePageComponent, title: 'Profile' },
       { path: 'settings', component: SettingsPageComponent, title: 'Settings' },
       { path: 'organizations/new', component: CreateOrganizationComponent, title: 'Create an organization' },
-      // Developer Portal (register applications, credentials, permissions, webhooks, usage) + end-user consent
-      { path: 'developer', component: DeveloperAppsComponent, title: 'Developer portal' },
-      { path: 'developer/docs', component: DeveloperDocsComponent, title: 'API documentation' },
-      { path: 'developer/apps/:appId', component: DeveloperAppComponent, title: 'Application' },
-      { path: 'consent', component: ConsentComponent, title: 'Authorize application' },
       { path: 'organizations/join', component: JoinOrganizationComponent, title: 'Join an organization' },
       { path: 'organizations/invitation', component: InvitationAcceptComponent, title: 'Organization invitation' },
       { path: 'organization', component: OrganizationHomeComponent, title: 'Organization' },

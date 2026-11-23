@@ -4,7 +4,7 @@ import { authConfig, isAuthConfigured } from "../config/auth";
 import { resolveLocalUserId } from "../services/identity.service";
 import { AuthedSocket, addAppSocket, createIo, installAppRoomShadows, removeAppSocket, socketContexts, useAppRooms } from "./io";
 import { userRoom } from "./cluster";
-import { looksLikeAppToken, verifyAppTokenSignature } from "../developer/tokens";
+import { looksLikeAppToken, tokenRejection, verifyAppTokenSignature } from "../developer/tokens";
 import { consumeMessageQuota, recordUsage, verifyUserToken } from "../developer/app.service";
 import { isActiveAppDevice } from "../e2ee/e2ee.service";
 import { SOCKET_EVENT_SCOPES } from "../developer/scopes";
@@ -56,8 +56,8 @@ export function startRealtime(server: http.Server, corsOrigin: string[] | "*") {
         }
         // Developer-app user token (verified against live app / grant / tenant state)
         if (looksLikeAppToken(token)) {
+            const origin = typeof socket.handshake.headers.origin === "string" ? socket.handshake.headers.origin : null;
             try {
-                const origin = typeof socket.handshake.headers.origin === "string" ? socket.handshake.headers.origin : null;
                 const ctx = await verifyUserToken(token, { origin });
                 if (!ctx.app!.scopes.includes("realtime:connect")) {
                     return next(new Error("The token lacks the realtime:connect scope"));
@@ -68,8 +68,9 @@ export function startRealtime(server: http.Server, corsOrigin: string[] | "*") {
                 (socket.data as any).appToken = token;
                 (socket.data as any).appTokenExp = verifyAppTokenSignature(token).exp;
                 return next();
-            } catch {
-                return next(new Error("Invalid token"));
+            } catch (error) {
+                const rejection = tokenRejection(error, origin);
+                return next(new Error(rejection.status === 403 ? rejection.message : "Invalid token"));
             }
         }
         if (!isAuthConfigured()) {

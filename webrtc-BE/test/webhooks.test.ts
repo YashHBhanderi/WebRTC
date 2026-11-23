@@ -11,7 +11,7 @@ import { fanOut, forgetEndpointCache, messageCreatedData } from "../src/webhooks
 import { WebhookDelivery, WebhookEndpoint } from "../src/webhooks/models";
 import { AppAuditEvent, DeveloperApp } from "../src/developer/models";
 import { runAsSystem } from "../src/tenancy/context";
-import { addMessage, api, connect, enter, makeUser, newOrg, Session, sleep, startSocketServer, testApp, uniq, enc, plainOf } from "./helpers";
+import { addMessage, api, connect, enter, makeUser, newOrg, Session, sleep, startSocketServer, testApp, uniq, enc, plainOf, legacyGlobal } from "./helpers";
 
 const http2 = () => request(testApp());
 const basic = (keyId: string, secret: string) => ({ Authorization: `Basic ${Buffer.from(`${keyId}:${secret}`).toString("base64")}` });
@@ -138,6 +138,7 @@ describe("signatures and replay protection", () => {
 async function setupApp(owner: Session, scopes: string[], extra: Record<string, unknown> = {}) {
     const name = uniq("Hook");
     const app = (await api(owner).post("/v1/apps").send({ name, environment: "development", scopes, callbackUrls: ["https://example.com/cb"], ...extra })).body.data;
+    await legacyGlobal(app?._id);
     const cred = (await api(owner).post(`/v1/apps/${app._id}/credentials`).send({ confirm: name })).body.data;
     return { app, name, keyId: cred.credential.keyId as string, secret: cred.secret as string };
 }

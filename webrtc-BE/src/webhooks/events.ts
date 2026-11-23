@@ -86,7 +86,7 @@ export async function fanOut(input: PublishInput): Promise<number> {
     let queued = 0;
     for (const app of apps) {
         const appTenant = app.tenantId ? String(app.tenantId) : null;
-        const grants = await AppGrant.find({ appId: app._id, status: "active", scopes: scope, userId: { $in: members.map(oid) }, tenantId: app.tenantId }).select("userId").lean();
+        const grants = await AppGrant.find({ appId: app._id, status: "active", $or: [{ scopes: scope }, { managed: true }], userId: { $in: members.map(oid) }, tenantId: app.tenantId }).select("userId").lean();
         let audience = grants.map((g) => String(g.userId)).filter((uid) => visibleIn(info, appTenant, uid));
         if (appTenant && audience.length) {
             const active = await TenantMembership.find({ tenantId: oid(appTenant), userId: { $in: audience.map(oid) }, status: "active" }).select("userId").lean();

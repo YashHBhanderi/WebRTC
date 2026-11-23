@@ -17,6 +17,7 @@ import { NgbDropdown } from '@ng-bootstrap/ng-bootstrap';
 import { WorkspaceSyncService, takeNotice } from 'src/app/core/services/workspace-sync.service';
 import { E2eeService } from 'src/app/core/crypto/e2ee.service';
 import { WorkspaceListComponent } from './workspace-list.component';
+import { setPortal } from 'src/app/core/services/portal';
 
 export interface NavItem {
   path: string;
@@ -155,6 +156,19 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.socket.disconnectSocket();
     await this.auth.logout();
     this.alert.success('Signed out.');
+  }
+
+  /**
+   * Switch this browser to the Developer Portal. Full reload so the socket, call, presence and
+   * encryption state of the personal app don't stay running behind it.
+   */
+  openDeveloperPortal(): void {
+    if (this.calls.activeCall) {
+      this.alert.info('Leave the call before opening the Developer Portal.');
+      return;
+    }
+    setPortal('developer');
+    window.location.assign('/developer');
   }
 
   /** My dot: what others see (Away when idle is decided by the server, so show the chosen status). */

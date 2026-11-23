@@ -48,6 +48,13 @@ describe('AuthGuard', () => {
     expect(socket.ensureConnected).toHaveBeenCalled();
   });
 
+  it('developer portal (realtime: false): allowed without opening the chat socket', async () => {
+    clerk.waitForSession.and.resolveTo(true);
+    auth.ensureAppUser.and.resolveTo(undefined as any);
+    expect(await guard.canActivate({ data: { realtime: false } } as any, { url: '/developer' } as any)).toBeTrue();
+    expect(socket.ensureConnected).not.toHaveBeenCalled();
+  });
+
   it('session but no usable app account: signed out and sent to sign-in (no bounce loop)', async () => {
     clerk.waitForSession.and.resolveTo(true);
     auth.ensureAppUser.and.rejectWith({ error: { message: 'Verify your email first' } });

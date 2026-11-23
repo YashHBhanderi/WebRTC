@@ -1,8 +1,9 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
 import User from "../models/userModel";
+import Tenant, { DEFAULT_TENANT_POLICIES, DEFAULT_TENANT_SETTINGS } from "../models/tenantModel";
 import { AppIdentity, RequestContext, runAsSystem } from "../tenancy/context";
-import { assertActiveTenantMember } from "../tenancy/tenant.service";
+import { assertActiveTenantMember, forgetTenant } from "../tenancy/tenant.service";
 import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 import {
     AppAuditEvent, AppCredential, AppEnvironment, AppGrant, AppUsage, ConsentRequest, DeveloperApp, IAppCredential, IDeveloperApp, RevokedToken,
@@ -49,7 +50,7 @@ async function audit(appId: unknown, ctx: RequestContext | null, actorKind: "own
 }
 
 /** Usage counters live in MongoDB (shared by all instances); best effort, never blocks a request. */
-export function recordUsage(appId: string, field: "apiRequests" | "tokensIssued" | "socketConnections" | "apiErrors", n = 1): void {
+export function recordUsage(appId: string, field: "apiRequests" | "tokensIssued" | "socketConnections" | "apiErrors" | "usersRegistered", n = 1): void {
     void sys(() => AppUsage.updateOne({ appId: oid(appId), day: day() }, { $inc: { [field]: n } }, { upsert: true }), "app-usage")
         .catch(() => undefined);
 }
@@ -147,7 +148,7 @@ function publicApp(app: IDeveloperApp) {
     return {
         _id: String(app._id), name: app.name, description: app.description || "", websiteUrl: app.websiteUrl || "",
         environment: app.environment, status: app.status,
-        tenantId: app.tenantId ? String(app.tenantId) : null, scopes: app.scopes, allowedOrigins: app.allowedOrigins,
+        tenantId: app.tenantId ? String(app.tenantId) : null, dedicatedTenant: !!app.dedicatedTenant, scopes: app.scopes, allowedOrigins: app.allowedOrigins,
         callbackUrls: app.callbackUrls, quotas: app.quotas, createdAt: app.createdAt, updatedAt: app.updatedAt,
     };
 }
@@ -165,6 +166,19 @@ function firstParty(ctx: RequestContext): void {
 
 // ------------------------------------------------------------------ app management
 
+/**
+ * Where an app is administered from: workspace apps inside their organization; apps with a dedicated
+ * tenant (and legacy global apps) from the owner's personal context. Nobody signs in to a dedicated tenant.
+ */
+const managementContextOf = (app: IDeveloperApp): string | null => (app.tenantId && !app.dedicatedTenant ? String(app.tenantId) : null);
+
+/** Consent / OAuth link SpreeWe accounts; an app with its own tenant has only the users it registered. */
+function noConsentForDedicated(app: IDeveloperApp): void {
+    if (app.dedicatedTenant) {
+        throw new AppError("This app registers its own users (POST /v1/app-users); SpreeWe accounts can't be linked to it", 409);
+    }
+}
+
 /** Owner in the app's own context, or (when allowed) a platform admin. Otherwise "not found". */
 export async function managedApp(ctx: RequestContext, appId: string, opts: { platformAdmin?: boolean; tenantAdmin?: boolean } = {}) {
     firstParty(ctx);
@@ -176,9 +190,9 @@ export async function managedApp(ctx: RequestContext, appId: string, opts: { pla
     if (opts.tenantAdmin && app.tenantId && String(app.tenantId) === ctx.tenantId && (ctx.role === "owner" || ctx.role === "admin")) {
         return { app, actor: "owner" as const };
     }
-    const sameContext = (app.tenantId ? String(app.tenantId) : null) === ctx.tenantId;
+    const sameContext = managementContextOf(app) === ctx.tenantId;
     const owner = String(app.ownerUserId) === ctx.userId;
-    const tenantRoleOk = !app.tenantId || ctx.role === "owner" || ctx.role === "admin";
+    const tenantRoleOk = !managementContextOf(app) || ctx.role === "owner" || ctx.role === "admin";
     if (!owner || !sameContext || !tenantRoleOk) throw new NotFoundError("App not found");
     return { app, actor: "owner" as const };
 }
@@ -191,31 +205,75 @@ export async function createApp(ctx: RequestContext, input: any) {
             throw new ForbiddenError("Workspace apps can only be created by workspace owners or admins, inside the workspace");
         }
     } else if (ctx.tenantId) {
-        throw new AppError("Create global apps from your personal (global) context, or set tenantBound for this workspace");
+        throw new AppError("Create apps from your personal context, or set tenantBound for this workspace");
     }
     const owned = await sys(() => DeveloperApp.countDocuments({ ownerUserId: oid(ctx.userId), status: { $ne: "revoked" } }), "app-create");
     if (owned >= LIMITS.appsPerOwner) throw new AppError(`You can have at most ${LIMITS.appsPerOwner} apps`, 409);
-    const app = await sys(() => DeveloperApp.create({
-        name: input.name,
-        description: typeof input.description === "string" ? input.description.trim() : "",
+    // Validate everything first, so a rejected request leaves no tenant behind
+    const validated = {
         websiteUrl: websiteUrlFrom(input.websiteUrl),
-        ownerUserId: oid(ctx.userId),
-        tenantId: input.tenantBound ? oid(ctx.tenantId!) : null,
-        environment,
-        status: "active",
         scopes: availableScopes(scopesFrom(input.scopes ?? [])),
         allowedOrigins: (input.allowedOrigins ?? []).map((o: unknown) => origin(o, environment, "origin")),
         callbackUrls: (input.callbackUrls ?? []).map((o: unknown) => origin(o, environment, "callback")),
         quotas: quotasFrom(input.quotas, environment),
-    }), "app-create");
+    };
+    // Every app that is not bound to an organization gets its own tenant: an independent workspace
+    // whose only members are the users the app registers. The ids are fixed up front so the app and
+    // its tenant always reference each other.
+    const appId = new mongoose.Types.ObjectId();
+    const dedicated = !input.tenantBound;
+    const tenantId = dedicated ? new mongoose.Types.ObjectId() : oid(ctx.tenantId!);
+    if (dedicated) {
+        await sys(() => Tenant.create({
+            _id: tenantId, kind: "app", appId, name: input.name, slug: `app-${appId}`, status: "active", managedBy: "spreewe",
+            // Closed workspace: nothing crosses its boundary, it is never listed, nobody can join it
+            policies: { ...DEFAULT_TENANT_POLICIES },
+            settings: { ...DEFAULT_TENANT_SETTINGS, discoverable: false, joinPolicy: "invite", membersCanInvite: false, guestAccess: false, joinCodeEnabled: false },
+            createdBy: oid(ctx.userId),
+        }), "app-create").catch((error: any) => {
+            // The old all-document unique index on tenants.clerkOrgId is still in place: the migration
+            // 2026-11-16-app-tenants has not run on this database yet
+            if (error?.code === 11000) {
+                console.error("[app-tenants] migration 2026-11-16-app-tenants has not been applied to this database (run `npm run migrate`)");
+                throw new AppError("Applications can't be registered on this server yet. Please try again later.", 503);
+            }
+            throw error;
+        });
+    }
+    let app;
+    try {
+        app = await sys(() => DeveloperApp.create({
+            _id: appId,
+            name: input.name,
+            description: typeof input.description === "string" ? input.description.trim() : "",
+            websiteUrl: validated.websiteUrl,
+            ownerUserId: oid(ctx.userId),
+            tenantId,
+            dedicatedTenant: dedicated,
+            environment,
+            status: "active",
+            scopes: validated.scopes,
+            allowedOrigins: validated.allowedOrigins,
+            callbackUrls: validated.callbackUrls,
+            quotas: validated.quotas,
+        }), "app-create");
+    } catch (error) {
+        // No app without its tenant, no tenant without its app
+        if (dedicated) await sys(() => Tenant.deleteOne({ _id: tenantId, kind: "app" }), "app-create").catch(() => undefined);
+        throw error;
+    }
     forgetAppOrigins();
-    await audit(app._id, ctx, "owner", "app.created", { environment, tenantBound: !!input.tenantBound, scopes: app.scopes });
+    await audit(app._id, ctx, "owner", "app.created", { environment, tenantBound: !!input.tenantBound, dedicatedTenant: dedicated, tenantId: String(tenantId), scopes: app.scopes });
     return publicApp(app.toObject());
 }
 
 export async function listMyApps(ctx: RequestContext) {
     firstParty(ctx);
-    const apps = await sys(() => DeveloperApp.find({ ownerUserId: oid(ctx.userId), tenantId: ctx.tenantId ? oid(ctx.tenantId) : null }).sort({ createdAt: -1 }).limit(100).lean<IDeveloperApp[]>(), "app-list");
+    const apps = await sys(() => DeveloperApp.find({
+        ownerUserId: oid(ctx.userId),
+        // Workspace: the apps bound to it. Personal context: apps with their own tenant, and legacy global apps
+        ...(ctx.tenantId ? { tenantId: oid(ctx.tenantId), dedicatedTenant: { $ne: true } } : { $or: [{ tenantId: null }, { dedicatedTenant: true }] }),
+    }).sort({ createdAt: -1 }).limit(100).lean<IDeveloperApp[]>(), "app-list");
     return apps.map(publicApp);
 }
 
@@ -257,6 +315,13 @@ export async function setAppStatus(ctx: RequestContext, appId: string, action: "
     }
     const updated = await sys(() => DeveloperApp.findByIdAndUpdate(app._id, update, { new: true }).lean<IDeveloperApp>(), "app-status");
     forgetAppOrigins();
+    // The app's own tenant follows the app: suspended with it, closed for good when the app is revoked
+    // (its data is kept, access is refused)
+    if (app.dedicatedTenant && app.tenantId) {
+        const tenantStatus = action === "revoke" ? "deleted" : action === "suspend" ? "suspended" : "active";
+        await sys(() => Tenant.updateOne({ _id: app.tenantId, kind: "app", appId: app._id }, { $set: { status: tenantStatus, deletedAt: action === "revoke" ? new Date() : null } }), "app-status");
+        forgetTenant(String(app.tenantId));
+    }
     await audit(app._id, ctx, actor, `app.${action === "suspend" ? "suspended" : action === "reactivate" ? "reactivated" : "revoked"}`);
     // Deleted: every encryption device the app holds is revoked (suspension keeps them; its tokens fail meanwhile)
     if (action === "revoke") {
@@ -404,6 +469,7 @@ export async function grantApp(ctx: RequestContext, appId: string, input: { scop
     if (!mongoose.isValidObjectId(appId)) throw new NotFoundError("App not found");
     const app = await sys(() => DeveloperApp.findById(appId).lean<IDeveloperApp>(), "app-grant");
     if (!app || app.status !== "active") throw new NotFoundError("App not found");
+    noConsentForDedicated(app);
     const appTenant = app.tenantId ? String(app.tenantId) : null;
     if (appTenant !== ctx.tenantId) {
         // Workspace apps: only members, from inside that workspace. Global apps: from the global context.
@@ -442,6 +508,7 @@ export function scopeCatalog() {
 /** App server: start a consent flow for one of its users. Returns the URL to send the user to. */
 export async function createConsentRequest(auth: { app: IDeveloperApp }, input: { redirectUri: string; scopes: string[]; state: string; externalUserRef?: string; codeChallenge?: string }) {
     const { app } = auth;
+    noConsentForDedicated(app);
     // Exact match against registered callback URLs (no prefix / wildcard matching)
     let normalized: string;
     try {
@@ -496,6 +563,7 @@ export async function decideConsentRequest(ctx: RequestContext, requestId: strin
     const { req, app } = await pendingRequest(requestId);
     const appTenant = app.tenantId ? String(app.tenantId) : null;
     if (decision.approve) {
+        noConsentForDedicated(app);
         if (appTenant !== ctx.tenantId) throw new ForbiddenError(appTenant ? "Switch to the app's workspace to approve it" : "Switch to your personal context to approve this app");
         const chosen = scopesFrom(decision.scopes ?? [], req.scopes);
         if (!chosen.length) throw new AppError("Choose at least one permission, or deny");
@@ -581,13 +649,15 @@ export async function mintUserToken(app: IDeveloperApp, input: { userId?: string
     const grant = await sys(() => AppGrant.findOne(filter).lean(), "app-token");
     // Same answer whether the user doesn't exist or hasn't granted the app: no user enumeration
     if (!grant) throw new ForbiddenError("This user has not authorised the app");
-    const allowed = grant.scopes.filter((s) => app.scopes.includes(s));
+    // A managed grant (user registered by the app in its own tenant) follows the app's scopes
+    if (!!grant.managed !== !!app.dedicatedTenant) throw new ForbiddenError("This user has not authorised the app");
+    const allowed = grant.managed ? [...app.scopes] : grant.scopes.filter((s) => app.scopes.includes(s));
     const requested = input.scopes ?? allowed;
     const extra = requested.filter((s) => !allowed.includes(s));
     if (extra.length) throw new ForbiddenError(`Scopes not granted: ${extra.join(", ")}`);
     if (!requested.length) throw new ForbiddenError("No scopes to grant");
-    const user = await User.findById(grant.userId).select("clerkDeletedAt clerkBanned").lean();
-    if (!user || user.clerkDeletedAt || user.clerkBanned) throw new ForbiddenError("This user has not authorised the app");
+    const user = await sys(() => User.findById(grant.userId).select("clerkDeletedAt clerkBanned tenantId appId deactivatedAt").lean(), "app-token");
+    if (!user || user.clerkDeletedAt || user.clerkBanned || !userBelongsToApp(app, user)) throw new ForbiddenError("This user has not authorised the app");
     const tid = app.tenantId ? String(app.tenantId) : null;
     if ((grant.tenantId ? String(grant.tenantId) : null) !== tid) throw new ForbiddenError("This user has not authorised the app");
     if (tid) await assertActiveTenantMember(tid, String(grant.userId));
@@ -599,6 +669,17 @@ export async function mintUserToken(app: IDeveloperApp, input: { userId?: string
     recordUsage(String(app._id), "tokensIssued");
     void sys(() => AppGrant.updateOne({ _id: grant._id }, { $set: { lastUsedAt: new Date() } }), "app-token").catch(() => undefined);
     return { accessToken: token, tokenType: "Bearer", expiresIn: claims.exp - claims.iat, expiresAt: new Date(claims.exp * 1000).toISOString(), scopes: requested, tokenId: claims.jti, tenantId: tid };
+}
+
+/**
+ * Realm rule for tokens. An app with its own tenant acts only for users it registered there (same
+ * tenant, same app, not deactivated). Workspace and legacy global apps act only for SpreeWe accounts.
+ */
+function userBelongsToApp(app: IDeveloperApp, user: { tenantId?: unknown; appId?: unknown; deactivatedAt?: Date | null }): boolean {
+    if (app.dedicatedTenant) {
+        return !!app.tenantId && !!user.tenantId && String(user.tenantId) === String(app.tenantId) && String(user.appId) === String(app._id) && !user.deactivatedAt;
+    }
+    return !user.tenantId;
 }
 
 /** The app revokes one of its own tokens (e.g. on user logout). */
@@ -623,6 +704,16 @@ export async function revokeToken(auth: { app: IDeveloperApp }, token: string) {
  */
 export async function verifyUserToken(token: string, opts: { origin?: string | null } = {}): Promise<RequestContext> {
     const claims = verifyAppTokenSignature(token);
+    try {
+        return await verifyUserTokenState(token, claims, opts);
+    } catch (error) {
+        // Signature was valid: say which app the rejected token belongs to (server log only)
+        if (error instanceof AppTokenError) error.appId = claims.app;
+        throw error;
+    }
+}
+
+async function verifyUserTokenState(token: string, claims: ReturnType<typeof verifyAppTokenSignature>, opts: { origin?: string | null }): Promise<RequestContext> {
     const [app, grant, revoked] = await sys(() => Promise.all([
         mongoose.isValidObjectId(claims.app) ? DeveloperApp.findById(claims.app).lean<IDeveloperApp>() : null,
         mongoose.isValidObjectId(claims.gid) ? AppGrant.findById(claims.gid).lean() : null,
@@ -637,8 +728,11 @@ export async function verifyUserToken(token: string, opts: { origin?: string | n
     const appTenant = app.tenantId ? String(app.tenantId) : null;
     if (claims.tid !== appTenant) throw new AppTokenError("tenant");
     if (opts.origin && !app.allowedOrigins.includes(opts.origin)) throw new AppTokenError("origin");
-    const user = await User.findById(claims.sub).select("clerkDeletedAt clerkBanned").lean();
+    if (!!grant.managed !== !!app.dedicatedTenant) throw new AppTokenError("grant");
+    const user = await sys(() => User.findById(claims.sub).select("clerkDeletedAt clerkBanned tenantId appId deactivatedAt").lean(), "app-token-verify");
     if (!user || user.clerkDeletedAt || user.clerkBanned) throw new AppTokenError("user");
+    // The token's user must live in the realm the app acts in (re-checked on every request)
+    if (!userBelongsToApp(app, user)) throw new AppTokenError("realm");
     if (appTenant) {
         try {
             await assertActiveTenantMember(appTenant, claims.sub);
@@ -646,7 +740,7 @@ export async function verifyUserToken(token: string, opts: { origin?: string | n
             throw new AppTokenError("membership");
         }
     }
-    const scopes = claims.scp.filter((s) => grant.scopes.includes(s) && app.scopes.includes(s));
+    const scopes = claims.scp.filter((s) => (grant.managed || grant.scopes.includes(s)) && app.scopes.includes(s));
     return {
         kind: "user",
         userId: claims.sub,
@@ -655,6 +749,7 @@ export async function verifyUserToken(token: string, opts: { origin?: string | n
         // Least privilege: app tokens never carry workspace admin rights
         role: appTenant ? "member" : null,
         isPlatformAdmin: false,
+        realm: app.dedicatedTenant ? appTenant : null,
         app: { appId: claims.app, environment: claims.env, scopes, jti: claims.jti, quotas: app.quotas },
     };
 }

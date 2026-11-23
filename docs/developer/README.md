@@ -8,20 +8,22 @@ SpreeWe is a communication backend: messaging, groups, organizations, calls, rec
 
 Sign in to the SpreeWe web app and open **Account menu → Developer portal** (`/developer`):
 
-- register an application (name, description, website, environment, global or workspace-bound);
+- register an application (name, description, website, environment; with its own tenant, or bound to an organization workspace);
+- register and manage the users of an application that has its own tenant (Users tab);
 - create, rotate and revoke server credentials (client ID `swk_test_…` / `swk_live_…`, secret `sws_…`, each secret shown once);
 - choose permissions (scopes);
 - set allowed origins, redirect URLs and limits (quotas);
 - add webhook endpoints, verify them and see their deliveries;
 - see usage (requests, errors, tokens, messages, sockets) and activity.
 
-End users approve applications on the SpreeWe consent page (`/consent?request=…`). A short summary of the steps is at `/developer/docs` in the web app. Everything the portal does is also available through the `/v1` API.
+Applications with their own tenant register their users themselves ([App users](./app-users.md)). For workspace applications and applications created before dedicated tenants, end users approve the application on the SpreeWe consent page (`/consent?request=…`). A short summary of the steps is at `/developer/docs` in the web app. Everything the portal does is also available through the `/v1` API.
 
 ## Documents
 
 | Topic | Page |
 |---|---|
 | Step-by-step integration: auth flows, API, realtime, encrypted messaging, files, calls, webhooks, production | [Integration guide](./integration-guide.md) |
+| App users: registering your own users in your application's tenant, tokens for them, isolation, errors | [App users](./app-users.md) |
 | Authentication: developer applications, credentials, consent, scoped user tokens, scopes, CORS and origins, E2EE devices | [Authentication and security](./authentication.md) |
 | OAuth 2.0: authorization code with PKCE, token endpoint, refresh-token rotation, revocation | [OAuth 2.0](./rest-api/oauth.md) |
 | Personal and organization (workspace) context, membership, roles, isolation, organization scopes | [Organizations and workspaces](./organizations.md) |

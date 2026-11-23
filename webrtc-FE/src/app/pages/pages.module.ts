@@ -49,6 +49,7 @@ import { DeveloperAppsComponent } from './developer/developer-apps.component';
 import { DeveloperAppComponent } from './developer/developer-app.component';
 import { DeveloperDocsComponent } from './developer/developer-docs.component';
 import { ConsentComponent } from './developer/consent.component';
+import { DeveloperShellComponent } from './developer/developer-shell.component';
 import { JoinOrganizationComponent } from './organizations/join-organization.component';
 import { InvitationAcceptComponent } from './organizations/invitation-accept.component';
 import { OrganizationHomeComponent } from './organizations/organization-home.component';
@@ -101,6 +102,7 @@ import { PersonPickerComponent } from './shared/person-picker.component';
     DeveloperAppComponent,
     DeveloperDocsComponent,
     ConsentComponent,
+    DeveloperShellComponent,
     JoinOrganizationComponent,
     InvitationAcceptComponent,
     OrganizationHomeComponent,

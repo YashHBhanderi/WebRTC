@@ -230,7 +230,7 @@ export default class ConversationService {
             }
             // Personal context: a NEW chat only with people who can be found (no messaging arbitrary ids)
             if (!userContext()?.tenantId) {
-                const target = await runAsSystem(() => User.findById(receiver).select("globalDiscoverable clerkDeletedAt clerkBanned").lean(), "conversation-start");
+                const target = await runAsSystem(() => User.findOne({ _id: receiver, tenantId: null }).select("globalDiscoverable clerkDeletedAt clerkBanned").lean(), "conversation-start");
                 if (!target || target.globalDiscoverable === false || target.clerkDeletedAt || target.clerkBanned) {
                     throw new NotFoundError("No eligible account found.");
                 }

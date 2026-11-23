@@ -137,3 +137,24 @@ export const enc = (marker: string) => ({
 
 /** The marker of a message built with enc() (or a legacy message's plaintext). */
 export const plainOf = (m: any): string | undefined => (m?.e2ee?.ciphertext ? Buffer.from(m.e2ee.ciphertext, "base64").toString() : m?.content);
+
+// ------------------------------------------------------------------ developer apps (legacy fixtures)
+
+/**
+ * Turns a just-created app into a LEGACY GLOBAL app (no tenant; SpreeWe accounts link to it by
+ * consent / OAuth), the way apps were created before every app got its own tenant. Such apps can no
+ * longer be created through the API but existing ones keep working, so their behaviour stays tested.
+ * No-op for workspace apps.
+ */
+export async function legacyGlobal(appId: unknown): Promise<void> {
+    if (!appId) return;
+    const { DeveloperApp } = await import("../src/developer/models");
+    const Tenant = (await import("../src/models/tenantModel")).default;
+    const { runAsSystem } = await import("../src/tenancy/context");
+    await runAsSystem(async () => {
+        const app = await DeveloperApp.findById(String(appId)).lean();
+        if (!app?.dedicatedTenant) return;
+        await DeveloperApp.updateOne({ _id: app._id }, { $set: { tenantId: null, dedicatedTenant: false } });
+        await Tenant.deleteOne({ _id: app.tenantId, kind: "app" });
+    }, "test-fixture");
+}

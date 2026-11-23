@@ -116,3 +116,24 @@ Changed behaviour: `GET /web/users`, `GET /web/users/except-current` and `GET /w
 - **Messages** are scope-stamped like the other conversation records.
 - **`/v1` API** with validation, a standard envelope, cursor pagination and generated OpenAPI (`docs/api/v1.md`).
 - **Graceful shutdown** (`src/shutdown.ts`).
+
+## Application tenants (2026-11-16)
+
+Every developer application created from the personal context gets its **own tenant**, created with the app (`Tenant.kind = "app"`, `Tenant.appId`; `DeveloperApp.tenantId` + `dedicatedTenant: true`). It is an independent workspace:
+
+- **Users** are registered by the app's server (`POST /v1/app-users`, app credential). Each is a separate user record with `User.tenantId` = the app's tenant, `User.appId`, and `User.externalUserId` (unique per tenant). They have no SpreeWe sign-in and no account email; the same person in two apps is two unrelated users.
+- **Access** is by the app's short-lived user tokens only (`POST /v1/app-tokens` with `externalUserRef` = the external user id). The token's tenant is the app's tenant; nothing in a request can change it. No Clerk session can enter an application tenant.
+- **Content** (conversations, messages, calls, meetings, recordings, notifications, teams) uses the same scope plugin as organization workspaces, so it is filtered by `tenantId` on every query.
+- **People** are isolated by *realm* (`RequestContext.realm`, `src/tenancy/realm.ts`): inside a user request every query on `users` is AND-ed with the acting user's home tenant (`models/userModel.ts`), and membership rules (`assertCanInclude`) refuse anyone from another realm. SpreeWe accounts (realm `null`) and each application's users can't look each other up or share a conversation, group, meeting or call.
+- **Policies** are all off and can't be changed (tokens act as `member`): no external conversations, no guests, not discoverable, no joining.
+- **Lifecycle:** suspending the app suspends its tenant; revoking the app marks the tenant `deleted` (data kept, access refused).
+
+| App kind | `tenantId` | `dedicatedTenant` | Users |
+| --- | --- | --- | --- |
+| Application with its own tenant (all new apps from the personal context) | its own tenant | `true` | registered through `/v1/app-users` |
+| Workspace app (`tenantBound: true`) | the organization's tenant | `false` | members of that organization, by consent |
+| Legacy global app (created before this change) | `null` | `false` | SpreeWe accounts, by consent / OAuth. Can no longer be created |
+
+Migration `2026-11-16-app-tenants` replaces the unique indexes on `tenants.clerkOrgId` and `users.email` with partial ones (unique among documents that have the value) and builds the new indexes. Existing apps and data are not changed.
+
+**Not covered:** stored files have no tenant in their storage key; they are reachable only through the tenant-scoped message endpoints, as before.

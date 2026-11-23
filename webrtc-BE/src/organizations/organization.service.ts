@@ -421,7 +421,7 @@ export async function invite(ctx: RequestContext, input: { emails: string[]; rol
     const days = Math.min(30, Math.max(1, Math.floor(input.expiresInDays ?? 7)));
     const inviter = await sys(() => User.findById(oid(ctx.userId)).select("username").lean(), "org-invite");
     // Existing members by email (admins see their own members anyway; nothing is revealed about outsiders)
-    const users = await sys(() => User.find({ email: { $in: emails } }).select("_id email").lean(), "org-invite");
+    const users = await sys(() => User.find({ email: { $in: emails }, tenantId: null }).select("_id email").lean(), "org-invite");
     const memberIds = new Set((await sys(() => TenantMembership.find({ tenantId: tenant._id, status: "active", userId: { $in: users.map((u) => u._id) } }).select("userId").lean(), "org-invite")).map((m) => String(m.userId)));
     const memberEmails = new Set(users.filter((u) => memberIds.has(String(u._id))).map((u) => String(u.email)));
     const results: { email: string; status: "invited" | "already_member" | "domain_not_allowed"; invitationId?: string; link?: string; emailed?: boolean }[] = [];
@@ -490,7 +490,7 @@ export async function revokeInvitation(ctx: RequestContext, invitationId: string
     await audit(tenant._id, ctx.userId, "invitation.revoked", { invitationId });
     orgEvents.invitationsChanged(tenant._id, settings.membersCanInvite);
     // An invitee with an account drops it from "Invitations for you" (same address match as the invitation notice)
-    const invitee = await sys(() => User.findOne({ email: inv.email }).select("_id").lean(), "org-invite");
+    const invitee = await sys(() => User.findOne({ email: inv.email, tenantId: null }).select("_id").lean(), "org-invite");
     if (invitee) orgEvents.invitationRevoked(invitee._id, tenant._id, inv._id);
     return { revoked: true };
 }

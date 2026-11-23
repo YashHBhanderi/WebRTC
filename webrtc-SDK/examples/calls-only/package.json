@@ -1,0 +1,16 @@
+{
+  "name": "example-calls-only",
+  "private": true,
+  "type": "module",
+  "description": "Calling only: OAuth 2.0 + PKCE, incoming-call prompt, call button and call view. No chat or encryption code is bundled.",
+  "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
+  "dependencies": {
+    "@spreewe/core": "^0.1.0",
+    "@spreewe/ui": "^0.1.0",
+    "@spreewe/calls": "^0.1.0",
+    "lit": "^3.3.0",
+    "mediasoup-client": "^3.23.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": { "vite": "~6.4.5" }
+}

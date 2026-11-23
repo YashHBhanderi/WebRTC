@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Workspace</title>
+    <style>
+      :root { color-scheme: light dark; font-family: "Segoe UI", system-ui, sans-serif; }
+      body { margin: 0; height: 100vh; display: grid; grid-template-rows: auto 1fr; background: Canvas; color: CanvasText; }
+      header { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #8884; flex-wrap: wrap; }
+      header strong { margin-right: auto; }
+      nav button[aria-pressed="true"] { font-weight: 700; text-decoration: underline; }
+      main { min-height: 0; padding: 12px; display: grid; }
+      main > section { min-height: 0; display: none; }
+      main > section.active { display: grid; }
+      #chat-view { grid-template-columns: 1fr auto; gap: 12px; }
+      #group-panel { width: 320px; border: 1px solid #8884; border-radius: 10px; overflow: hidden; }
+      #group-panel[hidden] { display: none; }
+      #people-view { grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr); gap: 12px; }
+      #meetings-view { grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); gap: 12px; align-items: start; }
+      #call-layer { position: fixed; inset: 16px; z-index: 50; }
+      #call-layer:has(spreewe-call-view[data-idle]) { display: none; }
+      @media (max-width: 760px) { #people-view, #meetings-view { grid-template-columns: 1fr; } #group-panel { position: fixed; inset: 60px 8px 8px; width: auto; z-index: 20; background: Canvas; } }
+    </style>
+  </head>
+  <body>
+    <spreewe-provider id="provider" theme="inherit" style="display: contents">
+      <header>
+        <strong>Acme Workspace</strong>
+        <nav>
+          <button data-tab="chat-view" aria-pressed="true">Chats</button>
+          <button data-tab="people-view">People</button>
+          <button data-tab="meetings-view">Meetings</button>
+          <button data-tab="files-view">Files</button>
+        </nav>
+        <spreewe-presence-picker></spreewe-presence-picker>
+        <spreewe-notification-bell></spreewe-notification-bell>
+      </header>
+      <main>
+        <section id="chat-view" class="active">
+          <spreewe-chat id="chat">
+            <span slot="header-actions" id="chat-actions">
+              <spreewe-call-button id="call-audio" call-type="audio"></spreewe-call-button>
+              <spreewe-call-button id="call-video" call-type="video"></spreewe-call-button>
+              <button id="group-toggle" hidden>Group info</button>
+            </span>
+          </spreewe-chat>
+          <aside id="group-panel" hidden><spreewe-group-details id="group-details"></spreewe-group-details></aside>
+        </section>
+        <section id="people-view">
+          <spreewe-contact-list actions="message"></spreewe-contact-list>
+          <div><spreewe-contact-lookup></spreewe-contact-lookup><spreewe-create-group></spreewe-create-group></div>
+        </section>
+        <section id="meetings-view">
+          <spreewe-meeting-list days="14"></spreewe-meeting-list>
+          <div><spreewe-meeting-join></spreewe-meeting-join><spreewe-meeting-scheduler></spreewe-meeting-scheduler></div>
+        </section>
+        <section id="files-view"><spreewe-file-list></spreewe-file-list></section>
+      </main>
+      <div id="call-layer"><spreewe-call-view heading="Acme call"></spreewe-call-view></div>
+      <spreewe-incoming-call show-active></spreewe-incoming-call>
+    </spreewe-provider>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import request from "supertest";
-import { api, makeUser, Session, testApp, uniq } from "./helpers";
+import { api, makeUser, Session, testApp, uniq, legacyGlobal } from "./helpers";
 
 /**
  * Backend behaviour the Developer Portal relies on: app description / website, enable / disable,
@@ -13,6 +13,7 @@ const http = () => request(testApp());
 
 async function registerApp(owner: Session, body: Record<string, unknown> = {}) {
     const created = await api(owner).post("/v1/apps").send({ name: uniq("Portal app"), environment: "development", callbackUrls: ["https://example.com/cb"], ...body });
+    await legacyGlobal(created.body?.data?._id);
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const app = created.body.data;
     const cred = await api(owner).post(`/v1/apps/${app._id}/credentials`).send({ confirm: app.name });

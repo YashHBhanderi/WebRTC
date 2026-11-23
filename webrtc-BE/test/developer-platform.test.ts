@@ -6,7 +6,7 @@ import { signAppToken } from "../src/developer/tokens";
 import { runAsSystem } from "../src/tenancy/context";
 import { S, validate } from "../src/api/v1/schema";
 import { buildOpenApi } from "../src/api/v1/openapi";
-import { addMessage, api, ack, connect, enter, makeUser, newOrg, nextEvent, Session, sleep, startSocketServer, testApp, uniq, enc, plainOf } from "./helpers";
+import { addMessage, api, ack, connect, enter, makeUser, newOrg, nextEvent, Session, sleep, startSocketServer, testApp, uniq, enc, plainOf, legacyGlobal } from "./helpers";
 
 const idOf = (b: any) => String(b?.data?._id ?? b?.conversation?._id ?? b?._id ?? b?.conversationId);
 const basic = (keyId: string, secret: string) => ({ Authorization: `Basic ${Buffer.from(`${keyId}:${secret}`).toString("base64")}` });
@@ -16,6 +16,7 @@ const http = () => request(testApp());
 /** Owner registers an app and creates a credential; returns ids + the one-time secret. */
 async function registerApp(owner: Session, body: Record<string, unknown>) {
     const created = await api(owner).post("/v1/apps").send({ environment: "development", callbackUrls: ["https://example.com/cb"], ...body });
+    await legacyGlobal(created.body?.data?._id);
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const app = created.body.data;
     const cred = await api(owner).post(`/v1/apps/${app._id}/credentials`).send({ confirm: app.name });
@@ -78,6 +79,7 @@ describe("developer apps: registration, ownership, credentials (req. 1, 6, 7)", 
     it("high-impact actions need confirmation and a recent sign-in; cookie-only writes are refused (CSRF)", async () => {
         const name = uniq("App");
         const app = (await api({ user: owner }).post("/v1/apps").send({ name, environment: "development" })).body.data;
+        await legacyGlobal(app?._id);
         expect((await api({ user: owner }).post(`/v1/apps/${app._id}/credentials`).send({ confirm: "wrong" })).status).toBe(400);
         expect((await api({ user: owner, fva: [45, -1] }).post(`/v1/apps/${app._id}/credentials`).send({ confirm: name })).status).toBe(403);
         expect((await api({ user: owner, fva: [2, -1] }).post(`/v1/apps/${app._id}/credentials`).send({ confirm: name })).status).toBe(201);
@@ -238,7 +240,16 @@ describe("scoped user tokens (req. 2, 4, 5)", () => {
         await grant({ user: alice }, r.app._id, ["profile:read"]);
         const t = (await token(r.keyId, r.secret, { userId: String(alice._id) })).body.data.accessToken;
         expect((await http().get("/v1/me").set(bearer(t)).set("Origin", "http://localhost:4200")).status).toBe(200);
-        expect((await http().get("/v1/me").set(bearer(t)).set("Origin", "https://evil.example.com")).status).toBe(401);
+        // Origin not on the list: 403 that says what to change (refreshing the token can't fix it)
+        const wrongOrigin = await http().get("/v1/me").set(bearer(t)).set("Origin", "https://evil.example.com");
+        expect(wrongOrigin.status).toBe(403);
+        expect(wrongOrigin.body.error.message).toBe("This app doesn't allow requests from https://evil.example.com. Add it to the app's allowed origins in the Developer portal.");
+        // …on session routes too
+        const legacyRoute = await http().get("/conversations").set(bearer(t)).set("Origin", "https://evil.example.com");
+        expect(legacyRoute.status).toBe(403);
+        expect(JSON.stringify(legacyRoute.body)).toContain("allowed origins");
+        // Every other failure keeps the one generic answer, whatever the origin
+        expect((await http().get("/v1/me").set(bearer(`${t.slice(0, -4)}AAAA`)).set("Origin", "http://localhost:4200")).body.error.message).toBe("Invalid or expired token");
         expect((await api({ user: owner }).post("/v1/apps").send({ name: "Bad", environment: "production", allowedOrigins: ["http://insecure.example.com"] })).status).toBe(400);
     });
 });
@@ -338,6 +349,14 @@ describe("app sockets and connection limits (req. 11, 12, 13)", () => {
     });
 
     const mint = async (scopes?: string[]) => (await token(reg.keyId, reg.secret, { userId: String(alice._id), ...(scopes ? { scopes } : {}) })).body.data.accessToken as string;
+
+    it("a socket from an origin the app doesn't allow is refused with a message that says what to change", async () => {
+        const error = await appSock(await mint(), "https://not-allowed.example.com").then(() => null, (e) => e);
+        expect(error?.message).toBe("This app doesn't allow requests from https://not-allowed.example.com. Add it to the app's allowed origins in the Developer portal.");
+        // Other token failures stay generic
+        const forged = await appSock(`${(await mint()).slice(0, -4)}AAAA`).then(() => null, (e) => e);
+        expect(forged?.message).toBe("Invalid token");
+    });
 
     it("needs realtime:connect; refuses events outside its scopes; can't send messages (end-to-end encryption)", async () => {
         await expect(appSock(await mint(["profile:read"]))).rejects.toBeTruthy();

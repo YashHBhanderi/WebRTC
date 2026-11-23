@@ -20,6 +20,7 @@ tags:
   - name: App consent
   - name: App tokens
   - name: Platform admin
+  - name: App users
   - name: Webhooks
   - name: Organizations
   - name: Organization admin
@@ -659,6 +660,71 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
       x-rate-limit: default
+  /v1/messages/{messageId}/attachment:
+    get:
+      tags:
+        - Conversations
+      summary: Download the attachment of a message I can read
+      description: "Streams the stored file through the API, so clients never need access to the storage bucket. End-to-end encrypted attachments come back as ciphertext (application/octet-stream) for the client to decrypt; older unencrypted files keep their type and are always sent as a download."
+      operationId: getMessagesMessageIdAttachment
+      security:
+        - clerkSession: []
+        - appUserToken:
+            - "messages:read"
+      x-required-scope: "messages:read"
+      x-auth: user
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{24}$"
+      responses:
+        "200":
+          description: "Success (raw bytes, no JSON envelope)"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
   /v1/conversations/external:
     post:
       tags:
@@ -970,8 +1036,8 @@ paths:
     post:
       tags:
         - Developer apps
-      summary: "Register an app (global from the personal context, or bound to the active workspace)"
-      description: tenantBound apps need the workspace owner/admin role and act only in that workspace. Scopes default to none.
+      summary: "Register an app (with its own tenant from the personal context, or bound to the active workspace)"
+      description: "From the personal context the app gets a dedicated tenant, created with it: an independent workspace whose users the app registers through POST /v1/app-users. tenantBound apps need the workspace owner/admin role and act only in that workspace, for its members. Scopes default to none."
       operationId: postApps
       security:
         - clerkSession: []
@@ -1107,6 +1173,10 @@ paths:
                       tenantId:
                         type: string
                         nullable: true
+                        description: The only tenant the app acts in
+                      dedicatedTenant:
+                        type: boolean
+                        description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                       scopes:
                         type: array
                         items:
@@ -1238,6 +1308,10 @@ paths:
                         tenantId:
                           type: string
                           nullable: true
+                          description: The only tenant the app acts in
+                        dedicatedTenant:
+                          type: boolean
+                          description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                         scopes:
                           type: array
                           items:
@@ -1375,6 +1449,10 @@ paths:
                       tenantId:
                         type: string
                         nullable: true
+                        description: The only tenant the app acts in
+                      dedicatedTenant:
+                        type: boolean
+                        description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                       scopes:
                         type: array
                         items:
@@ -1604,6 +1682,10 @@ paths:
                       tenantId:
                         type: string
                         nullable: true
+                        description: The only tenant the app acts in
+                      dedicatedTenant:
+                        type: boolean
+                        description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                       scopes:
                         type: array
                         items:
@@ -1753,6 +1835,10 @@ paths:
                       tenantId:
                         type: string
                         nullable: true
+                        description: The only tenant the app acts in
+                      dedicatedTenant:
+                        type: boolean
+                        description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                       scopes:
                         type: array
                         items:
@@ -1902,6 +1988,10 @@ paths:
                       tenantId:
                         type: string
                         nullable: true
+                        description: The only tenant the app acts in
+                      dedicatedTenant:
+                        type: boolean
+                        description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                       scopes:
                         type: array
                         items:
@@ -2065,6 +2155,10 @@ paths:
                       tenantId:
                         type: string
                         nullable: true
+                        description: The only tenant the app acts in
+                      dedicatedTenant:
+                        type: boolean
+                        description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                       scopes:
                         type: array
                         items:
@@ -3775,6 +3869,10 @@ paths:
                         tenantId:
                           type: string
                           nullable: true
+                          description: The only tenant the app acts in
+                        dedicatedTenant:
+                          type: boolean
+                          description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)"
                         scopes:
                           type: array
                           items:
@@ -3866,6 +3964,993 @@ paths:
               schema:
                 "$ref": "#/components/schemas/Error"
       x-rate-limit: default
+  /v1/app-users:
+    post:
+      tags:
+        - App users
+      summary: "Register one of your users in your app's tenant (server-to-server only)"
+      description: "The user exists only in your app's tenant and can only find and talk to other users your app registered. The tenant is taken from the credential; it can't be chosen. Then get tokens with POST /v1/app-tokens and `externalUserRef` = this externalUserId. 409 if the externalUserId is already registered."
+      operationId: postApp-users
+      security:
+        - appCredential: []
+      x-auth: appCredential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                externalUserId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  pattern: "^[\\w.:@|-]+$"
+                  description: "Your system's id for this person; unique within your app"
+                name:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                  description: "Display name: letters, digits, spaces and . _ ' -"
+                email:
+                  type: string
+                  maxLength: 254
+                  description: "Optional; lets your other users find this person by email. Never used for sign-in"
+                avatarUrl:
+                  type: string
+                  maxLength: 500
+                  description: Optional https URL of a profile picture you host
+              required:
+                - externalUserId
+                - name
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                        description: SpreeWe user id (use it wherever the API takes a user id)
+                      externalUserId:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                        nullable: true
+                      avatarUrl:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - deactivated
+                      tenantId:
+                        type: string
+                        description: "Your app's tenant"
+                      createdAt:
+                        type: string
+                        format: date-time
+                      deactivatedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "409":
+          description: Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
+    get:
+      tags:
+        - App users
+      summary: List the users your app registered
+      description: "List the users your app registered. Access: App server credential (HTTP Basic keyId:secret); never from a browser or mobile app."
+      operationId: getApp-users
+      security:
+        - appCredential: []
+      x-auth: appCredential
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor from page.nextCursor
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{24}$"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - active
+              - deactivated
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - page
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        _id:
+                          type: string
+                          description: SpreeWe user id (use it wherever the API takes a user id)
+                        externalUserId:
+                          type: string
+                        name:
+                          type: string
+                        email:
+                          type: string
+                          nullable: true
+                        avatarUrl:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - deactivated
+                        tenantId:
+                          type: string
+                          description: "Your app's tenant"
+                        createdAt:
+                          type: string
+                          format: date-time
+                        deactivatedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                  page:
+                    "$ref": "#/components/schemas/Page"
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
+  /v1/app-users/{externalUserId}:
+    get:
+      tags:
+        - App users
+      summary: "One of your users, by your own id"
+      description: "One of your users, by your own id. Access: App server credential (HTTP Basic keyId:secret); never from a browser or mobile app."
+      operationId: getApp-usersExternalUserId
+      security:
+        - appCredential: []
+      x-auth: appCredential
+      parameters:
+        - name: externalUserId
+          in: path
+          required: true
+          description: "Your system's id for this person; unique within your app"
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+            pattern: "^[\\w.:@|-]+$"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                        description: SpreeWe user id (use it wherever the API takes a user id)
+                      externalUserId:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                        nullable: true
+                      avatarUrl:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - deactivated
+                      tenantId:
+                        type: string
+                        description: "Your app's tenant"
+                      createdAt:
+                        type: string
+                        format: date-time
+                      deactivatedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
+    patch:
+      tags:
+        - App users
+      summary: "Update a user's name, email or picture, or deactivate / reactivate them"
+      description: "`active: false` stops the user's tokens immediately and removes them from your directory; their past messages stay. `active: true` brings them back. Send an empty string to clear email or avatarUrl."
+      operationId: patchApp-usersExternalUserId
+      security:
+        - appCredential: []
+      x-auth: appCredential
+      parameters:
+        - name: externalUserId
+          in: path
+          required: true
+          description: "Your system's id for this person; unique within your app"
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+            pattern: "^[\\w.:@|-]+$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                email:
+                  type: string
+                  maxLength: 254
+                avatarUrl:
+                  type: string
+                  maxLength: 500
+                active:
+                  type: boolean
+              minProperties: 1
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                        description: SpreeWe user id (use it wherever the API takes a user id)
+                      externalUserId:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                        nullable: true
+                      avatarUrl:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - deactivated
+                      tenantId:
+                        type: string
+                        description: "Your app's tenant"
+                      createdAt:
+                        type: string
+                        format: date-time
+                      deactivatedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
+    delete:
+      tags:
+        - App users
+      summary: "Deactivate a user (same as PATCH active: false)"
+      description: "Deactivate a user (same as PATCH active: false). Access: App server credential (HTTP Basic keyId:secret); never from a browser or mobile app."
+      operationId: deleteApp-usersExternalUserId
+      security:
+        - appCredential: []
+      x-auth: appCredential
+      parameters:
+        - name: externalUserId
+          in: path
+          required: true
+          description: "Your system's id for this person; unique within your app"
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+            pattern: "^[\\w.:@|-]+$"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deactivated:
+                        type: boolean
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
+  /v1/apps/{appId}/users:
+    get:
+      tags:
+        - App users
+      summary: "Owner: list the users registered in this app's tenant"
+      description: "Owner: list the users registered in this app's tenant. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      operationId: getAppsAppIdUsers
+      security:
+        - clerkSession: []
+      x-auth: firstParty
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{24}$"
+        - name: limit
+          in: query
+          required: false
+          description: Page size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque cursor from page.nextCursor
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{24}$"
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - active
+              - deactivated
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                  - page
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        _id:
+                          type: string
+                          description: SpreeWe user id (use it wherever the API takes a user id)
+                        externalUserId:
+                          type: string
+                        name:
+                          type: string
+                        email:
+                          type: string
+                          nullable: true
+                        avatarUrl:
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                            - active
+                            - deactivated
+                        tenantId:
+                          type: string
+                          description: "Your app's tenant"
+                        createdAt:
+                          type: string
+                          format: date-time
+                        deactivatedAt:
+                          type: string
+                          format: date-time
+                          nullable: true
+                  page:
+                    "$ref": "#/components/schemas/Page"
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
+    post:
+      tags:
+        - App users
+      summary: "Owner: register a user in this app's tenant"
+      description: "Owner: register a user in this app's tenant. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      operationId: postAppsAppIdUsers
+      security:
+        - clerkSession: []
+      x-auth: firstParty
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{24}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                externalUserId:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                  pattern: "^[\\w.:@|-]+$"
+                  description: "Your system's id for this person; unique within your app"
+                name:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                email:
+                  type: string
+                  maxLength: 254
+                avatarUrl:
+                  type: string
+                  maxLength: 500
+              required:
+                - externalUserId
+                - name
+      responses:
+        "201":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                        description: SpreeWe user id (use it wherever the API takes a user id)
+                      externalUserId:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                        nullable: true
+                      avatarUrl:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - deactivated
+                      tenantId:
+                        type: string
+                        description: "Your app's tenant"
+                      createdAt:
+                        type: string
+                        format: date-time
+                      deactivatedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "409":
+          description: Error
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: sensitive
+  /v1/apps/{appId}/users/{externalUserId}:
+    get:
+      tags:
+        - App users
+      summary: "Owner: one user of this app"
+      description: "Owner: one user of this app. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      operationId: getAppsAppIdUsersExternalUserId
+      security:
+        - clerkSession: []
+      x-auth: firstParty
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{24}$"
+        - name: externalUserId
+          in: path
+          required: true
+          description: "Your system's id for this person; unique within your app"
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+            pattern: "^[\\w.:@|-]+$"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                        description: SpreeWe user id (use it wherever the API takes a user id)
+                      externalUserId:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                        nullable: true
+                      avatarUrl:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - deactivated
+                      tenantId:
+                        type: string
+                        description: "Your app's tenant"
+                      createdAt:
+                        type: string
+                        format: date-time
+                      deactivatedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: default
+    patch:
+      tags:
+        - App users
+      summary: "Owner: update a user, or deactivate / reactivate them"
+      description: "Owner: update a user, or deactivate / reactivate them. Access: Signed-in user in a first-party SpreeWe client (Clerk session only; app tokens are refused)."
+      operationId: patchAppsAppIdUsersExternalUserId
+      security:
+        - clerkSession: []
+      x-auth: firstParty
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-f0-9]{24}$"
+        - name: externalUserId
+          in: path
+          required: true
+          description: "Your system's id for this person; unique within your app"
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+            pattern: "^[\\w.:@|-]+$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 3
+                  maxLength: 30
+                email:
+                  type: string
+                  maxLength: 254
+                avatarUrl:
+                  type: string
+                  maxLength: 500
+                active:
+                  type: boolean
+              minProperties: 1
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - data
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                        description: SpreeWe user id (use it wherever the API takes a user id)
+                      externalUserId:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                        nullable: true
+                      avatarUrl:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - deactivated
+                      tenantId:
+                        type: string
+                        description: "Your app's tenant"
+                      createdAt:
+                        type: string
+                        format: date-time
+                      deactivatedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+        "400":
+          description: Invalid request (see error.details) or no active workspace when one is required
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "403":
+          description: "Not allowed (role, policy, removed membership, suspended or deleted workspace)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "404":
+          description: "Not found, or not visible in the active context"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+        "500":
+          description: "Unexpected server error (details are logged, never returned)"
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Error"
+      x-rate-limit: sensitive
   /v1/webhook-events:
     get:
       tags:

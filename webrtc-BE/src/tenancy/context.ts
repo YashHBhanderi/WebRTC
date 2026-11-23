@@ -25,6 +25,12 @@ export interface RequestContext {
     authAgeMinutes?: number | null;
     /** Set when the request is made with a developer-app user token (never for first-party sessions) */
     app?: AppIdentity;
+    /**
+     * Identity realm of the acting user: the dedicated tenant of the developer application that
+     * registered them (app-managed users), or null / undefined for SpreeWe accounts. Users of one
+     * realm are invisible to every other realm at the data layer (models/userModel.ts).
+     */
+    realm?: string | null;
 }
 
 export interface AppIdentity {
@@ -87,6 +93,11 @@ export function currentContext(): Context | undefined {
 export function userContext(): RequestContext | undefined {
     const ctx = storage.getStore();
     return ctx && ctx.kind === "user" ? ctx : undefined;
+}
+
+/** Realm of a context (see RequestContext.realm): an application's dedicated tenant id, or null. */
+export function realmOf(ctx: RequestContext | null | undefined): string | null {
+    return ctx?.realm ? String(ctx.realm) : null;
 }
 
 /** Key of a context for socket routing / caches: "global" or the tenant id. */

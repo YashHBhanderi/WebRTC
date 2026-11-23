@@ -157,3 +157,27 @@ body {
   color: var(--app-text);
   text-align: center;
 }
+
+.auth-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1.25rem;
+  font-size: .85rem;
+}
+.auth-head__home {
+  color: var(--app-muted);
+  text-decoration: none;
+  &:hover { color: var(--app-text); }
+}
+.auth-head__portal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--app-brand-soft);
+  color: var(--app-text);
+  font-weight: 600;
+}

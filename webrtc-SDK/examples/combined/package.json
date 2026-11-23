@@ -1,0 +1,24 @@
+{
+  "name": "example-combined",
+  "private": true,
+  "type": "module",
+  "description": "Chat, calls, groups, contacts, meetings, files and notifications in one app, wired with events; backend token exchange.",
+  "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
+  "dependencies": {
+    "@spreewe/core": "^0.1.0",
+    "@spreewe/ui": "^0.1.0",
+    "@spreewe/e2ee": "^0.1.0",
+    "@spreewe/chat": "^0.1.0",
+    "@spreewe/calls": "^0.1.0",
+    "@spreewe/groups": "^0.1.0",
+    "@spreewe/contacts": "^0.1.0",
+    "@spreewe/meetings": "^0.1.0",
+    "@spreewe/notifications": "^0.1.0",
+    "@spreewe/files": "^0.1.0",
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.0",
+    "lit": "^3.3.0",
+    "mediasoup-client": "^3.23.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": { "vite": "~6.4.5" }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@spreewe/e2ee",
+  "version": "0.1.0",
+  "description": "End-to-end encryption device for SpreeWe (Olm/Megolm via matrix-sdk-crypto-wasm). Enables reading and sending encrypted messages and attachments.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/.tsbuildinfo",
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "dependencies": {},
+  "peerDependencies": {
+    "@spreewe/core": "^0.1.0",
+    "@matrix-org/matrix-sdk-crypto-wasm": ">=18.9.0 <19.0.0"
+  },
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

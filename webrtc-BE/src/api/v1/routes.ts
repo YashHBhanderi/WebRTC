@@ -9,6 +9,10 @@ import {
     DIRECTORY_FIELDS, createExternalConversation, directoryFilter, myWorkspaces, tenantSummary,
 } from "../../tenancy/tenant.service";
 import { NotFoundError } from "../../utils/errors";
+import Message from "../../models/messageModel";
+import storage from "../../services/storage.service";
+import { ENCRYPTED_MIME } from "../../services/file.service";
+import { getConversationForMember } from "../../services/authorization.service";
 import { updateWorkspacePolicies } from "../../organizations/workspace-policies";
 import { defineRoute } from "./registry";
 import { S } from "./schema";
@@ -168,6 +172,36 @@ defineRoute({
             if (error?.status === 403) throw new NotFoundError("Conversation not found");
             throw error;
         }
+    },
+});
+
+defineRoute({
+    method: "get", path: "/messages/:messageId/attachment", scope: "messages:read", tag: "Conversations", binary: true,
+    summary: "Download the attachment of a message I can read",
+    description: "Streams the stored file through the API, so clients never need access to the storage bucket. End-to-end encrypted attachments come back as ciphertext (application/octet-stream) for the client to decrypt; older unencrypted files keep their type and are always sent as a download.",
+    errors: [404],
+    params: S.object({ messageId: S.objectId() }),
+    response: S.doc({ type: "string", format: "binary" }),
+    handler: async ({ ctx, params }) => {
+        const notFound = () => new NotFoundError("Attachment not found");
+        const m: any = await Message.findOne({ _id: oid(params.messageId), isDeleted: { $ne: true } }).select("conversationId file").lean();
+        if (!m?.file?.storageKey) throw notFound();
+        const encrypted = m.file.mimeType === ENCRYPTED_MIME;
+        // Same rule as message history: apps without their own encryption device never get ciphertext
+        if (encrypted && ctx.app && !ctx.app.scopes.includes("e2ee:device")) throw notFound();
+        try {
+            await getConversationForMember(String(m.conversationId), ctx.userId);
+        } catch {
+            throw notFound();
+        }
+        const { body, length } = await storage.openStream(m.file.storageKey);
+        if (encrypted) return { body, length, contentType: ENCRYPTED_MIME };
+        // Served from the API's own origin: never render it there
+        const name = String(m.file.originalName || "file").replace(/[^\x20-\x7e]|["\\]/g, "_");
+        return {
+            body, length, contentType: m.file.mimeType || "application/octet-stream",
+            headers: { "Content-Disposition": `attachment; filename="${name}"`, "Content-Security-Policy": "sandbox; default-src 'none'" },
+        };
     },
 });
 

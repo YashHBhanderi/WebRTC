@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SpreeWeApiError, SpreeWeServerClient } from "../../docs/integrations/examples/backend/spreewe-server-client";
 import { SpreeWeBrowserClient } from "../../docs/integrations/examples/frontend/spreewe-browser-client";
-import { addMessage, api, makeUser, nextEvent, sleep, startSocketServer, uniq, enc, plainOf } from "./helpers";
+import { addMessage, api, makeUser, nextEvent, sleep, startSocketServer, uniq, enc, plainOf, legacyGlobal } from "./helpers";
 
 // The published examples, run against a real (in-process) SpreeWe server over HTTP + Socket.IO
 describe("developer examples work end to end", () => {
@@ -17,6 +17,7 @@ describe("developer examples work end to end", () => {
         const [owner, alice, bob] = await Promise.all([makeUser(), makeUser(), makeUser()]);
         const name = uniq("Example");
         const app = (await api({ user: owner }).post("/v1/apps").send({ name, environment: "development", callbackUrls: ["https://yourapp.example.com/spreewe/callback"], scopes: ["profile:read", "conversations:read", "realtime:connect", "messages:read"] })).body.data;
+        await legacyGlobal(app?._id);
         const cred = (await api({ user: owner }).post(`/v1/apps/${app._id}/credentials`).send({ confirm: name })).body.data;
         const base = `http://localhost:${server.port}`;
         const backend = new SpreeWeServerClient(base, cred.credential.keyId, cred.secret);

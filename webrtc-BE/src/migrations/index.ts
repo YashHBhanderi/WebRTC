@@ -299,6 +299,36 @@ const migrations: Migration[] = [
             return "indexes ensured";
         },
     },
+    {
+        id: "2026-11-16-app-tenants",
+        description: "Application tenants and app-managed users: partial unique indexes on tenants.clerkOrgId and users.email, new indexes",
+        up: async () => {
+            // Application tenants have no Clerk organization and app-managed users have no account email.
+            // Both old indexes were unique over ALL documents (a missing value counts as null), which
+            // would allow only one of each. Replace them with indexes that are unique among the
+            // documents that have a value: existing data satisfies the new index because it satisfied
+            // the old one. Nothing is deleted or rewritten.
+            const replaced: string[] = [];
+            for (const [model, name] of [[Tenant, "clerkOrgId_1"], [User, "email_1"]] as [mongoose.Model<any>, string][]) {
+                const existing = (await model.collection.indexes().catch(() => [])).find((i) => i.name === name);
+                if (existing && !(existing as any).partialFilterExpression) {
+                    await model.collection.dropIndex(name);
+                    replaced.push(`${model.collection.collectionName}.${name}`);
+                }
+                // Recreated at once (unique, partial), together with the model's new indexes
+                await model.createIndexes();
+            }
+            for (const model of [TenantMembership, DeveloperApp, AppGrant, AppUsage] as mongoose.Model<any>[]) {
+                await model.createIndexes();
+            }
+            // Explicit values for the new fields (absent already means the same thing)
+            const apps = await DeveloperApp.updateMany({ dedicatedTenant: { $exists: false } }, { $set: { dedicatedTenant: false } });
+            const tenants = await Tenant.updateMany({ kind: { $exists: false } }, { $set: { kind: "organization" } });
+            // Existing apps are left as they are: global apps (consent / OAuth with SpreeWe accounts) and
+            // workspace apps keep working. Only apps created from now on get a dedicated tenant.
+            return `${replaced.length ? `replaced ${replaced.join(", ")}` : "indexes already current"}; ${apps.modifiedCount} app(s) marked legacy, ${tenants.modifiedCount} tenant(s) marked organization`;
+        },
+    },
 ];
 
 export async function runMigrations(): Promise<void> {

@@ -6,7 +6,7 @@ import { RequestContext, runWithContext } from "../../tenancy/context";
 import { AppError, errorCodeFor, publicMessage } from "../../utils/errors";
 import { securityConfig } from "../../config/security";
 import { AppScope } from "../../developer/scopes";
-import { looksLikeAppToken } from "../../developer/tokens";
+import { looksLikeAppToken, tokenRejection } from "../../developer/tokens";
 import { authenticateCredential, recordUsage, verifyUserToken } from "../../developer/app.service";
 import { appRateLimit, countAppErrors } from "../../developer/app-request";
 import { IAppCredential, IDeveloperApp } from "../../developer/models";
@@ -68,6 +68,16 @@ export interface RouteDef {
     /** Documented non-2xx statuses besides the common 400/401/403/429/500 */
     errors?: number[];
     handler: (input: RouteInput) => Promise<unknown>;
+    /** The handler returns a BinaryResult that is streamed as-is instead of the JSON envelope */
+    binary?: boolean;
+}
+
+export interface BinaryResult {
+    body: NodeJS.ReadableStream;
+    contentType: string;
+    length?: number;
+    /** Extra response headers (e.g. Content-Disposition) */
+    headers?: Record<string, string>;
 }
 
 export const routes: RouteDef[] = [];
@@ -115,11 +125,14 @@ function userAuth(allowAppTokens: boolean) {
             return sendV1Error(res, new AppError("This endpoint needs a signed-in SpreeWe session", 403));
         }
         let ctx: RequestContext;
+        const origin = typeof req.headers.origin === "string" ? req.headers.origin : null;
         try {
-            ctx = await verifyUserToken(token!, { origin: typeof req.headers.origin === "string" ? req.headers.origin : null });
-        } catch {
-            // One answer for every token failure (expired, revoked, suspended app, removed member…)
-            return sendV1Error(res, new AppError("Invalid or expired token", 401));
+            ctx = await verifyUserToken(token!, { origin });
+        } catch (error) {
+            // One answer for every token failure (expired, revoked, suspended app, removed member…),
+            // except a browser origin missing from the app's allow-list (see tokenRejection)
+            const rejection = tokenRejection(error, origin);
+            return sendV1Error(res, new AppError(rejection.message, rejection.status));
         }
         (req as CustomRequest).userId = ctx.userId;
         (req as CustomRequest).ctx = ctx;
@@ -190,6 +203,18 @@ export function buildV1Router(defs: RouteDef[] = routes): Router {
                     body: def.body ? validate(def.body, req.body ?? {}) : {},
                 };
                 const result = await def.handler(input);
+                if (def.binary) {
+                    const bin = result as BinaryResult;
+                    res.status(200);
+                    res.setHeader("Content-Type", bin.contentType);
+                    res.setHeader("Cache-Control", "private, no-store");
+                    res.setHeader("X-Content-Type-Options", "nosniff");
+                    for (const [k, v] of Object.entries(bin.headers || {})) res.setHeader(k, v);
+                    if (bin.length !== undefined) res.setHeader("Content-Length", String(bin.length));
+                    bin.body.on("error", () => res.destroy());
+                    bin.body.pipe(res);
+                    return;
+                }
                 if (def.paginated) {
                     const page = result as Paged<unknown>;
                     res.status(200).json({ data: page.items, page: { nextCursor: page.nextCursor } });

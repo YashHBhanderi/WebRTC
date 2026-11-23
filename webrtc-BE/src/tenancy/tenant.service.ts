@@ -7,6 +7,7 @@ import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { escapeRegExp, requireObjectId } from "../utils/validation";
 import { RequestContext, TenantRole, runAsSystem, runWithContext } from "./context";
 import { ScopeInfo, conversationScope, rememberConversationScope } from "./scope";
+import { anyOutsideRealm, assertSameRealm, realmUserFilter } from "./realm";
 
 const oid = (id: string) => new mongoose.Types.ObjectId(id);
 
@@ -39,7 +40,7 @@ const platformAdmins = () => new Set((process.env.PLATFORM_ADMIN_CLERK_IDS || ""
 
 // ------------------------------------------------------------------ context resolution
 
-type CachedTenant = { id: string; status: string; policies: ITenantPolicies; managedBy: "spreewe" | "clerk" };
+type CachedTenant = { id: string; status: string; policies: ITenantPolicies; managedBy: "spreewe" | "clerk"; kind: "organization" | "app" };
 const tenantByOrg = new Map<string, { tenant: CachedTenant; at: number }>();
 const TENANT_TTL_MS = 30_000;
 const projectionSeen = new Map<string, number>();
@@ -56,7 +57,7 @@ async function tenantForOrg(clerkOrgId: string, slug: string | null): Promise<Ca
         { $setOnInsert: { clerkOrgId, name: slug || "", slug: slug || "", status: "active", policies: { ...DEFAULT_TENANT_POLICIES } } },
         { upsert: true, new: true },
     ).lean());
-    const tenant: CachedTenant = { id: String(doc!._id), status: doc!.status, policies: { ...DEFAULT_TENANT_POLICIES, ...(doc!.policies || {}) }, managedBy: doc!.managedBy === "spreewe" ? "spreewe" : "clerk" };
+    const tenant: CachedTenant = { id: String(doc!._id), status: doc!.status, policies: { ...DEFAULT_TENANT_POLICIES, ...(doc!.policies || {}) }, managedBy: doc!.managedBy === "spreewe" ? "spreewe" : "clerk", kind: doc!.kind === "app" ? "app" : "organization" };
     tenantByOrg.set(clerkOrgId, { tenant, at: Date.now() });
     return tenant;
 }
@@ -87,6 +88,10 @@ export async function resolveContext(localUserId: string, clerkUserId: string, c
         throw new AppError("Invalid organization in session", 401);
     }
     const tenant = await tenantForOrg(claims.orgId, claims.orgSlug || null);
+    // An application's dedicated tenant is reachable only with that application's user tokens
+    if (tenant.kind === "app") {
+        throw new ForbiddenError("This workspace is not available");
+    }
     if (tenant.status !== "active") {
         throw new ForbiddenError(tenant.status === "deleted" ? "This workspace no longer exists" : "This workspace is suspended");
     }
@@ -258,9 +263,14 @@ export async function guestContacts(ctx: RequestContext): Promise<mongoose.Types
 /**
  * In a workspace, conversations / groups / meetings may only include members of that workspace.
  * Outsiders need an explicit external conversation (createExternalConversation).
- * In the global context anyone may be included, as before.
+ * In the global context any SpreeWe account may be included, as before.
+ * In every context: never a user of another realm (another application's users, or SpreeWe accounts
+ * from inside an application tenant).
  */
 export async function assertCanInclude(ctx: RequestContext | undefined, userIds: string[]): Promise<void> {
+    if (ctx) {
+        await assertSameRealm(ctx, userIds.filter((id) => String(id) !== ctx.userId));
+    }
     if (!ctx?.tenantId) {
         return;
     }
@@ -323,7 +333,11 @@ export async function createExternalConversation(ctx: RequestContext, guestUserI
     if (guestId === ctx.userId) {
         throw new AppError("You can't start an external chat with yourself");
     }
-    const guest = await runAsSystem(() => User.findById(guestId).select("_id").lean());
+    // Application tenants are closed workspaces: no external conversations in or out of them
+    if (ctx.realm) {
+        throw new ForbiddenError("External chat is turned off for this workspace");
+    }
+    const guest = await runAsSystem(() => User.findOne({ _id: oid(guestId), ...realmUserFilter(ctx) }).select("_id").lean());
     if (!guest) {
         throw new NotFoundError("User not found");
     }
@@ -435,6 +449,9 @@ export async function directoryFilter(ctx: RequestContext, q?: unknown): Promise
         // email (contacts/contact.service.ts)
         filter._id = { $in: await guestContacts(ctx) };
     }
+    // Only people of the acting user's realm (never another application's users), and not deactivated
+    Object.assign(filter, realmUserFilter(ctx));
+    filter.deactivatedAt = null;
     // Accounts deleted or banned in Clerk are never listed
     filter.clerkDeletedAt = null;
     filter.clerkBanned = { $ne: true };
@@ -445,6 +462,9 @@ export async function directoryFilter(ctx: RequestContext, q?: unknown): Promise
 export async function canSeeUser(ctx: RequestContext, targetId: string): Promise<boolean> {
     if (targetId === ctx.userId) {
         return true;
+    }
+    if (await anyOutsideRealm(ctx, [targetId])) {
+        return false;
     }
     // Shares a conversation visible in this context (tenant-scoped query)
     if (await Conversation.exists({ members: { $all: [oid(ctx.userId), oid(targetId)] } })) {

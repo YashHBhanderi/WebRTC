@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { ClerkService } from './clerk.service';
 import { RAW_ERRORS } from '../interceptors/error.interceptor';
+import { clearPortal, portalHome } from './portal';
 
 const USER_KEY = 'user';
 const USER_CLERK_KEY = 'userClerkId';
@@ -107,11 +108,13 @@ export class AuthService {
     clearStoredSession();
     const continued = await this.clerk.signOut();
     if (continued) {
-      window.location.assign('/chat');
+      window.location.assign(portalHome());
       return;
     }
+    // The next person on this browser chooses their portal again on the landing page
+    clearPortal();
     if (navigate) {
-      this.router.navigate(['/auth/login']);
+      this.router.navigate(['/']);
     }
   }
 

@@ -153,6 +153,22 @@ class StorageService {
         }
     }
 
+    /** Open an object for streaming to a client through the API (no bucket CORS needed). */
+    async openStream(key: string): Promise<{ body: Readable; length?: number }> {
+        try {
+            const out = await this.s3().send(new GetObjectCommand({ Bucket: storageConfig.bucket, Key: key }));
+            if (!(out.Body instanceof Readable)) {
+                throw new Error("Unexpected response body");
+            }
+            return { body: out.Body, length: out.ContentLength };
+        } catch (error) {
+            if (this.isNotFound(error)) {
+                throw new AppError("File not found", 404);
+            }
+            throw this.wrap("read", key, error);
+        }
+    }
+
     /** Best-effort delete for cleanup paths: never throws, logs failures. */
     async deleteQuietly(key: string | null | undefined): Promise<void> {
         if (!key) {

@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./core" },
+    { "path": "./ui" },
+    { "path": "./e2ee" },
+    { "path": "./contacts" },
+    { "path": "./chat" },
+    { "path": "./groups" },
+    { "path": "./files" },
+    { "path": "./notifications" },
+    { "path": "./meetings" },
+    { "path": "./calls" }
+  ]
+}

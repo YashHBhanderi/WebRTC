@@ -7,6 +7,14 @@
                 <img src="../../../assets/Group-2186.webp" alt="Logo" class="logo" />
             </div> -->
 
+            <div class="auth-head">
+                <a routerLink="/" class="auth-head__home"><i class="ti ti-arrow-left" aria-hidden="true"></i> SpreeWe home</a>
+                <span class="auth-head__portal" [class.auth-head__portal--dev]="portal === 'developer'">
+                    <i class="ti" [ngClass]="portal === 'developer' ? 'ti-code' : 'ti-message-circle'" aria-hidden="true"></i>
+                    {{ portal === 'developer' ? 'Developer Portal' : 'SpreeWe app' }}
+                </span>
+            </div>
+
             <!-- Clerk's sign-up. Profile picture, username and bio are set later in Profile. -->
             <div #mount class="clerk-mount"></div>
 

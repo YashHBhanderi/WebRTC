@@ -76,7 +76,10 @@ export function normalizeEmail(raw: unknown): string {
 }
 
 async function eligibleRecipient(ctx: RequestContext, email: string, scope: ContactScope): Promise<{ user: { _id: unknown; username: string; avatar?: string }; external: boolean } | null> {
-    const user = await runAsSystem(() => User.findOne({ email }).select("_id username avatar globalDiscoverable clerkDeletedAt clerkBanned").lean(), "contact-lookup");
+    // SpreeWe accounts are found by their account email; an application's users only by the email that
+    // application supplied, and only inside its own tenant
+    const who = ctx.realm ? { tenantId: oid(ctx.realm), contactEmail: email, deactivatedAt: null } : { email, tenantId: null };
+    const user = await runAsSystem(() => User.findOne(who).select("_id username avatar globalDiscoverable clerkDeletedAt clerkBanned").lean(), "contact-lookup");
     if (!user || user.clerkDeletedAt || user.clerkBanned || String(user._id) === String(ctx.userId)) return null;
     if (await blockService.isBlockedEitherWay(String(ctx.userId), String(user._id))) return null;
 

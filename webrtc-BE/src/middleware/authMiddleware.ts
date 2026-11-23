@@ -7,7 +7,7 @@ import { resolveContext } from "../tenancy/tenant.service";
 import { runWithContext } from "../tenancy/context";
 import { AppError, publicMessage } from "../utils/errors";
 import { AppScope } from "../developer/scopes";
-import { looksLikeAppToken } from "../developer/tokens";
+import { looksLikeAppToken, tokenRejection } from "../developer/tokens";
 import { verifyUserToken } from "../developer/app.service";
 import { meterAppRequest } from "../developer/app-request";
 
@@ -76,11 +76,14 @@ export function requireUser(scope: AppScope | null) {
             return;
         }
         let ctx;
+        const origin = typeof req.headers.origin === "string" ? req.headers.origin : null;
         try {
-            ctx = await verifyUserToken(token!, { origin: typeof req.headers.origin === "string" ? req.headers.origin : null });
-        } catch {
-            // One answer for every token failure (expired, revoked, disabled app, removed member…)
-            legacyFailure(res, 401, "Invalid or expired token");
+            ctx = await verifyUserToken(token!, { origin });
+        } catch (error) {
+            // One answer for every token failure (expired, revoked, disabled app, removed member…),
+            // except a browser origin missing from the app's allow-list (see tokenRejection)
+            const rejection = tokenRejection(error, origin);
+            legacyFailure(res, rejection.status, rejection.message);
             return;
         }
         if (!ctx.app!.scopes.includes(scope)) {

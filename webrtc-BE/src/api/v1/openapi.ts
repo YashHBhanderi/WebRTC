@@ -97,7 +97,9 @@ export function buildOpenApi(defs: RouteDef[] = routes): Record<string, unknown>
             ...(parameters(def).length ? { parameters: parameters(def) } : {}),
             ...(def.body ? { requestBody: { required: true, content: { "application/json": { schema: def.body.openapi() } } } } : {}),
             responses: {
-                [success]: { description: "Success", content: { "application/json": { schema: data } } },
+                [success]: def.binary
+                    ? { description: "Success (raw bytes, no JSON envelope)", content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } } }
+                    : { description: "Success", content: { "application/json": { schema: data } } },
                 ...Object.fromEntries(statuses.map((s) => [String(s), errorResponse(COMMON_ERRORS[s] || (s === 404 ? "Not found, or not visible in the active context" : "Error"))])),
             },
             "x-rate-limit": def.sensitive ? "sensitive" : "default",

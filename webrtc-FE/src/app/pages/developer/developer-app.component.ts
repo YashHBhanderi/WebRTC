@@ -1,15 +1,17 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import {
-  AuditEntry, Credential, DevApp, DeveloperService, ScopeInfo, UsageDay, WebhookDelivery, WebhookEndpoint, WebhookEventType,
+  AppKind, AppUser, AuditEntry, Credential, DevApp, DeveloperService, ScopeInfo, UsageDay, WebhookDelivery, WebhookEndpoint, WebhookEventType, appKind,
 } from 'src/app/core/services/developer.service';
 import { errorText } from 'src/app/core/services/organization.service';
 
-type Tab = 'overview' | 'credentials' | 'permissions' | 'configuration' | 'webhooks' | 'usage' | 'activity';
+type Tab = 'overview' | 'users' | 'credentials' | 'permissions' | 'configuration' | 'webhooks' | 'usage' | 'activity';
 
 /**
  * /developer/apps/:appId — one application: details and status, credentials (secret shown once),
  * permissions, origins and redirect URLs, webhooks with deliveries, usage, audit trail.
+ * Applications with their own tenant also get a Users tab (register, list, inspect, deactivate the
+ * application's users) and no consent / OAuth settings; workspace and legacy applications keep theirs.
  * Irreversible actions ask for the application's exact name (the server checks it too).
  */
 @Component({
@@ -27,7 +29,9 @@ type Tab = 'overview' | 'credentials' | 'permissions' | 'configuration' | 'webho
           <div>
             <h1 class="page__title">{{ app.name }}</h1>
             <p class="dev-muted mb-0">{{ app.environment }} · <span class="dev-chip" [ngClass]="statusClass">{{ statusLabel }}</span>
-              <span *ngIf="app.tenantId"> · workspace application</span></p>
+              <span *ngIf="kind === 'workspace'"> · workspace application</span>
+              <span *ngIf="kind === 'dedicated'"> · own tenant</span>
+              <span *ngIf="kind === 'legacy'"> · consent-based (legacy)</span></p>
           </div>
         </header>
 
@@ -47,7 +51,17 @@ type Tab = 'overview' | 'credentials' | 'permissions' | 'configuration' | 'webho
             <h2 class="h6 mb-0">Identifiers</h2>
             <div><span class="dev-muted">Application ID</span><div class="dev-row"><span class="dev-mono">{{ app._id }}</span><button type="button" class="btn btn-sm btn-link" (click)="copy(app._id)">Copy</button></div></div>
             <div><span class="dev-muted">Client ID (key id)</span> <span class="dev-muted small">: listed on the Credentials tab; each credential has its own.</span></div>
+            <div *ngIf="kind === 'dedicated'"><span class="dev-muted">Tenant ID</span><div class="dev-row"><span class="dev-mono">{{ app.tenantId }}</span><button type="button" class="btn btn-sm btn-link" (click)="copy(app.tenantId || '')">Copy</button></div></div>
             <div class="dev-muted small">Created {{ app.createdAt | date: 'medium' }} · updated {{ app.updatedAt | date: 'medium' }}</div>
+          </div>
+          <div class="card-section dev-grid" *ngIf="kind === 'dedicated'" data-test="kind-dedicated">
+            <h2 class="h6 mb-0">Users</h2>
+            <p class="mb-0">This application has its own tenant. Its users are the ones you register (on the Users tab, or from your server with <code>POST /v1/app-users</code>), and they can only find and talk to each other. SpreeWe accounts and other applications' users are never visible to them.</p>
+            <div><button type="button" class="btn btn-outline-secondary btn-sm" (click)="select('users')">Manage users</button></div>
+          </div>
+          <div class="card-section dev-grid" *ngIf="kind === 'legacy'" data-test="kind-legacy">
+            <h2 class="h6 mb-0">Users</h2>
+            <p class="mb-0">This application was created before applications had their own tenant. SpreeWe account holders link to it by consent or OAuth, and it acts in their personal context. It keeps working as it is; to register your own users, register a new application.</p>
           </div>
           <form class="card-section dev-grid" (ngSubmit)="saveDetails()">
             <h2 class="h6 mb-0">Details</h2>
@@ -71,6 +85,74 @@ type Tab = 'overview' | 'credentials' | 'permissions' | 'configuration' | 'webho
               <button type="button" class="btn btn-danger" (click)="deleteApp()" [disabled]="busy || confirmName !== app.name">Delete application</button>
             </div>
             <span class="dev-muted small">Deleting is permanent: credentials, tokens and webhooks stop working. The record and audit trail are kept.</span>
+          </div>
+        </div>
+
+        <!-- ============================================================ users -->
+        <div class="dev-grid" *ngIf="tab === 'users' && kind === 'dedicated'">
+          <form class="card-section dev-grid" *ngIf="!readOnly" (ngSubmit)="registerUser()" aria-label="Register a user">
+            <h2 class="h6 mb-0">Register a user</h2>
+            <p class="dev-muted small mb-0">The user is created in this application's tenant only. Your server can do the same with <code>POST /v1/app-users</code> and then get tokens for them by their external ID.</p>
+            <label>External user ID
+              <input class="form-control dev-mono" name="newExternalId" [(ngModel)]="newUser.externalUserId" maxlength="200" placeholder="yourapp-user-42" autocomplete="off" />
+              <span class="dev-muted small">Your own ID for this person. Unique in this application; letters, digits and . _ : &#64; | -</span>
+            </label>
+            <label>Display name
+              <input class="form-control" name="newName" [(ngModel)]="newUser.name" minlength="3" maxlength="30" autocomplete="off" />
+            </label>
+            <label>Email (optional)
+              <input class="form-control" name="newEmail" type="email" [(ngModel)]="newUser.email" maxlength="254" autocomplete="off" />
+            </label>
+            <div><button type="submit" class="btn btn-primary" [disabled]="busy || !canRegisterUser">Register user</button></div>
+          </form>
+
+          <div class="card-section dev-grid">
+            <div class="dev-row dev-row--between">
+              <h2 class="h6 mb-0">Registered users</h2>
+              <label class="dev-row mb-0"><span class="dev-muted">Show</span>
+                <select class="form-select form-select-sm" name="userStatus" [ngModel]="userStatus" (ngModelChange)="filterUsers($event)" aria-label="Filter by status">
+                  <option value="">All</option><option value="active">Active</option><option value="deactivated">Deactivated</option>
+                </select>
+              </label>
+            </div>
+            <table class="dev-table" *ngIf="users.length">
+              <thead><tr><th>Name</th><th>External ID</th><th>Email</th><th>Status</th><th>Registered</th><th></th></tr></thead>
+              <tbody>
+                <ng-container *ngFor="let u of users; trackBy: trackUser">
+                  <tr>
+                    <td>{{ u.name }}</td>
+                    <td class="dev-mono">{{ u.externalUserId }}</td>
+                    <td>{{ u.email || '—' }}</td>
+                    <td><span class="dev-chip" [ngClass]="u.status === 'active' ? 'dev-chip--ok' : 'dev-chip--warn'">{{ u.status === 'active' ? 'Active' : 'Deactivated' }}</span></td>
+                    <td>{{ u.createdAt | date: 'mediumDate' }}</td>
+                    <td class="dev-row">
+                      <button type="button" class="btn btn-sm btn-link" (click)="toggleUser(u)" [attr.aria-expanded]="openUser === u.externalUserId">{{ openUser === u.externalUserId ? 'Hide' : 'Details' }}</button>
+                      <ng-container *ngIf="!readOnly">
+                        <button type="button" class="btn btn-sm btn-outline-danger" *ngIf="u.status === 'active'" [disabled]="busy" (click)="setUserActive(u, false)">Deactivate</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" *ngIf="u.status !== 'active'" [disabled]="busy" (click)="setUserActive(u, true)">Reactivate</button>
+                      </ng-container>
+                    </td>
+                  </tr>
+                  <tr *ngIf="openUser === u.externalUserId">
+                    <td colspan="6">
+                      <div class="dev-grid">
+                        <div><span class="dev-muted">SpreeWe user ID</span><div class="dev-row"><span class="dev-mono">{{ u._id }}</span><button type="button" class="btn btn-sm btn-link" (click)="copy(u._id)">Copy</button></div></div>
+                        <div><span class="dev-muted">Tenant ID</span> <span class="dev-mono">{{ u.tenantId }}</span></div>
+                        <div class="dev-muted small">Registered {{ u.createdAt | date: 'medium' }}<span *ngIf="u.deactivatedAt"> · deactivated {{ u.deactivatedAt | date: 'medium' }}</span></div>
+                        <form class="dev-row" *ngIf="!readOnly" (ngSubmit)="saveUser(u)">
+                          <input class="form-control" style="max-width: 220px" name="editName" [(ngModel)]="editUser.name" minlength="3" maxlength="30" aria-label="Display name" />
+                          <input class="form-control" style="max-width: 260px" name="editEmail" type="email" [(ngModel)]="editUser.email" maxlength="254" placeholder="Email (optional)" aria-label="Email" />
+                          <button type="submit" class="btn btn-sm btn-primary" [disabled]="busy || editUser.name.trim().length < 3">Save</button>
+                        </form>
+                      </div>
+                    </td>
+                  </tr>
+                </ng-container>
+              </tbody>
+            </table>
+            <p class="dev-muted mb-0" *ngIf="!users.length && usersLoaded">{{ userStatus ? 'No users with this status.' : 'No users registered yet.' }}</p>
+            <div *ngIf="usersCursor"><button type="button" class="btn btn-outline-secondary btn-sm" [disabled]="busy" (click)="moreUsers()">Load more</button></div>
+            <p class="dev-muted small mb-0">Deactivating a user stops their tokens immediately and removes them from your directory. Their past messages stay.</p>
           </div>
         </div>
 
@@ -134,9 +216,12 @@ type Tab = 'overview' | 'credentials' | 'permissions' | 'configuration' | 'webho
           <h2 class="h6 mb-0">Allowed origins</h2>
           <p class="dev-muted small mb-0">Browser origins allowed to use your application's user tokens, one per line (scheme, host and port; no path). {{ app.environment === 'production' ? 'Production requires https.' : 'Development also allows http://localhost.' }}</p>
           <textarea class="form-control dev-mono" name="origins" rows="3" [(ngModel)]="originsText" [disabled]="readOnly" placeholder="https://app.example.com"></textarea>
-          <h2 class="h6 mb-0 mt-2">Redirect URLs</h2>
-          <p class="dev-muted small mb-0">Where SpreeWe sends users back after they approve or deny your application (the <code>redirectUri</code> of a consent request must match one exactly). One per line.</p>
-          <textarea class="form-control dev-mono" name="callbacks" rows="3" [(ngModel)]="callbacksText" [disabled]="readOnly" placeholder="https://app.example.com/spreewe/callback"></textarea>
+          <ng-container *ngIf="usesConsent">
+            <h2 class="h6 mb-0 mt-2">Redirect URLs</h2>
+            <p class="dev-muted small mb-0">Where SpreeWe sends users back after they approve or deny your application (the <code>redirectUri</code> of a consent request must match one exactly). One per line.</p>
+            <textarea class="form-control dev-mono" name="callbacks" rows="3" [(ngModel)]="callbacksText" [disabled]="readOnly" placeholder="https://app.example.com/spreewe/callback"></textarea>
+          </ng-container>
+          <p class="dev-muted small mb-0" *ngIf="!usesConsent" data-test="no-consent">Consent and OAuth sign-in don't apply to this application: it registers its own users, so there are no redirect URLs to configure.</p>
           <h2 class="h6 mb-0 mt-2">Limits</h2>
           <p class="dev-muted small mb-0">{{ app.quotas.rateLimitPerMinute }} requests per minute · {{ app.quotas.maxConnections }} concurrent socket connections · {{ app.quotas.messagesPerDay }} messages per day.</p>
           <div><button type="submit" class="btn btn-primary" [disabled]="busy || readOnly">Save configuration</button></div>
@@ -241,10 +326,20 @@ type Tab = 'overview' | 'credentials' | 'permissions' | 'configuration' | 'webho
   `,
 })
 export class DeveloperAppComponent implements OnInit {
-  readonly tabs: { id: Tab; label: string }[] = [
-    { id: 'overview', label: 'Overview' }, { id: 'credentials', label: 'Credentials' }, { id: 'permissions', label: 'Permissions' },
+  private readonly allTabs: { id: Tab; label: string }[] = [
+    { id: 'overview', label: 'Overview' }, { id: 'users', label: 'Users' }, { id: 'credentials', label: 'Credentials' }, { id: 'permissions', label: 'Permissions' },
     { id: 'configuration', label: 'Configuration' }, { id: 'webhooks', label: 'Webhooks' }, { id: 'usage', label: 'Usage' }, { id: 'activity', label: 'Activity' },
   ];
+  /** The Users tab exists only for applications with their own tenant */
+  tabs: { id: Tab; label: string }[] = this.allTabs.filter((t) => t.id !== 'users');
+  kind: AppKind = 'legacy';
+  users: AppUser[] = [];
+  usersCursor: string | null = null;
+  usersLoaded = false;
+  userStatus: '' | 'active' | 'deactivated' = '';
+  newUser = { externalUserId: '', name: '', email: '' };
+  openUser = '';
+  editUser = { name: '', email: '' };
   tab: Tab = 'overview';
   app: DevApp | null = null;
   loading = true;
@@ -274,28 +369,40 @@ export class DeveloperAppComponent implements OnInit {
   constructor(private dev: DeveloperService, private route: ActivatedRoute, private router: Router, private cdr: ChangeDetectorRef) {}
 
   get readOnly(): boolean { return this.app?.status === 'revoked'; }
+  /** Consent and OAuth (redirect URLs) exist for workspace and legacy applications only */
+  get usesConsent(): boolean { return this.kind !== 'dedicated'; }
+  get canRegisterUser(): boolean {
+    return /^[\w.:@|-]{1,200}$/.test(this.newUser.externalUserId.trim()) && this.newUser.name.trim().length >= 3;
+  }
   get statusLabel(): string { return this.app?.status === 'active' ? 'Enabled' : this.app?.status === 'suspended' ? 'Disabled' : 'Deleted'; }
   get statusClass(): string { return this.app?.status === 'active' ? 'dev-chip--ok' : this.app?.status === 'suspended' ? 'dev-chip--warn' : 'dev-chip--bad'; }
 
   async ngOnInit(): Promise<void> {
     this.appId = this.route.snapshot.paramMap.get('appId') || '';
     const tab = this.route.snapshot.queryParamMap.get('tab') as Tab | null;
-    if (this.route.snapshot.queryParamMap.get('created')) this.notice = 'Application registered. Generate a client secret to start calling the API.';
+    const created = !!this.route.snapshot.queryParamMap.get('created');
     try {
       this.setApp(await this.dev.getApp(this.appId));
     } catch (e) {
       this.loadError = errorText(e, 'This application was not found.');
     }
     this.loading = false;
+    if (created) {
+      this.notice = this.kind === 'dedicated'
+        ? 'Application registered with its own tenant. Generate a client secret, then register your users.'
+        : 'Application registered. Generate a client secret to start calling the API.';
+    }
     if (this.app) await this.select(tab && this.tabs.some((t) => t.id === tab) ? tab : 'overview');
     this.cdr.markForCheck();
   }
 
   async select(tab: Tab): Promise<void> {
+    if (!this.tabs.some((t) => t.id === tab)) tab = 'overview';
     this.tab = tab;
     this.error = '';
     void this.router.navigate([], { queryParams: { tab }, replaceUrl: true });
     await this.run(async () => {
+      if (tab === 'users') await this.loadUsers(true);
       if (tab === 'credentials') this.credentials = await this.dev.credentials(this.appId);
       if (tab === 'permissions' && !this.scopes.length) this.scopes = await this.dev.scopes();
       if (tab === 'webhooks') {
@@ -381,7 +488,8 @@ export class DeveloperAppComponent implements OnInit {
   saveConfiguration(): Promise<void> {
     const lines = (t: string) => t.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     return this.run(async () => {
-      this.setApp(await this.dev.updateApp(this.appId, { allowedOrigins: lines(this.originsText), callbackUrls: lines(this.callbacksText) }));
+      // Redirect URLs are not shown for applications with their own tenant, so they are not sent either
+      this.setApp(await this.dev.updateApp(this.appId, { allowedOrigins: lines(this.originsText), ...(this.usesConsent ? { callbackUrls: lines(this.callbacksText) } : {}) }));
       this.notice = 'Configuration saved.';
     });
   }
@@ -443,6 +551,63 @@ export class DeveloperAppComponent implements OnInit {
     });
   }
 
+  // ------------------------------------------------------------------ users (applications with their own tenant)
+  private async loadUsers(reset: boolean): Promise<void> {
+    const page = await this.dev.appUsers(this.appId, { cursor: reset ? null : this.usersCursor, status: this.userStatus });
+    this.users = reset ? page.items : [...this.users, ...page.items];
+    this.usersCursor = page.nextCursor;
+    this.usersLoaded = true;
+  }
+
+  filterUsers(status: '' | 'active' | 'deactivated'): Promise<void> {
+    this.userStatus = status;
+    this.openUser = '';
+    return this.run(() => this.loadUsers(true), false);
+  }
+
+  moreUsers(): Promise<void> {
+    return this.run(() => this.loadUsers(false), false);
+  }
+
+  registerUser(): Promise<void> {
+    if (!this.canRegisterUser) return Promise.resolve();
+    return this.run(async () => {
+      const email = this.newUser.email.trim();
+      const user = await this.dev.registerAppUser(this.appId, { externalUserId: this.newUser.externalUserId.trim(), name: this.newUser.name.trim(), ...(email ? { email } : {}) });
+      this.newUser = { externalUserId: '', name: '', email: '' };
+      await this.loadUsers(true);
+      this.notice = `${user.name} is registered.`;
+    });
+  }
+
+  toggleUser(u: AppUser): void {
+    this.openUser = this.openUser === u.externalUserId ? '' : u.externalUserId;
+    this.editUser = { name: u.name, email: u.email || '' };
+  }
+
+  saveUser(u: AppUser): Promise<void> {
+    return this.run(async () => {
+      this.replaceUser(await this.dev.updateAppUser(this.appId, u.externalUserId, { name: this.editUser.name.trim(), email: this.editUser.email.trim() }));
+      this.notice = 'User updated.';
+    });
+  }
+
+  setUserActive(u: AppUser, active: boolean): Promise<void> {
+    return this.run(async () => {
+      const updated = await this.dev.updateAppUser(this.appId, u.externalUserId, { active });
+      // A status filter no longer matches the changed user: drop it from the list
+      if (this.userStatus && updated.status !== this.userStatus) this.users = this.users.filter((x) => x.externalUserId !== u.externalUserId);
+      else this.replaceUser(updated);
+      this.notice = active ? `${updated.name} is active again.` : `${updated.name} is deactivated. Their tokens no longer work.`;
+    });
+  }
+
+  trackUser(_i: number, u: AppUser): string { return u._id; }
+
+  private replaceUser(updated: AppUser): void {
+    this.users = this.users.map((x) => (x.externalUserId === updated.externalUserId ? updated : x));
+  }
+
   // ------------------------------------------------------------------ helpers
   copy(text: string): void {
     void navigator.clipboard?.writeText(text).then(() => { this.notice = 'Copied.'; this.cdr.markForCheck(); });
@@ -450,6 +615,8 @@ export class DeveloperAppComponent implements OnInit {
 
   private setApp(app: DevApp): void {
     this.app = app;
+    this.kind = appKind(app);
+    this.tabs = this.allTabs.filter((t) => t.id !== 'users' || this.kind === 'dedicated');
     this.details = { name: app.name, description: app.description || '', websiteUrl: app.websiteUrl || '' };
     this.picked = new Set(app.scopes);
     this.originsText = app.allowedOrigins.join('\n');

@@ -30,8 +30,8 @@ interface Snippet { id: string; title: string; code: string }
         <h2 class="h5 mb-0">1. How it works</h2>
         <ol class="mb-0">
           <li><strong>Register</strong> an application in this portal and generate a <strong>client ID and secret</strong>. The secret is shown once; keep it on your server.</li>
-          <li><strong>Ask each user for consent.</strong> Your server creates a consent request; the user approves the permissions they want in SpreeWe and is sent back to your redirect URL.</li>
-          <li><strong>Exchange for a user token.</strong> Your server trades its credentials for a short-lived, scoped token for that user.</li>
+          <li><strong>Register your users.</strong> An application registered from your personal account has its own tenant: your server registers each of your users in it (section 3). They can only find and talk to each other.</li>
+          <li><strong>Exchange for a user token.</strong> After your own sign-in check, your server trades its credentials for a short-lived, scoped token for that user.</li>
           <li><strong>Call the API</strong> with <code>Authorization: Bearer &lt;user token&gt;</code>, open a realtime socket, and receive <strong>webhooks</strong>.</li>
         </ol>
         <div class="dev-warn">Messages are end-to-end encrypted on users' own devices. Application tokens can read conversation and message <em>metadata</em> but never message content, and cannot send messages.</div>
@@ -44,8 +44,17 @@ interface Snippet { id: string; title: string; code: string }
         <ng-container *ngTemplateOutlet="code; context: { $implicit: snippet('basic') }"></ng-container>
       </article>
 
+      <article class="card-section dev-grid" id="users">
+        <h2 class="h5 mb-0">3. Your users</h2>
+        <p class="mb-0">Register each of your users once, from your server, with your own ID for them (<code>externalUserId</code>, unique in your application). The tenant comes from your credentials and can't be chosen.
+          <code>GET /v1/app-users</code> lists them; <code>PATCH /v1/app-users/&#123;externalUserId&#125;</code> updates or deactivates one (<code>&#123; "active": false &#125;</code> stops their tokens at once). You can also manage them on the application's Users tab.</p>
+        <ng-container *ngTemplateOutlet="code; context: { $implicit: snippet('user') }"></ng-container>
+        <p class="mb-0">A <code>409</code> means the ID is already registered. Users of one application are never visible to another application or to SpreeWe accounts.</p>
+      </article>
+
       <article class="card-section dev-grid" id="consent">
-        <h2 class="h5 mb-0">3. User consent</h2>
+        <h2 class="h5 mb-0">3b. User consent (workspace and legacy applications)</h2>
+        <p class="dev-muted small mb-0">Only for applications bound to an organization, and applications created before applications had their own tenant. Applications with their own tenant don't use consent or OAuth.</p>
         <p class="mb-0"><code>redirectUri</code> must exactly match one of your application's redirect URLs. The request expires after 10 minutes and works once. Send the user's browser to <code>consentUrl</code>.</p>
         <ng-container *ngTemplateOutlet="code; context: { $implicit: snippet('consent') }"></ng-container>
         <p class="mb-0">SpreeWe then redirects the browser to your <code>redirectUri</code> with <code>?state=…&amp;result=approved&amp;grant=…</code>, or <code>?state=…&amp;error=access_denied</code>. Check that <code>state</code> is the value you sent.</p>
@@ -53,7 +62,7 @@ interface Snippet { id: string; title: string; code: string }
 
       <article class="card-section dev-grid" id="tokens">
         <h2 class="h5 mb-0">4. User tokens</h2>
-        <p class="mb-0">Exchange for the user by <code>externalUserRef</code> (your own id, linked during consent) or by <code>userId</code>. Tokens last 600 seconds by default (at most 900). There is no refresh token: request a new one before <code>expiresAt</code>.
+        <p class="mb-0">Exchange for the user by <code>externalUserRef</code> (the <code>externalUserId</code> you registered them with; for consent-based applications, your own id linked during consent) or by <code>userId</code>. Tokens last 600 seconds by default (at most 900). There is no refresh token: request a new one before <code>expiresAt</code>.
           A token carries only the permissions present in your application, the user's approval and your request.</p>
         <ng-container *ngTemplateOutlet="code; context: { $implicit: snippet('token') }"></ng-container>
       </article>
@@ -139,7 +148,7 @@ interface Snippet { id: string; title: string; code: string }
 export class DeveloperDocsComponent implements OnInit {
   readonly base = environment.apiUrl;
   readonly toc = [
-    { id: 'overview', label: 'How it works' }, { id: 'credentials', label: 'Credentials' }, { id: 'consent', label: 'Consent' },
+    { id: 'overview', label: 'How it works' }, { id: 'credentials', label: 'Credentials' }, { id: 'users', label: 'Your users' }, { id: 'consent', label: 'Consent' },
     { id: 'tokens', label: 'User tokens' }, { id: 'calls', label: 'Calling the API' }, { id: 'permissions', label: 'Permissions' },
     { id: 'realtime', label: 'Realtime' }, { id: 'webhooks', label: 'Webhooks' }, { id: 'errors', label: 'Errors and limits' },
   ];
@@ -152,6 +161,7 @@ export class DeveloperDocsComponent implements OnInit {
     const b = this.base;
     this.snippets = [
       { id: 'basic', title: 'Server environment', code: `SPREEWE_API=${b}\nSPREEWE_CLIENT_ID=swk_test_...\nSPREEWE_CLIENT_SECRET=sws_...   # server only\n\n# Authorization header for server-to-server calls\nAuthorization: Basic $(printf '%s:%s' "$SPREEWE_CLIENT_ID" "$SPREEWE_CLIENT_SECRET" | base64)` },
+      { id: 'user', title: 'Your server: register a user', code: `curl -X POST "$SPREEWE_API/v1/app-users" \\\n  -u "$SPREEWE_CLIENT_ID:$SPREEWE_CLIENT_SECRET" \\\n  -H "Content-Type: application/json" \\\n  -d '{"externalUserId":"yourapp-user-42","name":"Asha Rao","email":"asha@example.com"}'` },
       { id: 'consent', title: 'Your server: create a consent request', code: `curl -X POST "$SPREEWE_API/v1/consent-requests" \\\n  -u "$SPREEWE_CLIENT_ID:$SPREEWE_CLIENT_SECRET" \\\n  -H "Content-Type: application/json" \\\n  -d '{"redirectUri":"https://app.example.com/spreewe/callback",\n       "scopes":["profile:read","conversations:read","realtime:connect"],\n       "state":"<random, at least 8 characters>",\n       "externalUserRef":"your-user-42"}'\n\n# → { "data": { "requestId": "…", "consentUrl": "…/consent?request=…", "expiresAt": "…" } }` },
       { id: 'token', title: 'Your server: get a user token', code: `curl -X POST "$SPREEWE_API/v1/app-tokens" \\\n  -u "$SPREEWE_CLIENT_ID:$SPREEWE_CLIENT_SECRET" \\\n  -H "Content-Type: application/json" \\\n  -d '{"externalUserRef":"your-user-42","scopes":["profile:read","conversations:read"]}'\n\n# → { "data": { "accessToken": "…", "tokenType": "Bearer", "expiresIn": 600,\n#              "expiresAt": "…", "scopes": [ … ], "tokenId": "…", "tenantId": null } }` },
       { id: 'call', title: 'Call the API as the user', code: `curl "$SPREEWE_API/v1/me" -H "Authorization: Bearer $USER_TOKEN"\n\ncurl "$SPREEWE_API/v1/conversations?limit=20" -H "Authorization: Bearer $USER_TOKEN"` },

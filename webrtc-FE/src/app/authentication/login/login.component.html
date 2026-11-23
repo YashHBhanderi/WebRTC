@@ -5,6 +5,14 @@
                 <img src="../../../assets/Group-2186.webp" class="logo" alt="Logo" />
             </div> -->
 
+            <div class="auth-head">
+                <a routerLink="/" class="auth-head__home"><i class="ti ti-arrow-left" aria-hidden="true"></i> SpreeWe home</a>
+                <span class="auth-head__portal" [class.auth-head__portal--dev]="portal === 'developer'">
+                    <i class="ti" [ngClass]="portal === 'developer' ? 'ti-code' : 'ti-message-circle'" aria-hidden="true"></i>
+                    {{ portal === 'developer' ? 'Developer Portal' : 'SpreeWe app' }}
+                </span>
+            </div>
+
             <!-- Clerk's sign-in (email code / password / social, as enabled in the Clerk dashboard) -->
             <div #mount class="clerk-mount"></div>
 

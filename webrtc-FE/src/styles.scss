@@ -767,3 +767,11 @@ $ti-filled-glyphs: (
 .me-modal .modal-content { overflow: hidden; }
 .me-modal .modal-dialog { max-width: 1040px; }
 .cs-modal .modal-dialog { max-width: 460px; }
+
+// Landing page: page scrollbar hidden, scrolling unchanged (class set by LandingComponent)
+html.lp-no-scrollbar,
+html.lp-no-scrollbar body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar { display: none; }
+}

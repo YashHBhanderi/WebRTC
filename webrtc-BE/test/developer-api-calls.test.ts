@@ -4,7 +4,7 @@ import { io as ioClient, Socket } from "socket.io-client";
 import mediasoupService from "../src/services/mediasoup.service";
 import storage from "../src/services/storage.service";
 import { UNAVAILABLE_SCOPES } from "../src/developer/scopes";
-import { api, connect, makeUser, nextEvent, Session, sleep, startSocketServer, testApp, uniq } from "./helpers";
+import { api, connect, makeUser, nextEvent, Session, sleep, startSocketServer, testApp, uniq, legacyGlobal } from "./helpers";
 
 /**
  * Phase 2 of the third-party API: calls (signaling, media, screen sharing), host controls, recording
@@ -18,6 +18,7 @@ const http = () => request(testApp());
 async function appToken(user: Session, scopes: string[]): Promise<string> {
     const owner: Session = { user: await makeUser() };
     const app = (await api(owner).post("/v1/apps").send({ name: uniq("Calls"), environment: "development", callbackUrls: ["https://example.com/cb"], scopes })).body.data;
+    await legacyGlobal(app?._id);
     expect(app?._id, "app registration").toBeTruthy();
     const cred = (await api(owner).post(`/v1/apps/${app._id}/credentials`).send({ confirm: app.name })).body.data;
     expect((await api(user).post(`/v1/apps/${app._id}/grants`).send({ scopes })).status).toBe(201);

@@ -88,10 +88,31 @@ export function looksLikeAppToken(token: string | undefined | null): boolean {
 }
 
 export class AppTokenError extends Error {
+    /** App the token was issued for, when the signature was valid (for the server log only) */
+    appId?: string;
     constructor(public readonly reason: string) {
         super("Invalid or expired token");
         this.name = "AppTokenError";
     }
+}
+
+/**
+ * Turn a failed app-token check into the answer for the caller, and log why on the server.
+ *
+ * Every failure gets the same 401 "Invalid or expired token" (the caller can't tell an expired token
+ * from a revoked grant or a removed member), EXCEPT a browser origin that isn't on the app's allow-list:
+ * that is a configuration mistake of the developer, refreshing the token can't fix it, and the
+ * caller already knows its own origin, so it gets a 403 that says what to change.
+ * The token itself is never logged.
+ */
+export function tokenRejection(error: unknown, origin: string | null): { status: 401 | 403; message: string } {
+    const reason = error instanceof AppTokenError ? error.reason : "error";
+    const appId = error instanceof AppTokenError ? error.appId : undefined;
+    console.warn(`[app-token] rejected reason=${reason}${appId ? ` app=${appId}` : ""}${origin ? ` origin=${origin}` : ""}`);
+    if (reason === "origin" && origin) {
+        return { status: 403, message: `This app doesn't allow requests from ${origin}. Add it to the app's allowed origins in the Developer portal.` };
+    }
+    return { status: 401, message: "Invalid or expired token" };
 }
 
 /** Signature and claim checks only (no database). Throws AppTokenError. */

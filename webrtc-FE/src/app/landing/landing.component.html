@@ -1,0 +1,332 @@
+<div class="lp">
+  <!-- ============================================================ NAV -->
+  <header class="lp-nav">
+    <div class="lp-wrap lp-nav__inner">
+      <a class="lp-brand" routerLink="/" aria-label="SpreeWe home">
+        <img src="assets/icon.svg" alt="" width="22" height="26" />
+        <span>SpreeWe</span>
+      </a>
+
+      <nav class="lp-nav__links" [class.lp-nav__links--open]="menuOpen" aria-label="Main">
+        <div class="lp-nav__item" *ngFor="let n of nav" [class.lp-nav__item--menu]="n.items">
+          <a [href]="'#' + n.section" (click)="scrollTo($event, n.section!)" [attr.aria-haspopup]="n.items ? 'true' : null">
+            {{ n.label }}<i *ngIf="n.items" class="ti ti-chevron-down" aria-hidden="true"></i>
+          </a>
+          <div class="lp-menu" *ngIf="n.items">
+            <ng-container *ngFor="let m of n.items">
+              <a *ngIf="m.section" [href]="'#' + m.section" (click)="scrollTo($event, m.section)">{{ m.label }}</a>
+              <a *ngIf="m.portal" routerLink="/auth/login" [queryParams]="{ portal: m.portal }">{{ m.label }}</a>
+            </ng-container>
+          </div>
+        </div>
+      </nav>
+
+      <div class="lp-nav__actions">
+        <a class="lp-btn lp-btn--outline lp-btn--sm d-none d-sm-inline-flex" routerLink="/auth/login" [queryParams]="{ portal: 'developer' }">
+          <i class="ti ti-code" aria-hidden="true"></i>Developer Portal
+        </a>
+        <a class="lp-btn lp-btn--solid lp-btn--sm" routerLink="/auth/login" [queryParams]="{ portal: 'personal' }">
+          <i class="ti ti-user" aria-hidden="true"></i>Sign In
+        </a>
+        <button type="button" class="lp-nav__toggle" (click)="menuOpen = !menuOpen"
+                [attr.aria-expanded]="menuOpen" aria-label="Menu">
+          <i class="ti" [ngClass]="menuOpen ? 'ti-x' : 'ti-menu-2'" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============================================================ HERO -->
+    <section class="lp-hero">
+      <!-- Backdrop: soft light sweeps, drifting slower than the page (parallax) -->
+      <svg class="lp-hero__sweep" viewBox="0 0 1024 500" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="lp-sw-a" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" style="stop-color:var(--s300)" stop-opacity="0" /><stop offset=".55" style="stop-color:var(--s300)" stop-opacity=".16" /><stop offset="1" style="stop-color:var(--s400)" stop-opacity=".05" />
+          </linearGradient>
+          <linearGradient id="lp-sw-b" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" style="stop-color:var(--s400)" stop-opacity=".1" /><stop offset=".5" style="stop-color:var(--s500)" stop-opacity=".05" /><stop offset="1" style="stop-color:var(--s300)" stop-opacity=".14" />
+          </linearGradient>
+        </defs>
+        <path class="lp-hero__sweep-a" fill="url(#lp-sw-a)" d="M 395 0 C 520 40, 640 30, 760 0 L 1024 0 L 1024 330 C 960 250, 900 170, 800 120 C 680 60, 520 70, 395 0 Z" />
+        <path class="lp-hero__sweep-b" fill="url(#lp-sw-a)" d="M 1024 60 C 960 160, 990 300, 1024 420 Z" />
+        <path class="lp-hero__sweep-c" fill="url(#lp-sw-b)" d="M 0 330 C 150 300, 300 395, 470 400 C 640 405, 800 350, 1024 300 L 1024 500 L 0 500 Z" />
+      </svg>
+      <div class="lp-hero__glow" aria-hidden="true"></div>
+
+      <div class="lp-wrap lp-hero__inner">
+        <div class="lp-hero__copy" data-reveal>
+          <span class="lp-pill">Messaging • Calls • Meetings • APIs</span>
+          <h1>Communication for People and an <span class="lp-hl">API</span> Platform for the <span class="lp-hl">Products You Build.</span></h1>
+          <p class="lp-lead">
+            SpreeWe is a secure, scalable communication platform to chat, call, meet, and collaborate. Use it for
+            your team or integrate powerful communication features into your own product.
+          </p>
+          <div class="lp-cta">
+            <a class="lp-btn lp-btn--solid lp-btn--lg" routerLink="/auth/login" [queryParams]="{ portal: 'personal' }">
+              <i class="ti ti-user" aria-hidden="true"></i>Sign In to SpreeWe
+            </a>
+            <a class="lp-btn lp-btn--outline lp-btn--lg" routerLink="/auth/login" [queryParams]="{ portal: 'developer' }">
+              <i class="ti ti-code" aria-hidden="true"></i>Developer Portal
+            </a>
+          </div>
+          <p class="lp-note">One SpreeWe account works for both. New here?
+            <a routerLink="/auth/register" [queryParams]="{ portal: 'personal' }">Create an account</a></p>
+        </div>
+
+        <!-- Product preview: illustrative UI drawn in HTML, not live data. Laid out on a fixed 604×440 canvas
+             (the hero art of the reference design) and scaled as one piece by --k. -->
+        <div class="lp-stage" aria-hidden="true" data-reveal>
+          <div class="lp-stage__canvas">
+            <div class="lp-float-icons">
+              <span class="lp-ficon lp-ficon--1"><svg viewBox="0 0 24 24"><path d="M4 6.5h10a2.5 2.5 0 0 1 2.5 2.5v6a2.5 2.5 0 0 1-2.5 2.5H4A2.5 2.5 0 0 1 1.5 15V9A2.5 2.5 0 0 1 4 6.5Zm13.8 3.6 3.6-2.3a.7.7 0 0 1 1.1.6v7.2a.7.7 0 0 1-1.1.6l-3.6-2.3Z"/></svg></span>
+              <span class="lp-ficon lp-ficon--2"><svg viewBox="0 0 24 24"><path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/></svg></span>
+              <span class="lp-ficon lp-ficon--3"><i class="ti ti-message-dots"></i></span>
+              <span class="lp-ficon lp-ficon--4"><i class="ti ti-calendar-week"></i></span>
+            </div>
+
+            <div class="lp-devices">
+              <div class="lp-laptop">
+                <svg class="lp-laptop__base" viewBox="0 0 604 440" aria-hidden="true" focusable="false">
+                  <defs>
+                    <linearGradient id="lp-base-top" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stop-color="#e4eaed" /><stop offset=".35" stop-color="#a9b8c3" /><stop offset="1" stop-color="#667c8f" />
+                    </linearGradient>
+                    <linearGradient id="lp-base-lip" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" stop-color="#8a9dac" /><stop offset="1" stop-color="#2c3a47" />
+                    </linearGradient>
+                  </defs>
+                  <ellipse cx="270" cy="352" rx="270" ry="16" fill="#0b1014" opacity=".45" style="filter:blur(8px)" />
+                  <path d="M 75 315 L 520 329 L 470 346 L 8 323 Q 4 322.6 8 321 Z" fill="url(#lp-base-top)" />
+                  <path d="M 6 322.6 L 470 346 L 470 351 Q 240 342 12 329 Q 4 328 6 322.6 Z" fill="url(#lp-base-lip)" />
+                  <path d="M 160 330.4 L 212 333 L 210 335.6 L 162 333.2 Z" fill="#667c8f" opacity=".7" />
+                </svg>
+                <div class="lp-laptop__lid">
+                  <div class="lp-laptop__screen">
+                    <aside class="lp-app-rail">
+                      <img src="assets/icon.svg" alt="" width="22" height="26" />
+                      <i class="ti ti-message lp-app-rail__on"></i><i class="ti ti-phone"></i><i class="ti ti-calendar"></i><i class="ti ti-folder"></i>
+                    </aside>
+                    <aside class="lp-app-side">
+                      <div class="lp-app-side__brand">SpreeWe</div>
+                      <div class="lp-app-side__search"><i class="ti ti-search"></i> Search…</div>
+                      <div class="lp-app-side__label">Pinned</div>
+                      <div class="lp-app-side__row"><img class="lp-av" src="assets/landing/face-women-65.jpg" alt="" />Design Team</div>
+                      <div class="lp-app-side__row"><img class="lp-av" src="assets/landing/face-men-46.jpg" alt="" />Product</div>
+                      <div class="lp-app-side__label">Chats</div>
+                      <div class="lp-app-side__row"><img class="lp-av" src="assets/landing/face-men-32.jpg" alt="" />John Carter</div>
+                      <div class="lp-app-side__row lp-app-side__row--on"><img class="lp-av" src="assets/landing/face-women-44.jpg" alt="" />Team Sync</div>
+                      <div class="lp-app-side__row"><img class="lp-av" src="assets/landing/face-women-68.jpg" alt="" />Marketing</div>
+                      <div class="lp-app-side__row lp-app-side__more"><i class="ti ti-dots-circle-horizontal"></i>More</div>
+                    </aside>
+                    <div class="lp-app-call">
+                      <div class="lp-app-call__head">
+                        <img class="lp-av" src="assets/landing/face-women-44.jpg" alt="" />
+                        <div><strong>Team Sync</strong><span>4 participants • 32:18</span></div>
+                        <span class="lp-app-call__tools"><span class="lp-app-call__find"><i class="ti ti-search"></i>Search<b><i class="ti ti-plus"></i></b></span><i class="ti ti-arrow-right"></i></span>
+                      </div>
+                      <div class="lp-app-call__grid">
+                        <div class="lp-tile lp-tile--wide"><img src="assets/landing/personal.jpg" alt="" /></div>
+                        <div class="lp-tile"><img src="assets/landing/face-women-44.jpg" alt="" /></div>
+                        <div class="lp-tile"><img src="assets/landing/face-women-68.jpg" alt="" /></div>
+                        <div class="lp-tile"><img src="assets/landing/face-men-75.jpg" alt="" /></div>
+                      </div>
+                      <div class="lp-app-call__bar">
+                        <i class="ti ti-microphone"></i><i class="ti ti-video"></i><i class="ti ti-screen-share"></i><i class="ti ti-dots"></i>
+                        <i class="ti ti-phone-off lp-end"></i>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="lp-phone">
+                <div class="lp-phone__body">
+                  <div class="lp-phone__status"><span>9:41</span><span class="lp-phone__island"></span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-4"></i></span></div>
+                  <div class="lp-phone__head"><i class="ti ti-arrow-left"></i><img class="lp-av" src="assets/landing/face-women-65.jpg" alt="" /><div><strong>Design Team</strong><span>5 members</span></div><i class="ti ti-phone"></i></div>
+                  <div class="lp-phone__msg">Can we review the updated design today?<small>10:24 AM</small></div>
+                  <div class="lp-phone__file"><i class="ti ti-file-type-pdf"></i><div><strong>UI-Update.pdf</strong><span>3.2 MB</span></div><small>10:24 AM</small></div>
+                  <div class="lp-phone__voice"><i class="ti ti-player-play"></i><span class="lp-wave"><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b><b></b></span>0:24</div>
+                  <div class="lp-phone__input"><span>Type a message…<i class="ti ti-mood-smile"></i></span><i class="ti ti-plus lp-phone__plus"></i></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <a class="lp-scroll" href="#personal" (click)="scrollTo($event, 'personal')">
+        <span class="lp-scroll__mouse"><span></span></span>Scroll to explore<i class="ti ti-chevron-down" aria-hidden="true"></i>
+      </a>
+
+      <ng-container *ngTemplateOutlet="seaWave; context: { id: 'w-hero', tone: 'dark', solid: ['var(--s100)', 'var(--s50)', 'var(--s100)'] }"></ng-container>
+    </section>
+
+    <!-- ============================================================ PERSONAL -->
+    <section class="lp-light lp-personal" id="personal">
+      <div class="lp-wrap">
+        <div class="lp-split">
+          <div class="lp-head" data-reveal>
+            <span class="lp-eyebrow">For people and teams</span>
+            <h2>Everything a conversation needs, in one app</h2>
+            <p>Chat, call, meet and share files in your personal workspace or your organization.</p>
+          </div>
+          <div class="lp-glass-row" aria-hidden="true">
+            <span class="lp-glass lp-glass--1"><svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 3.2c5 0 9 3.4 9 7.7s-4 7.7-9 7.7c-.9 0-1.8-.1-2.6-.3L5 20.8l.9-3.8C4.1 15.5 3 13.3 3 10.9c0-4.3 4-7.7 9-7.7ZM8 9.7a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Zm4 0a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Zm4 0a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5Z"/></svg></span>
+            <span class="lp-glass lp-glass--2"><svg viewBox="0 0 24 24"><path d="M4 6.5h10a2.5 2.5 0 0 1 2.5 2.5v6a2.5 2.5 0 0 1-2.5 2.5H4A2.5 2.5 0 0 1 1.5 15V9A2.5 2.5 0 0 1 4 6.5Zm13.8 3.6 3.6-2.3a.7.7 0 0 1 1.1.6v7.2a.7.7 0 0 1-1.1.6l-3.6-2.3Z"/></svg></span>
+            <span class="lp-glass lp-glass--3"><svg viewBox="0 0 24 24"><path d="M12 2.5a3.5 3.5 0 0 1 3.5 3.5v5a3.5 3.5 0 0 1-7 0V6A3.5 3.5 0 0 1 12 2.5Zm-6.5 8a1 1 0 0 1 1 1 5.5 5.5 0 0 0 11 0 1 1 0 1 1 2 0 7.5 7.5 0 0 1-6.5 7.44V20.5h2a1 1 0 1 1 0 2h-6a1 1 0 1 1 0-2h2v-1.56A7.5 7.5 0 0 1 4.5 11.5a1 1 0 0 1 1-1Z"/></svg></span>
+            <span class="lp-glass lp-glass--4"><svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M7.5 2a1 1 0 0 1 1 1v1h7V3a1 1 0 1 1 2 0v1H18a3 3 0 0 1 3 3v1.5H3V7a3 3 0 0 1 3-3h.5V3a1 1 0 0 1 1-1ZM3 10.5h18V18a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Zm4 2.25v2h2v-2Zm4 0v2h2v-2Zm4 0v2h2v-2Zm-8 3.5v2h2v-2Zm4 0v2h2v-2Z"/></svg></span>
+          </div>
+        </div>
+        <div class="lp-features">
+          <a class="lp-feature" *ngFor="let f of personalFeatures; let i = index" data-reveal [style.--i]="i"
+             routerLink="/auth/login" [queryParams]="{ portal: 'personal' }">
+            <span class="lp-feature__icon"><i class="ti {{ f.icon }}" aria-hidden="true"></i></span>
+            <span class="lp-feature__body"><strong>{{ f.title }}</strong><span>{{ f.text }}</span></span>
+            <i class="ti ti-arrow-right lp-feature__go" aria-hidden="true"></i>
+          </a>
+        </div>
+      </div>
+      <ng-container *ngTemplateOutlet="seaWave; context: { id: 'w-personal', tone: 'light', solid: ['var(--s900)', 'var(--s850)', 'var(--s800)'] }"></ng-container>
+    </section>
+
+    <!-- ============================================================ DEVELOPERS -->
+    <section class="lp-dev" id="developers">
+      <div class="lp-wrap lp-dev__grid">
+        <div class="lp-dev__copy" data-reveal>
+          <span class="lp-eyebrow lp-eyebrow--dark">For developers</span>
+          <h2>Build on SpreeWe’s <span class="lp-hl">communication platform</span></h2>
+          <p class="lp-dev__lead">Integrate real-time messaging, calls, meetings and recordings into your product with a secure,
+            flexible and developer-friendly API.</p>
+          <div class="lp-dev__cards">
+            <div class="lp-dcard" *ngFor="let f of developerFeatures; let i = index" data-reveal [style.--i]="i">
+              <i class="ti {{ f.icon }}" aria-hidden="true"></i>
+              <div><strong>{{ f.title }}</strong><span>{{ f.text }}</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="lp-code" data-reveal>
+          <div class="lp-code__bar">
+            <div class="lp-code__tabs" role="tablist" aria-label="Example">
+              <button type="button" role="tab" [attr.aria-selected]="codeTab === 'request'" [class.on]="codeTab === 'request'" (click)="codeTab = 'request'">API Request</button>
+              <button type="button" role="tab" [attr.aria-selected]="codeTab === 'response'" [class.on]="codeTab === 'response'" (click)="codeTab = 'response'">Response</button>
+            </div>
+            <button type="button" class="lp-code__copy" (click)="copyCode()">
+              <i class="ti" [ngClass]="copied ? 'ti-check' : 'ti-copy'" aria-hidden="true"></i>{{ copied ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+          <pre><code><span class="lp-code__line" *ngFor="let line of codeLines; let n = index"><span class="lp-code__n">{{ n + 1 }}</span><span *ngFor="let tok of line" [ngClass]="tok.c ? 'tk-' + tok.c : ''">{{ tok.t }}</span></span></code></pre>
+        </div>
+      </div>
+      <ng-container *ngTemplateOutlet="seaWave; context: { id: 'w-dev', tone: 'dark', solid: ['var(--s100)', 'var(--s50)', 'var(--s100)'] }"></ng-container>
+    </section>
+
+    <!-- ============================================================ USE CASES -->
+    <section class="lp-light lp-uses-section" id="use-cases">
+      <div class="lp-wrap">
+        <div class="lp-head" data-reveal>
+          <span class="lp-eyebrow">Use cases</span>
+          <h2 class="lp-h2--sm">Built for different needs</h2>
+        </div>
+        <div class="lp-uses">
+          <a class="lp-use" *ngFor="let u of useCases; let i = index" data-reveal [style.--i]="i"
+             routerLink="/auth/login" [queryParams]="{ portal: u.portal }">
+            <div class="lp-use__art lp-use__art--{{ u.visual }}" aria-hidden="true"><img [src]="'assets/landing/' + u.visual + '.jpg'" alt="" loading="lazy" /></div>
+            <div class="lp-use__copy">
+              <i class="ti {{ u.icon }} lp-use__icon" aria-hidden="true"></i>
+              <h3>{{ u.title }}</h3>
+              <p>{{ u.text }}</p>
+            </div>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ GET STARTED -->
+    <section class="lp-start" id="portals">
+      <div class="lp-start__panel">
+        <div class="lp-wrap lp-start__grid" data-reveal>
+          <div class="lp-head">
+            <span class="lp-eyebrow">Get started</span>
+            <h2 class="lp-h2--sm">Choose where you’re going</h2>
+            <p>Same sign-in, two separate portals.</p>
+          </div>
+          <a class="lp-portal" routerLink="/auth/login" [queryParams]="{ portal: 'personal' }">
+            <span class="lp-portal__icon"><i class="ti ti-message-dots" aria-hidden="true"></i></span>
+            <span class="lp-portal__body"><strong>SpreeWe App</strong><span>Chat, audio and video calls, meetings, recordings and files.</span></span>
+            <span class="lp-portal__go"><i class="ti ti-arrow-right" aria-hidden="true"></i></span>
+          </a>
+          <a class="lp-portal" routerLink="/auth/login" [queryParams]="{ portal: 'developer' }">
+            <span class="lp-portal__icon"><i class="ti ti-code" aria-hidden="true"></i></span>
+            <span class="lp-portal__body"><strong>Developer Portal</strong><span>Applications, credentials, permissions, webhooks and API documentation.</span></span>
+            <span class="lp-portal__go"><i class="ti ti-arrow-right" aria-hidden="true"></i></span>
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="lp-footer">
+    <div class="lp-wrap lp-footer__inner">
+      <span class="lp-brand"><img src="assets/icon.svg" alt="" width="20" height="24" /> SpreeWe</span>
+      <nav class="lp-footer__links" aria-label="Footer">
+        <a *ngFor="let n of footerNav" [href]="'#' + n.section" (click)="scrollTo($event, n.section!)">{{ n.label }}</a>
+      </nav>
+      <span class="lp-footer__copy">© {{ year }} SpreeWe. All rights reserved.</span>
+    </div>
+  </footer>
+</div>
+
+<!--
+  Animated section wave (deep / mid / fore layers with edge strokes), coloured from the slate scale and the
+  app accent by tone (see .lp-sea in the SCSS). The last layer is solid in the next section's colours, so the
+  wave is also the boundary between sections. `id` must be unique per use: it prefixes the gradient ids.
+-->
+<ng-template #seaWave let-id="id" let-tone="tone" let-solid="solid">
+  <svg class="lp-sea lp-sea--{{ tone }}" viewBox="0 0 1000 200" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient [attr.id]="id + '-deep'" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" class="lp-sea__deep-a" /><stop offset="1" class="lp-sea__deep-b" />
+      </linearGradient>
+      <linearGradient [attr.id]="id + '-mid'" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" class="lp-sea__mid-a" /><stop offset="1" class="lp-sea__mid-b" />
+      </linearGradient>
+      <linearGradient [attr.id]="id + '-fore'" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" class="lp-sea__fore-a" /><stop offset="1" class="lp-sea__fore-b" />
+      </linearGradient>
+      <linearGradient [attr.id]="id + '-stroke-fore'" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" class="lp-sea__sf-a" /><stop offset=".5" class="lp-sea__sf-b" /><stop offset="1" class="lp-sea__sf-c" />
+      </linearGradient>
+      <linearGradient [attr.id]="id + '-stroke-mid'" x1="1" y1="0" x2="0" y2="0">
+        <stop offset="0" class="lp-sea__sm-a" /><stop offset="1" class="lp-sea__sm-b" />
+      </linearGradient>
+      <linearGradient [attr.id]="id + '-solid'" x1="0" y1="0" x2="1" y2="0">
+        <stop *ngFor="let c of solid; let i = index; let n = count" [attr.offset]="i / (n - 1)" [style.stop-color]="c" />
+      </linearGradient>
+    </defs>
+
+    <path [attr.fill]="'url(#' + id + '-deep)'" [attr.d]="wave.deep.shape">
+      <animate *ngIf="!reducedMotion" attributeName="d" repeatCount="indefinite" [attr.dur]="wave.deep.dur" [attr.values]="wave.deep.shapes" />
+    </path>
+    <path [attr.fill]="'url(#' + id + '-mid)'" [attr.d]="wave.mid.shape">
+      <animate *ngIf="!reducedMotion" attributeName="d" repeatCount="indefinite" [attr.dur]="wave.mid.dur" [attr.values]="wave.mid.shapes" />
+    </path>
+    <path fill="none" stroke-width="1.3" stroke-linecap="round" vector-effect="non-scaling-stroke"
+          [attr.stroke]="'url(#' + id + '-stroke-mid)'" [attr.d]="wave.mid.line">
+      <animate *ngIf="!reducedMotion" attributeName="d" repeatCount="indefinite" [attr.dur]="wave.mid.dur" [attr.values]="wave.mid.lines" />
+    </path>
+    <path [attr.fill]="'url(#' + id + '-fore)'" [attr.d]="wave.fore.shape">
+      <animate *ngIf="!reducedMotion" attributeName="d" repeatCount="indefinite" [attr.dur]="wave.fore.dur" [attr.values]="wave.fore.shapes" />
+    </path>
+    <path fill="none" stroke-width="2" stroke-linecap="round" vector-effect="non-scaling-stroke"
+          [attr.stroke]="'url(#' + id + '-stroke-fore)'" [attr.d]="wave.fore.line">
+      <animate *ngIf="!reducedMotion" attributeName="d" repeatCount="indefinite" [attr.dur]="wave.fore.dur" [attr.values]="wave.fore.lines" />
+    </path>
+    <!-- Next section: the deep edge, set a little lower so the deep band stays visible above it -->
+    <path transform="translate(0 18)" [attr.fill]="'url(#' + id + '-solid)'" [attr.d]="wave.deep.shape">
+      <animate *ngIf="!reducedMotion" attributeName="d" repeatCount="indefinite" [attr.dur]="wave.deep.dur" [attr.values]="wave.deep.shapes" />
+    </path>
+  </svg>
+</ng-template>

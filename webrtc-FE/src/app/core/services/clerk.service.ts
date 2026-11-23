@@ -269,8 +269,8 @@ export class ClerkService {
     this.clerk?.mountSignIn(el, { routing: 'hash', signUpUrl: '/auth/register', fallbackRedirectUrl: returnUrl });
   }
 
-  mountSignUp(el: HTMLDivElement): void {
-    this.clerk?.mountSignUp(el, { routing: 'hash', signInUrl: '/auth/login', fallbackRedirectUrl: '/chat' });
+  mountSignUp(el: HTMLDivElement, returnUrl = '/chat'): void {
+    this.clerk?.mountSignUp(el, { routing: 'hash', signInUrl: '/auth/login', fallbackRedirectUrl: returnUrl });
   }
 
   unmount(el: HTMLDivElement, kind: 'signIn' | 'signUp'): void {

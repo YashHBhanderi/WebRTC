@@ -1,0 +1,7 @@
+{
+  "name": "example-token-server",
+  "private": true,
+  "type": "module",
+  "description": "Minimal backend for the server-to-server token exchange (POST /v1/app-tokens). Example only: it does not authenticate its own users.",
+  "scripts": { "start": "node server.mjs" }
+}

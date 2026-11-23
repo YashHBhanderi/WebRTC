@@ -1,7 +1,8 @@
 import {
     adminListApps, appAudit, appUsage, createApp, createConsentRequest, createCredential, decideConsentRequest, getApp, grantApp, issueToken, listCredentials,
-    listMyApps, listMyGrants, revokeAllTokens, revokeCredential, revokeMyGrant, revokeToken, rotateCredential, scopeCatalog, setAppStatus, updateApp, viewConsentRequest,
+    listMyApps, listMyGrants, managedApp, revokeAllTokens, revokeCredential, revokeMyGrant, revokeToken, rotateCredential, scopeCatalog, setAppStatus, updateApp, viewConsentRequest,
 } from "../../developer/app.service";
+import { deactivateAppUser, getAppUser, listAppUsers, registerAppUser, updateAppUser } from "../../developer/app-users.service";
 import { ALL_SCOPES } from "../../developer/scopes";
 import { defineRoute } from "./registry";
 import { S } from "./schema";
@@ -28,7 +29,8 @@ const appDoc = S.doc({
     type: "object",
     properties: {
         _id: { type: "string" }, name: { type: "string" }, description: { type: "string" }, websiteUrl: { type: "string" }, environment: { type: "string", enum: ["development", "production"] },
-        status: { type: "string", enum: ["active", "suspended", "revoked"] }, tenantId: { type: "string", nullable: true },
+        status: { type: "string", enum: ["active", "suspended", "revoked"] }, tenantId: { type: "string", nullable: true, description: "The only tenant the app acts in" },
+        dedicatedTenant: { type: "boolean", description: "true: the app has its own tenant and registers its own users (POST /v1/app-users)" },
         scopes: { type: "array", items: { type: "string", enum: [...ALL_SCOPES] } },
         allowedOrigins: { type: "array", items: { type: "string" } }, callbackUrls: { type: "array", items: { type: "string" } },
         quotas: { type: "object", properties: { rateLimitPerMinute: { type: "integer" }, maxConnections: { type: "integer" }, messagesPerDay: { type: "integer" } } },
@@ -49,8 +51,8 @@ defineRoute({
 
 defineRoute({
     method: "post", path: "/apps", tag: "Developer apps", auth: "firstParty", sensitive: true,
-    summary: "Register an app (global from the personal context, or bound to the active workspace)",
-    description: "tenantBound apps need the workspace owner/admin role and act only in that workspace. Scopes default to none.",
+    summary: "Register an app (with its own tenant from the personal context, or bound to the active workspace)",
+    description: "From the personal context the app gets a dedicated tenant, created with it: an independent workspace whose users the app registers through POST /v1/app-users. tenantBound apps need the workspace owner/admin role and act only in that workspace, for its members. Scopes default to none.",
     body: S.object({
         name: S.string({ min: 2, max: 80 }),
         description: S.string({ optional: true, max: 500 }),
@@ -264,4 +266,129 @@ defineRoute({
     summary: "All apps' metadata (platform admins only; no tenant content)",
     response: S.doc({ type: "array", items: appDoc.openapi() }),
     handler: ({ ctx }) => adminListApps(ctx),
+});
+
+// ------------------------------------------------------------------ app users (apps with their own tenant)
+
+const externalUserId = S.string({ min: 1, max: 200, pattern: /^[\w.:@|-]+$/, description: "Your system's id for this person; unique within your app" });
+const appUserParams = S.object({ externalUserId });
+const appUserDoc = S.doc({
+    type: "object",
+    properties: {
+        _id: { type: "string", description: "SpreeWe user id (use it wherever the API takes a user id)" },
+        externalUserId: { type: "string" }, name: { type: "string" }, email: { type: "string", nullable: true }, avatarUrl: { type: "string" },
+        status: { type: "string", enum: ["active", "deactivated"] }, tenantId: { type: "string", description: "Your app's tenant" },
+        createdAt: { type: "string", format: "date-time" }, deactivatedAt: { type: "string", format: "date-time", nullable: true },
+    },
+});
+
+defineRoute({
+    method: "post", path: "/app-users", tag: "App users", auth: "appCredential", errors: [409],
+    summary: "Register one of your users in your app's tenant (server-to-server only)",
+    description: "The user exists only in your app's tenant and can only find and talk to other users your app registered. The tenant is taken from the credential; it can't be chosen. Then get tokens with POST /v1/app-tokens and `externalUserRef` = this externalUserId. 409 if the externalUserId is already registered.",
+    body: S.object({
+        externalUserId,
+        name: S.string({ min: 3, max: 30, description: "Display name: letters, digits, spaces and . _ ' -" }),
+        email: S.string({ optional: true, max: 254, description: "Optional; lets your other users find this person by email. Never used for sign-in" }),
+        avatarUrl: S.string({ optional: true, max: 500, description: "Optional https URL of a profile picture you host" }),
+    }),
+    response: appUserDoc,
+    handler: ({ appAuth, body }) => registerAppUser(appAuth!, body),
+});
+
+defineRoute({
+    method: "get", path: "/app-users", tag: "App users", auth: "appCredential", paginated: true,
+    summary: "List the users your app registered",
+    query: S.object({
+        limit: S.int({ optional: true, min: 1, max: 100, default: 20, description: "Page size" }),
+        cursor: S.objectId({ optional: true, description: "Opaque cursor from page.nextCursor" }),
+        status: S.enum(["active", "deactivated"] as const, { optional: true }),
+    }),
+    response: appUserDoc,
+    handler: ({ appAuth, query }) => listAppUsers(appAuth!, query),
+});
+
+defineRoute({
+    method: "get", path: "/app-users/:externalUserId", tag: "App users", auth: "appCredential", errors: [404],
+    summary: "One of your users, by your own id", params: appUserParams, response: appUserDoc,
+    handler: ({ appAuth, params }) => getAppUser(appAuth!, params.externalUserId),
+});
+
+defineRoute({
+    method: "patch", path: "/app-users/:externalUserId", tag: "App users", auth: "appCredential", errors: [404],
+    summary: "Update a user's name, email or picture, or deactivate / reactivate them",
+    description: "`active: false` stops the user's tokens immediately and removes them from your directory; their past messages stay. `active: true` brings them back. Send an empty string to clear email or avatarUrl.",
+    params: appUserParams,
+    body: S.object({
+        name: S.string({ optional: true, min: 3, max: 30 }),
+        email: S.string({ optional: true, max: 254 }),
+        avatarUrl: S.string({ optional: true, max: 500 }),
+        active: S.bool({ optional: true }),
+    }, { minProperties: 1 }),
+    response: appUserDoc,
+    handler: ({ appAuth, params, body }) => updateAppUser(appAuth!, params.externalUserId, body),
+});
+
+defineRoute({
+    method: "delete", path: "/app-users/:externalUserId", tag: "App users", auth: "appCredential", errors: [404],
+    summary: "Deactivate a user (same as PATCH active: false)", params: appUserParams,
+    response: S.doc({ type: "object", properties: { deactivated: { type: "boolean" } } }),
+    handler: ({ appAuth, params }) => deactivateAppUser(appAuth!, params.externalUserId),
+});
+
+// ------------------------------------------------------------------ app users, for the app's owner (Developer Portal)
+
+/**
+ * The same operations for the app's OWNER, signed in to SpreeWe (the Developer Portal never holds the
+ * app secret). managedApp() answers "not found" to anyone but the owner in the app's own management
+ * context, so one developer can't list or touch another developer's users. App tokens are refused.
+ */
+const ownedAppUserParams = S.object({ appId: S.objectId(), externalUserId });
+const ownerAuth = async (ctx: any, appId: string) => ({ app: (await managedApp(ctx, appId)).app, owner: ctx });
+
+defineRoute({
+    method: "get", path: "/apps/:appId/users", tag: "App users", auth: "firstParty", paginated: true, errors: [404],
+    summary: "Owner: list the users registered in this app's tenant",
+    params: appIdParams,
+    query: S.object({
+        limit: S.int({ optional: true, min: 1, max: 100, default: 20, description: "Page size" }),
+        cursor: S.objectId({ optional: true, description: "Opaque cursor from page.nextCursor" }),
+        status: S.enum(["active", "deactivated"] as const, { optional: true }),
+    }),
+    response: appUserDoc,
+    handler: async ({ ctx, params, query }) => listAppUsers(await ownerAuth(ctx, params.appId), query),
+});
+
+defineRoute({
+    method: "post", path: "/apps/:appId/users", tag: "App users", auth: "firstParty", sensitive: true, errors: [404, 409],
+    summary: "Owner: register a user in this app's tenant",
+    params: appIdParams,
+    body: S.object({
+        externalUserId,
+        name: S.string({ min: 3, max: 30 }),
+        email: S.string({ optional: true, max: 254 }),
+        avatarUrl: S.string({ optional: true, max: 500 }),
+    }),
+    response: appUserDoc,
+    handler: async ({ ctx, params, body }) => registerAppUser(await ownerAuth(ctx, params.appId), body),
+});
+
+defineRoute({
+    method: "get", path: "/apps/:appId/users/:externalUserId", tag: "App users", auth: "firstParty", errors: [404],
+    summary: "Owner: one user of this app", params: ownedAppUserParams, response: appUserDoc,
+    handler: async ({ ctx, params }) => getAppUser(await ownerAuth(ctx, params.appId), params.externalUserId),
+});
+
+defineRoute({
+    method: "patch", path: "/apps/:appId/users/:externalUserId", tag: "App users", auth: "firstParty", sensitive: true, errors: [404],
+    summary: "Owner: update a user, or deactivate / reactivate them",
+    params: ownedAppUserParams,
+    body: S.object({
+        name: S.string({ optional: true, min: 3, max: 30 }),
+        email: S.string({ optional: true, max: 254 }),
+        avatarUrl: S.string({ optional: true, max: 500 }),
+        active: S.bool({ optional: true }),
+    }, { minProperties: 1 }),
+    response: appUserDoc,
+    handler: async ({ ctx, params, body }) => updateAppUser(await ownerAuth(ctx, params.appId), params.externalUserId, body),
 });

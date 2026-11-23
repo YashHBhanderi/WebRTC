@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { describe, expect, it } from "vitest";
 import request from "supertest";
-import { api, makeUser, Session, testApp, uniq } from "./helpers";
+import { api, makeUser, Session, testApp, uniq, legacyGlobal } from "./helpers";
 import { createApp } from "../src/app";
 
 /**
@@ -20,6 +20,7 @@ const pkce = () => {
 async function registerApp(scopes = ["profile:read", "conversations:read"]) {
     const owner: Session = { user: await makeUser() };
     const app = (await api(owner).post("/v1/apps").send({ name: uniq("OAuth"), environment: "development", callbackUrls: [REDIRECT], allowedOrigins: ["https://app.example.com"], scopes })).body.data;
+    await legacyGlobal(app?._id);
     expect(app?._id, "app registration").toBeTruthy();
     return { owner, app };
 }

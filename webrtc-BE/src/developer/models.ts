@@ -25,8 +25,15 @@ export interface IDeveloperApp {
     /** The app's public website (absolute http(s) URL) or empty */
     websiteUrl: string;
     ownerUserId: mongoose.Types.ObjectId;
-    /** null = global app; otherwise the only tenant this app can ever act in */
+    /**
+     * The only tenant this app can ever act in:
+     *   dedicatedTenant true   the app's own tenant, created with the app (its users are registered
+     *                          through the API and exist only there)
+     *   dedicatedTenant false  an organization workspace (workspace app), or null for a legacy global
+     *                          app created before dedicated tenants (consent / OAuth with SpreeWe accounts)
+     */
     tenantId: mongoose.Types.ObjectId | null;
+    dedicatedTenant: boolean;
     environment: AppEnvironment;
     status: AppStatus;
     /** Maximum scopes; users grant a subset, tokens carry a subset of that */
@@ -47,6 +54,7 @@ const AppSchema = new Schema<IDeveloperApp>({
     websiteUrl: { type: String, default: "", maxlength: 300 },
     ownerUserId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     tenantId: { type: Schema.Types.ObjectId, ref: "Tenant", default: null },
+    dedicatedTenant: { type: Boolean, default: false },
     environment: { type: String, enum: ["development", "production"], required: true },
     status: { type: String, enum: ["active", "suspended", "revoked"], default: "active" },
     scopes: { type: [String], default: [] },
@@ -115,8 +123,13 @@ export interface IAppGrant {
     /** Context the user granted in: the app's tenant, or null (global app) */
     tenantId: mongoose.Types.ObjectId | null;
     scopes: string[];
-    /** Opaque id the integrating app uses for this user (set by the user's own consent call) */
+    /** Opaque id the integrating app uses for this user (set by the user's own consent call, or at registration) */
     externalUserRef: string | null;
+    /**
+     * true: the user was registered by the app in its dedicated tenant (no consent screen: the app
+     * owns the account). Such a grant follows the app's scopes instead of storing its own.
+     */
+    managed?: boolean;
     status: "active" | "revoked";
     /** Incremented on change / revocation; tokens carry the version they were issued for */
     version: number;
@@ -132,6 +145,7 @@ const GrantSchema = new Schema<IAppGrant>({
     tenantId: { type: Schema.Types.ObjectId, ref: "Tenant", default: null },
     scopes: { type: [String], default: [] },
     externalUserRef: { type: String, default: null, maxlength: 200 },
+    managed: { type: Boolean, default: false },
     status: { type: String, enum: ["active", "revoked"], default: "active" },
     version: { type: Number, default: 1 },
     lastUsedAt: { type: Date, default: null },
@@ -172,6 +186,7 @@ export interface IAppUsage {
     socketConnections: number;
     /** API responses with status >= 400 to this app's authenticated requests */
     apiErrors: number;
+    usersRegistered?: number;
 }
 
 const UsageSchema = new Schema<IAppUsage>({
@@ -182,6 +197,7 @@ const UsageSchema = new Schema<IAppUsage>({
     messagesSent: { type: Number, default: 0 },
     socketConnections: { type: Number, default: 0 },
     apiErrors: { type: Number, default: 0 },
+    usersRegistered: { type: Number, default: 0 },
 }, { versionKey: false });
 UsageSchema.index({ appId: 1, day: 1 }, { unique: true });
 

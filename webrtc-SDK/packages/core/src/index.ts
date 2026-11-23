@@ -1,0 +1,16 @@
+export { SpreeWeClient, createClient, type SpreeWeClientOptions } from "./client.js";
+export { HttpClient, sleep, type HttpClientOptions, type HttpMethod, type Page, type QueryValue, type RequestOptions } from "./http.js";
+export { RealtimeClient, type ConnectionState, type RealtimeOptions, type SocketFactory } from "./realtime.js";
+export type { RequestOptions as SocketRequestOptions } from "./realtime.js";
+export { PeopleApi } from "./people.js";
+export { Store, Emitter, derived, type Listener, type ReadableStore, type Unsubscribe } from "./store.js";
+export { SpreeWeError, isSpreeWeError, errorFromResponse, errorMessage, type SpreeWeErrorCode, type SpreeWeErrorInit } from "./errors.js";
+export { decodeJwt, isAppToken, msUntilExpiry, type TokenClaims } from "./jwt.js";
+export { SCOPES, FEATURE_SCOPES, scopesFor, type Scope, type FeatureName } from "./scopes.js";
+export type { TokenProvider, IssuedToken, KeyValueStorage, SignedOutReason } from "./auth/types.js";
+export { OAuthClient, createOAuthClient, type OAuthClientOptions, type OAuthTokens, type OAuthStatus } from "./auth/oauth.js";
+export { backendTokenProvider, sessionTokenProvider, type BackendTokenProviderOptions } from "./auth/providers.js";
+export { createPkcePair, codeChallengeS256, randomString } from "./auth/pkce.js";
+export { MemoryStorage } from "./auth/storage.js";
+export * from "./types.js";
+export { E2EE_SERVICE, getE2ee, type E2eeEngine, type E2eeStatus, type SecureContent, type SecureFile, type Decrypted, type DecryptState } from "./e2ee-contract.js";

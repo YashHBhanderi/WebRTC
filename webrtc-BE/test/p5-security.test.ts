@@ -6,7 +6,7 @@ import mongoose from "mongoose";
 import { redact, sanitizeArgs } from "../src/utils/safe-log";
 import { AppCredential, ConsentRequest } from "../src/developer/models";
 import { runAsSystem } from "../src/tenancy/context";
-import { api, enter, makeUser, newOrg, Session, testApp, uniq } from "./helpers";
+import { api, enter, makeUser, newOrg, Session, testApp, uniq, legacyGlobal } from "./helpers";
 
 const http = () => request(testApp());
 const basic = (keyId: string, secret: string) => ({ Authorization: `Basic ${Buffer.from(`${keyId}:${secret}`).toString("base64")}` });
@@ -15,6 +15,7 @@ const CB = "https://example.com/cb";
 async function registerApp(owner: Session, body: Record<string, unknown> = {}) {
     const name = uniq("App");
     const created = await api(owner).post("/v1/apps").send({ name, environment: "development", callbackUrls: [CB], scopes: ["profile:read", "messages:read"], ...body });
+    await legacyGlobal(created.body?.data?._id);
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     const app = created.body.data;
     const cred = await api(owner).post(`/v1/apps/${app._id}/credentials`).send({ confirm: app.name });

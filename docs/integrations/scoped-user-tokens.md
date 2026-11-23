@@ -73,7 +73,8 @@ await client.connect((message) => render(message));          // needs realtime:c
 
 ## 4. Tenant boundaries
 
-- **Global app:** tokens act in the user's personal context (global chats, and external chats they're a guest in).
+- **App with its own tenant:** tokens act only in that tenant, for users the app registered (`POST /v1/app-users`). Those users see only each other; SpreeWe accounts and other apps' users are invisible to them, and they to everyone else.
+- **Legacy global app (created before dedicated tenants):** tokens act in the user's personal context (global chats, and external chats they're a guest in).
 - **Workspace app:** tokens act only in that workspace and only while the user is a member. A workspace app can't see global or other workspaces' data, and nothing in a request can change that.
 
 ## 5. Errors and rate limits
