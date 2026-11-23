@@ -7,6 +7,7 @@ import recordingService from "../../services/recording.service";
 import { emitToCall } from "../../services/call-session.service";
 import { getClientIceConfig, mediaConfig, withTestTunnelCandidate } from "../../utils/network";
 import { AuthedSocket, io } from "../io";
+import { safeError } from "../../utils/safe-log";
 
 interface ProducerInfo {
     producerId: string;
@@ -47,15 +48,28 @@ function otherProducers(callId: string, selfUserId?: string): ProducerInfo[] {
     return producers;
 }
 
+const NOT_JOINED = { error: "Join the call before using media", code: "NOT_JOINED" } as const;
+
+/**
+ * SEC-005: transports (ICE/DTLS allocations) only for a peer admitted to a call. `peer.callId` is set
+ * only by a successful, non-lobby `mediasoup:joinCall`; the call record is re-checked so a participant
+ * removed (or a call ended) since joining is refused too.
+ */
+async function admittedPeer(socket: AuthedSocket) {
+    const peer = mediasoupService.getPeer(socket.id);
+    if (!peer?.callId) return null;
+    return (await callService.isActiveParticipant(peer.callId, socket.data.userId)) ? peer : null;
+}
+
 /** mediasoup SFU signaling (transports, produce/consume, layers, ICE). Event names unchanged. */
 export function registerMediaGateway(socket: AuthedSocket): void {
     const userId = socket.data.userId;
 
     const createTransportHandler = (direction: "send" | "recv") => async (_: unknown, callback: (r: any) => void) => {
         try {
-            const peer = await claimPeer(socket.data.userId, socket.id, socket.data.deviceId);
+            const peer = await admittedPeer(socket);
             if (!peer) {
-                return callback({ error: "You're already in a call on another device", code: "IN_CALL_ELSEWHERE" });
+                return callback(NOT_JOINED);
             }
             const current = direction === "send" ? peer.sendTransport : peer.recvTransport;
 
@@ -79,7 +93,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             }
             callback(await transportParams(transport, socket.data.userId));
         } catch (error) {
-            console.error(`Failed to create ${direction} transport:`, error);
+            console.error(`Failed to create ${direction} transport:`, safeError(error));
             callback({ error: direction === "send" ? "Failed to create send transport" : "Failed to create receive transport" });
         }
     };
@@ -89,9 +103,9 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
     socket.on("mediasoup:connectTransport", async ({ transportId, dtlsParameters } = {} as any, callback) => {
         try {
-            const peer = mediasoupService.getPeer(socket.id);
+            const peer = await admittedPeer(socket);
             if (!peer) {
-                return callback({ error: "Peer not found" });
+                return callback(NOT_JOINED);
             }
             const transport = mediasoupService.getTransport(peer, transportId);
             if (!transport) {
@@ -105,7 +119,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             await transport.connect({ dtlsParameters });
             callback({ connected: true });
         } catch (error) {
-            console.error("Failed to connect transport:", error);
+            console.error("Failed to connect transport:", safeError(error));
             callback({ error: "Failed to connect transport" });
         }
     });
@@ -113,15 +127,18 @@ export function registerMediaGateway(socket: AuthedSocket): void {
     // Network change (Wi-Fi ↔ 4G, VPN toggle) → client asks for fresh ICE credentials
     socket.on("mediasoup:restartIce", async ({ transportId } = {} as any, callback) => {
         try {
-            const peer = mediasoupService.getPeer(socket.id);
-            const transport = peer && mediasoupService.getTransport(peer, transportId);
+            const peer = await admittedPeer(socket);
+            if (!peer) {
+                return callback?.(NOT_JOINED);
+            }
+            const transport = mediasoupService.getTransport(peer, transportId);
             if (!transport || transport.closed) {
                 return callback?.({ error: "Transport not found" });
             }
             const iceParameters = await transport.restartIce();
             callback?.({ iceParameters, ...getClientIceConfig(socket.data.userId) });
         } catch (error) {
-            console.error("Failed to restart ICE:", error);
+            console.error("Failed to restart ICE:", safeError(error));
             callback?.({ error: "Failed to restart ICE" });
         }
     });
@@ -135,7 +152,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
         try {
             callback({ rtpCapabilities: mediasoupService.getRouter().rtpCapabilities });
         } catch (error) {
-            console.error("Failed to get router RTP capabilities:", error);
+            console.error("Failed to get router RTP capabilities:", safeError(error));
             callback({ error: "Failed to get router RTP capabilities" });
         }
     });
@@ -216,7 +233,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
             callback({ id: producer.id });
         } catch (error) {
-            console.error("Failed to create producer:", error);
+            console.error("Failed to create producer:", safeError(error));
             callback({ error: "Failed to create producer" });
         }
     });
@@ -303,7 +320,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
                 source: producerSource,
             });
         } catch (error) {
-            console.error("Failed to create consumer:", error);
+            console.error("Failed to create consumer:", safeError(error));
             callback({ error: "Failed to create consumer" });
         }
     });
@@ -327,7 +344,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             }
             callback({ success: true });
         } catch (error) {
-            console.error("Failed to resume consumer:", error);
+            console.error("Failed to resume consumer:", safeError(error));
             callback({ error: "Failed to resume consumer" });
         }
     });
@@ -351,7 +368,7 @@ export function registerMediaGateway(socket: AuthedSocket): void {
             await consumer.setPreferredLayers({ spatialLayer: s, temporalLayer: t });
             callback?.({ success: true });
         } catch (error) {
-            console.error("Failed to set preferred layers:", error);
+            console.error("Failed to set preferred layers:", safeError(error));
             callback?.({ error: "Failed to set preferred layers" });
         }
     });
@@ -383,18 +400,22 @@ export function registerMediaGateway(socket: AuthedSocket): void {
 
             callback({ success: true, producers: otherProducers(String(callId), peer.userId) });
         } catch (error) {
-            console.error("Failed to join mediasoup call:", error);
+            console.error("Failed to join mediasoup call:", safeError(error));
             callback({ error: "Failed to join call" });
         }
     });
 
-    socket.on("mediasoup:syncProducers", ({ callId } = {} as any, callback) => {
+    socket.on("mediasoup:syncProducers", async ({ callId } = {} as any, callback) => {
         try {
             if (!callId) {
                 return callback?.({ producers: [] });
             }
-            const peer = mediasoupService.getPeer(socket.id);
-            callback?.({ producers: otherProducers(callId.toString(), peer?.userId) });
+            // Only a peer admitted to THIS call (and still an active participant) may list its producers
+            const peer = await admittedPeer(socket);
+            if (!peer || String(peer.callId) !== String(callId)) {
+                return callback?.({ producers: [], ...NOT_JOINED });
+            }
+            callback?.({ producers: otherProducers(callId.toString(), peer.userId) });
         } catch (error) {
             callback?.({ producers: [], error: error instanceof Error ? error.message : "sync failed" });
         }

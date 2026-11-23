@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { validateEncryptedPayload } from "../e2ee/payload";
 import Conversation from "../models/conversationModel";
 import Message from "../models/messageModel";
 import SavedMessage from "../models/savedMessageModel";
@@ -6,6 +7,7 @@ import { getConversationForMember } from "./authorization.service";
 import { messageMedia } from "./file.service";
 import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { requireObjectId } from "../utils/validation";
+import { conversationScope } from "../tenancy/scope";
 
 export const MAX_MESSAGE_LENGTH = 4000;
 const MAX_PINS = 25;
@@ -50,7 +52,8 @@ async function messageForMember(messageId: unknown, userId: string) {
 
 /** Edit, pin and save. Every rule is enforced here, not in the client. */
 class MessageActionsService {
-    async edit(messageId: unknown, userId: string, content: unknown, mentions: unknown) {
+    /** Edit my text message: the new version is end-to-end encrypted like any message (never plaintext). */
+    async edit(messageId: unknown, userId: string, encrypted: unknown, mentions: unknown) {
         const { message, conversation } = await messageForMember(messageId, userId);
         if (String(message.userId) !== userId) {
             throw new ForbiddenError("You can only edit your own messages");
@@ -58,9 +61,10 @@ class MessageActionsService {
         if (message.type !== "text") {
             throw new AppError("Only text messages can be edited");
         }
-        const text = validateMessageText(content);
+        const e2ee = validateEncryptedPayload(encrypted);
         const before = new Set((message.mentions || []).map(String));
-        message.content = text;
+        message.content = "";
+        message.e2ee = e2ee;
         message.editedAt = new Date();
         message.mentions = validMentions(mentions, conversation.members.map(String), userId);
         await message.save();
@@ -106,7 +110,7 @@ class MessageActionsService {
             return [];
         }
         const messages = await Message.find({ _id: { $in: entries.map((p) => p.messageId) }, isDeleted: { $ne: true } })
-            .select("content type userId createdAt file")
+            .select("content e2ee conversationId type userId createdAt file")
             .populate({ path: "userId", select: "username avatar" })
             .lean();
         const byId = new Map(messages.map((m: any) => [String(m._id), m]));
@@ -118,7 +122,9 @@ class MessageActionsService {
                     messageId: String(p.messageId),
                     pinnedBy: String(p.pinnedBy),
                     pinnedAt: p.pinnedAt,
+                    conversationId: String(m.conversationId),
                     content: m.content,
+                    e2ee: m.e2ee || undefined,
                     type: m.type,
                     fileName: m.file?.originalName,
                     createdAt: m.createdAt,
@@ -135,9 +141,20 @@ class MessageActionsService {
     async setSaved(messageId: unknown, userId: string, saved: boolean) {
         const { message } = await messageForMember(messageId, userId);
         if (saved) {
+            // An upsert skips the scope plugin's insert hook, so the record takes its conversation's scope
+            // here. Without it a save made in an organization was stored as personal and never listed there.
+            const info = await conversationScope(message.conversationId);
             await SavedMessage.updateOne(
                 { userId: oid(userId), messageId: message._id },
-                { $setOnInsert: { conversationId: message.conversationId, createdAt: new Date() } },
+                {
+                    $setOnInsert: {
+                        conversationId: message.conversationId,
+                        createdAt: new Date(),
+                        tenantId: info?.tenantId ? oid(info.tenantId) : null,
+                        scope: info?.scope || "global",
+                        ...(info?.scope === "external" ? { guestUserIds: info.externalParticipants.map(oid) } : {}),
+                    },
+                },
                 { upsert: true },
             );
         } else {
@@ -191,6 +208,7 @@ class MessageActionsService {
                 conversationId: String(c._id),
                 conversationTitle: c.isGroup ? c.groupName : peer?.username || "Chat",
                 content: m.content,
+                e2ee: m.e2ee || undefined,
                 type: m.type,
                 createdAt: m.createdAt,
                 savedAt: r.createdAt,

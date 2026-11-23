@@ -8,6 +8,7 @@ import receiptsService from "../../services/receipts.service";
 import presenceService from "../../services/presence.service";
 import meetingControls from "../../services/meeting-controls.service";
 import { publicMessage } from "../../utils/errors";
+import { safeError } from "../../utils/safe-log";
 
 /** Grace period: socket.io reconnects often mid-call; don't kill media immediately. */
 const CALL_RECONNECT_GRACE_MS = 12_000;
@@ -18,7 +19,7 @@ const CALL_RECONNECT_GRACE_MS = 12_000;
  */
 // "In a call" presence follows joining / leaving a media session (registered once)
 mediasoupService.onCallMembershipChange = (userId: string) => {
-    presenceService.publish(userId).catch((error) => console.error(`Failed to publish in-call presence for ${userId}:`, error));
+    presenceService.publish(userId).catch((error) => console.error(`Failed to publish in-call presence for ${userId}:`, safeError(error)));
 };
 
 export function registerPresenceGateway(socket: AuthedSocket): void {
@@ -37,9 +38,39 @@ export function registerPresenceGateway(socket: AuthedSocket): void {
     // Not awaited: handlers must be registered synchronously, otherwise events the
     // client emits right after connecting (e.g. call:accept) arrive before any listener and are dropped.
     // Live presence goes to people who share a chat with this user (presence.service)
-    presenceService.connected(userId).catch((error) => console.error(`Failed to mark ${userId} online:`, error));
+    presenceService.connected(userId).catch((error) => console.error(`Failed to mark ${userId} online:`, safeError(error)));
     // Messages sent while this user was away have now reached a device
-    receiptsService.markAllDelivered(userId).catch((error) => console.error(`Failed to mark deliveries for ${userId}:`, error));
+    receiptsService.markAllDelivered(userId).catch((error) => console.error(`Failed to mark deliveries for ${userId}:`, safeError(error)));
+
+    registerPresenceEvents(socket);
+
+    socket.on("disconnect", async () => {
+        const disconnectedSocketId = socket.id;
+        console.log(`User disconnected: ${userId} (Socket ID: ${disconnectedSocketId})`);
+        releaseScreenSharesOfSocket(disconnectedSocketId, userId);
+        if (userSockets.get(userId) === disconnectedSocketId) {
+            meetingControls.dropFromLobbies(userId);
+        }
+
+        // Only the user's active socket going away makes them offline (another tab/device may be newer)
+        if (userSockets.get(userId) === disconnectedSocketId) {
+            userSockets.delete(userId);
+            await presenceService.disconnected(userId).catch((error) =>
+                console.error(`Failed to mark ${userId} offline:`, safeError(error))
+            );
+        }
+
+        cleanUpCallPeerLater(userId, disconnectedSocketId);
+    });
+}
+
+/**
+ * Presence requests (status picker, idle). Shared with developer-app sockets, which get only these
+ * handlers, never the connection bookkeeping above (an app connection must not become the user's
+ * primary socket, mark them online, or hold a media peer).
+ */
+export function registerPresenceEvents(socket: AuthedSocket): void {
+    const userId = socket.data.userId;
 
     // Status picker (Available / Busy / Do not disturb / Away / Appear offline) and status message
     socket.on("presence:set", async (data: { status?: unknown; statusMessage?: unknown }, ack?: (r: unknown) => void) => {
@@ -54,54 +85,44 @@ export function registerPresenceGateway(socket: AuthedSocket): void {
     // The client reports when the user has been idle (no input) for a while, and when they are back
     socket.on("presence:idle", (data: { idle?: unknown }) => {
         presenceService.setIdle(userId, data?.idle === true).catch((error) =>
-            console.error(`Failed to update idle state for ${userId}:`, error)
+            console.error(`Failed to update idle state for ${userId}:`, safeError(error))
         );
     });
+}
 
-    socket.on("disconnect", async () => {
-        const disconnectedSocketId = socket.id;
-        console.log(`User disconnected: ${userId} (Socket ID: ${disconnectedSocketId})`);
-        releaseScreenSharesOfSocket(disconnectedSocketId, userId);
-        if (userSockets.get(userId) === disconnectedSocketId) {
-            meetingControls.dropFromLobbies(userId);
+/**
+ * After a socket goes away: if it still holds the user's media peer once the reconnect grace period has
+ * passed, release media and leave the call (ending it when empty). Used for SpreeWe and developer-app
+ * sockets alike.
+ */
+export function cleanUpCallPeerLater(userId: string, disconnectedSocketId: string): void {
+    setTimeout(async () => {
+        // Decide on the peer, not on "does the user have any socket": another device of the
+        // same user being online does not mean this device's call session came back.
+        const peer = mediasoupService.getPeerByUserId(userId);
+        if (!peer || peer.socketId !== disconnectedSocketId) {
+            // Same device reconnected (peer rebound to its new socket) or already cleaned
+            if (peer) {
+                console.log(`User ${userId} reconnected; keeping mediasoup peer`);
+            }
+            return;
         }
 
-        // Only the user's active socket going away makes them offline (another tab/device may be newer)
-        if (userSockets.get(userId) === disconnectedSocketId) {
-            userSockets.delete(userId);
-            await presenceService.disconnected(userId).catch((error) =>
-                console.error(`Failed to mark ${userId} offline:`, error)
-            );
+        console.log(`User ${userId} did not reconnect — cleaning mediasoup peer`);
+        const callId = peer.callId;
+
+        mediasoupService.leaveCall(disconnectedSocketId);
+        mediasoupService.removePeer(disconnectedSocketId);
+
+        if (callId) {
+            try {
+                const call = await callService.leaveCall(callId as any, userId as any);
+                callRoom.clearUser(callId.toString(), userId);
+                io().to(callId.toString()).emit("call:participant-left", { callId, userId });
+                await endIfEmpty(call);
+            } catch (error) {
+                console.error("Error leaving call after disconnect:", safeError(error));
+            }
         }
-
-        setTimeout(async () => {
-            // Decide on the peer, not on "does the user have any socket": another device of the
-            // same user being online does not mean this device's call session came back.
-            const peer = mediasoupService.getPeerByUserId(userId);
-            if (!peer || peer.socketId !== disconnectedSocketId) {
-                // Same device reconnected (peer rebound to its new socket) or already cleaned
-                if (peer) {
-                    console.log(`User ${userId} reconnected; keeping mediasoup peer`);
-                }
-                return;
-            }
-
-            console.log(`User ${userId} did not reconnect — cleaning mediasoup peer`);
-            const callId = peer.callId;
-
-            mediasoupService.leaveCall(disconnectedSocketId);
-            mediasoupService.removePeer(disconnectedSocketId);
-
-            if (callId) {
-                try {
-                    const call = await callService.leaveCall(callId as any, userId as any);
-                    callRoom.clearUser(callId.toString(), userId);
-                    io().to(callId.toString()).emit("call:participant-left", { callId, userId });
-                    await endIfEmpty(call);
-                } catch (error) {
-                    console.error("Error leaving call after disconnect:", error);
-                }
-            }
-        }, CALL_RECONNECT_GRACE_MS);
-    });
+    }, CALL_RECONNECT_GRACE_MS);
 }

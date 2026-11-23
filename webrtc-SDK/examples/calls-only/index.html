@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Clinic · Video visits</title>
+    <style>
+      /* Your identity: a different font and a teal calling stage */
+      :root { color-scheme: light dark; font-family: Georgia, serif; --sw-call-bg: #0b1d2a; --sw-call-tile: #12324a; --sw-color-brand: #0e7c86; }
+      body { margin: 0; min-height: 100vh; display: grid; grid-template-rows: auto auto 1fr; background: Canvas; color: CanvasText; }
+      header, .picker { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; }
+      header { border-bottom: 1px solid #8884; }
+      header strong { flex: 1; }
+      main { padding: 0 16px 16px; min-height: 420px; }
+      spreewe-call-view { height: 70vh; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Acme Clinic</strong>
+      <button id="signin">Sign in with SpreeWe</button>
+      <button id="signout" class="hidden">Sign out</button>
+    </header>
+    <spreewe-provider id="provider">
+      <div class="picker hidden" id="picker">
+        <label>Conversation <select id="conversation"></select></label>
+        <spreewe-call-button id="audio" call-type="audio" label></spreewe-call-button>
+        <spreewe-call-button id="video" call-type="video" label></spreewe-call-button>
+      </div>
+      <main><spreewe-call-view heading="Video visit"></spreewe-call-view></main>
+      <!-- Shows ringing calls anywhere on the page -->
+      <spreewe-incoming-call show-active></spreewe-incoming-call>
+    </spreewe-provider>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

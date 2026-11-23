@@ -53,6 +53,10 @@
       <button type="button" class="gs__reset" *ngIf="hasFilters" (click)="clearFilters()">Clear filters</button>
     </div>
 
+    <button type="button" class="gs__row gs__email" *ngIf="emailQuery as email" (mousedown)="$event.preventDefault()" (click)="findByEmail(email)">
+      <span class="gs__file"><i class="ti ti-mail-search" aria-hidden="true"></i></span>
+      <span class="gs__text"><span class="gs__title">Find {{ email }}</span><span class="gs__sub">Start a chat with the person who uses this email</span></span>
+    </button>
     <div class="gs__state" *ngIf="loading && !rows.length" role="status">
       <span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Searching…
     </div>

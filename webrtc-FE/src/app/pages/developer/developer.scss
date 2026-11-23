@@ -1,0 +1,21 @@
+// Shared bits for the developer / consent / workspace screens (on top of section-pages.scss)
+.dev-grid { display: grid; gap: 12px; }
+.dev-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dev-row--between { justify-content: space-between; }
+.dev-muted { color: var(--app-muted); font-size: .82rem; }
+.dev-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .8rem; word-break: break-all; }
+.dev-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; background: var(--app-hover-strong); font-size: .72rem; font-weight: 600; }
+.dev-chip--ok { background: color-mix(in srgb, var(--app-success) 15%, transparent); color: var(--app-success); }
+.dev-chip--warn { background: color-mix(in srgb, var(--app-warning, #c27c00) 18%, transparent); color: var(--app-warning, #c27c00); }
+.dev-chip--bad { background: color-mix(in srgb, var(--app-danger) 14%, transparent); color: var(--app-danger); }
+.dev-secret { padding: 12px; border: 2px dashed var(--app-warning, #c27c00); border-radius: 10px; background: var(--app-surface-2); }
+.dev-table { width: 100%; border-collapse: collapse; font-size: .84rem;
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--app-border); vertical-align: top; }
+  th { color: var(--app-muted); font-weight: 600; font-size: .75rem; text-transform: uppercase; letter-spacing: .03em; } }
+.dev-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--app-border); margin-bottom: 16px; overflow-x: auto;
+  button { border: 0; background: transparent; padding: 8px 12px; color: var(--app-muted); border-bottom: 2px solid transparent; white-space: nowrap; }
+  button.on { color: var(--app-text); border-bottom-color: var(--app-brand); font-weight: 600; } }
+.dev-scope { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--app-border);
+  &:last-child { border-bottom: 0; } }
+.dev-warn { padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--app-warning, #c27c00) 12%, transparent); font-size: .85rem; }
+.dev-confirm { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; input { max-width: 260px; } }

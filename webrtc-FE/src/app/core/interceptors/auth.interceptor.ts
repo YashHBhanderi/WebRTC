@@ -1,8 +1,8 @@
 import { Injectable } from '@angular/core';
 import { HttpEvent, HttpHandler, HttpInterceptor, HttpRequest } from '@angular/common/http';
-import { from, Observable, switchMap } from 'rxjs';
+import { from, Observable, switchMap, throwError } from 'rxjs';
 import { environment } from 'src/environments/environment';
-import { ClerkService } from 'src/app/core/services/clerk.service';
+import { ClerkService, WorkspaceChangedError } from 'src/app/core/services/clerk.service';
 
 /** Adds the Clerk session token to this app's API calls (never to third-party URLs). */
 @Injectable()
@@ -14,7 +14,13 @@ export class AuthInterceptor implements HttpInterceptor {
       return next.handle(req);
     }
     return from(this.clerk.getToken()).pipe(
-      switchMap((token) => next.handle(token ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : req)),
+      switchMap((token) => {
+        // The session now belongs to another workspace than this tab shows: send nothing (the tab reloads)
+        if (this.clerk.workspaceMismatch) {
+          return throwError(() => new WorkspaceChangedError());
+        }
+        return next.handle(token ? req.clone({ setHeaders: { Authorization: `Bearer ${token}` } }) : req);
+      }),
     );
   }
 

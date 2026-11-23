@@ -1,3 +1,4 @@
+import { tenantScopePlugin } from "../tenancy/scope";
 import { Schema, model, Types } from "mongoose";
 
 const participantSchema = new Schema(
@@ -86,5 +87,7 @@ const callSchema = new Schema(
 callSchema.index({ conversationId: 1, callStatus: 1, createdAt: -1 });
 // Call history: my calls, newest first
 callSchema.index({ "participants.userId": 1, createdAt: -1 });
+
+callSchema.plugin(tenantScopePlugin, { kind: "derived" });
 
 export default model("calls", callSchema);

@@ -1,0 +1,41 @@
+{
+  "name": "spreewe-sdk-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Workspace for the SpreeWe frontend integration packages (@spreewe/*). Not published.",
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/ui",
+    "packages/e2ee",
+    "packages/contacts",
+    "packages/chat",
+    "packages/groups",
+    "packages/files",
+    "packages/notifications",
+    "packages/meetings",
+    "packages/calls",
+    "examples/*"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/tsconfig.json",
+    "clean": "tsc -b packages/tsconfig.json --clean",
+    "typecheck": "tsc -b packages/tsconfig.json",
+    "test": "npm run build && vitest run",
+    "test:integration": "npm run build && cd ../webrtc-BE && npx vitest run --config ../webrtc-SDK/integration/vitest.config.ts",
+    "examples:build": "npm run build && npm run build -w examples/chat-only -w examples/calls-only -w examples/combined",
+    "pack:all": "npm run build && node -e \"require('fs').mkdirSync('artifacts',{recursive:true})\" && npm pack -w packages/core -w packages/ui -w packages/e2ee -w packages/contacts -w packages/chat -w packages/groups -w packages/files -w packages/notifications -w packages/meetings -w packages/calls --pack-destination ./artifacts"
+  },
+  "devDependencies": {
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.0",
+    "jsdom": "^25.0.1",
+    "lit": "^3.3.0",
+    "mediasoup-client": "^3.23.0",
+    "socket.io-client": "^4.8.1",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}

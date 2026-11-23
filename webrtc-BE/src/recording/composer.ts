@@ -197,7 +197,7 @@ function findFont(): string | null {
     return candidates.find((file) => !!file && fs.existsSync(file)) || null;
 }
 
-interface ProbeInfo {
+export interface ProbeInfo {
     duration: number;
     start: number;
     hasVideo: boolean;
@@ -205,7 +205,7 @@ interface ProbeInfo {
 }
 
 /** Container facts from FFmpeg's own header dump (no ffprobe needed). */
-async function probe(file: string): Promise<ProbeInfo> {
+export async function probe(file: string): Promise<ProbeInfo> {
     const { stderr } = await run(["-hide_banner", "-nostdin", "-i", file], { keepOutput: true });
     const d = /Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(stderr);
     const start = /start:\s*(-?\d+(?:\.\d+)?)/.exec(stderr);

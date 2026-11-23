@@ -309,7 +309,8 @@ export class NotificationCenterService {
       this.unreadChats$.next(this.unreadChatIds.size);
     }
     const sender = m?.user?.username || 'New message';
-    const body = m.type === 'text' ? m.content : `Sent ${m.type === 'pdf' ? 'a document' : `a ${m.type}`}`;
+    // Decrypted on this device only; a message that could not be decrypted gets a generic preview
+    const body = m.type === 'text' ? (m.e2ee && m.e2eeState !== 'ok' ? 'New message' : m.content || 'New message') : `Sent ${m.type === 'pdf' ? 'a document' : `a ${m.type}`}`;
     const conversationId = String(m.conversationId || '');
     this.alert(sender, body, `/chat?c=${conversationId}&m=${id}`, `msg-${conversationId}`, conversationId);
   }

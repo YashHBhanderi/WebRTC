@@ -1,3 +1,5 @@
+import CustomRequest from "../types/customRequest";
+import { runWithContext } from "../tenancy/context";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
@@ -5,6 +7,7 @@ import path from "path";
 import multer from "multer";
 import { NextFunction, Request, Response } from "express";
 import { MAX_UPLOAD_BYTES } from "../services/file.service";
+import { safeError } from "./safe-log";
 
 /**
  * Single multer setup for every upload route. Files are spooled to a temp directory (not RAM),
@@ -30,12 +33,19 @@ export function uploadSingle(field: string) {
     return (req: Request, res: Response, next: NextFunction) => {
         handler(req, res, (error: unknown) => {
             if (!error) {
-                next();
+                // Multer finishes on stream callbacks, outside the request's async context:
+                // re-enter the verified workspace context so later queries stay tenant-scoped
+                const ctx = (req as CustomRequest).ctx;
+                if (ctx) {
+                    runWithContext(ctx, () => next());
+                } else {
+                    next();
+                }
                 return;
             }
             const tooLarge = error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE";
             if (!(error instanceof multer.MulterError)) {
-                console.error("Upload could not be received:", error);
+                console.error("Upload could not be received:", safeError(error));
             }
             const message = tooLarge
                 ? `File is too large (max ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB)`

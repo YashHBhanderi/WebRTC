@@ -1,25 +1,24 @@
-import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing';
-
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { ConfirmationDialogComponent } from './confirmation-dialog.component';
 
 describe('ConfirmationDialogComponent', () => {
-  let component: ConfirmationDialogComponent;
   let fixture: ComponentFixture<ConfirmationDialogComponent>;
-
-  beforeEach(waitForAsync(() => {
-    TestBed.configureTestingModule({
-      declarations: [ ConfirmationDialogComponent ]
-    })
-    .compileComponents();
-  }));
+  let modal: jasmine.SpyObj<NgbActiveModal>;
 
   beforeEach(() => {
+    modal = jasmine.createSpyObj<NgbActiveModal>('NgbActiveModal', ['close', 'dismiss']);
+    TestBed.configureTestingModule({ declarations: [ConfirmationDialogComponent], providers: [{ provide: NgbActiveModal, useValue: modal }] });
     fixture = TestBed.createComponent(ConfirmationDialogComponent);
-    component = fixture.componentInstance;
+    fixture.componentInstance.okBtn = 'Delete';
     fixture.detectChanges();
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
+  it('OK closes (confirms); Cancel dismisses', () => {
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    buttons.find((b) => b.textContent!.includes('Delete'))!.click();
+    expect(modal.close).toHaveBeenCalled();
+    buttons.find((b) => b.textContent!.includes('Cancel'))!.click();
+    expect(modal.dismiss).toHaveBeenCalled();
   });
 });

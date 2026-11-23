@@ -1,8 +1,9 @@
 import { clerkClient } from "@clerk/express";
 import User, { IUser } from "../models/userModel";
-import { io } from "../realtime/io";
+import { emitToGlobalSockets } from "../realtime/io";
 import { AppError, ForbiddenError } from "../utils/errors";
 import { USERNAME_MAX, USERNAME_MIN } from "./userServices";
+import { safeError } from "../utils/safe-log";
 
 /**
  * Maps a Clerk user (session `sub`, e.g. "user_2abc…") to this app's MongoDB user, whose `_id`
@@ -37,7 +38,7 @@ export function forgetClerkUser(clerkUserId: string): void {
 }
 
 async function lookupOrProvision(clerkUserId: string): Promise<string> {
-    const linked = await User.findOne({ clerkId: clerkUserId }).select("_id").lean();
+    const linked = await User.findOne({ clerkId: clerkUserId, tenantId: null }).select("_id").lean();
     if (linked) {
         return String(linked._id);
     }
@@ -53,7 +54,8 @@ async function lookupOrProvision(clerkUserId: string): Promise<string> {
     const email = primary.emailAddress.trim().toLowerCase();
 
     try {
-        const existing = await User.findOne({ email }).select("_id clerkId").lean();
+        // SpreeWe accounts only: a user registered by a developer application is never linked to a sign-in
+        const existing = await User.findOne({ email, tenantId: null }).select("_id clerkId").lean();
         if (existing) {
             if (existing.clerkId && existing.clerkId !== clerkUserId) {
                 throw new ForbiddenError("This email is already linked to a different sign-in");
@@ -69,7 +71,7 @@ async function lookupOrProvision(clerkUserId: string): Promise<string> {
             clerkId: clerkUserId,
             isVerified: true,
         });
-        announceNewUser(created);
+        // No announcement to other users: there is no public directory (people are found by exact email)
         return String(created._id);
     } catch (error) {
         // Another server process linked/created it at the same moment (unique email / clerkId)
@@ -80,18 +82,6 @@ async function lookupOrProvision(clerkUserId: string): Promise<string> {
     }
 }
 
-/**
- * Everyone connected adds the new account to their contact / member pickers live. Sent only after
- * the insert succeeded; the payload is what GET /web/users/except-current returns for a user.
- */
-function announceNewUser(user: IUser): void {
-    try {
-        io().emit("user:created", user.toJSON());
-    } catch (error) {
-        // Clients still pick the user up on their next (re)load / reconnect
-        console.error("[identity] could not announce the new user", error);
-    }
-}
 
 async function confirmLink(clerkUserId: string): Promise<string> {
     const user = await User.findOne({ clerkId: clerkUserId }).select("_id").lean();

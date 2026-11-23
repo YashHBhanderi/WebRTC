@@ -1,3 +1,4 @@
+import { runAsSystem } from "../tenancy/context";
 import crypto from "crypto";
 import fs from "fs";
 import os from "os";
@@ -11,6 +12,7 @@ import Conversation from "../models/conversationModel";
 import Message from "../models/messageModel";
 import { MediaKind, MEDIA_RULES, storeUpload, UploadTarget } from "../services/file.service";
 import { compatibleMimeTypes, readHead } from "../utils/file-signature";
+import { safeError } from "../utils/safe-log";
 
 /**
  * One-off copy of media that still lives at external URLs (the former Cloudinary uploads) into
@@ -67,7 +69,7 @@ async function download(url: string, allowed: string[]): Promise<Express.Multer.
 async function copy(bucket: string, label: string, url: string, allowed: string[], target: UploadTarget, ownerId: string, save: (stored: Awaited<ReturnType<typeof storeUpload>>) => Promise<unknown>) {
     tally(bucket, "found");
     if (!APPLY) {
-        console.log(`[dry-run] ${bucket} ${label}: ${url}`);
+        console.log(`[dry-run] ${bucket} ${label}: ${url.split("?")[0]}`);
         return;
     }
     try {
@@ -78,7 +80,7 @@ async function copy(bucket: string, label: string, url: string, allowed: string[
         console.log(`[copied] ${bucket} ${label} → ${result.stored.storageKey}`);
     } catch (error) {
         tally(bucket, "failed");
-        console.warn(`[failed] ${bucket} ${label} (${url}): ${error instanceof Error ? error.message : error}`);
+        console.warn(`[failed] ${bucket} ${label} (${url.split("?")[0]}): ${error instanceof Error ? error.message : error}`);
     }
 }
 
@@ -117,10 +119,10 @@ async function run(): Promise<void> {
 }
 
 connectDB()
-    .then(run)
+    .then(() => runAsSystem(() => run(), "migration:legacy-media"))
     .then(() => mongoose.disconnect())
     .catch(async (error) => {
-        console.error("[migrate:media] failed:", error);
+        console.error("[migrate:media] failed:", safeError(error));
         await mongoose.disconnect().catch(() => undefined);
         process.exit(1);
     });

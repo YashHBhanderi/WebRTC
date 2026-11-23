@@ -28,7 +28,12 @@
             "assets": [
               "src/favicon.ico",
               "src/assets",
-              "src/manifest.webmanifest"
+              "src/manifest.webmanifest",
+              {
+                "glob": "matrix_sdk_crypto_wasm_bg.wasm",
+                "input": "node_modules/@matrix-org/matrix-sdk-crypto-wasm/pkg",
+                "output": "assets/crypto"
+              }
             ],
             "styles": [
               "node_modules/bootstrap/dist/css/bootstrap.min.css",
@@ -110,7 +115,12 @@
             "assets": [
               "src/favicon.ico",
               "src/assets",
-              "src/manifest.webmanifest"
+              "src/manifest.webmanifest",
+              {
+                "glob": "matrix_sdk_crypto_wasm_bg.wasm",
+                "input": "node_modules/@matrix-org/matrix-sdk-crypto-wasm/pkg",
+                "output": "assets/crypto"
+              }
             ],
             "styles": [
               "src/styles.scss"

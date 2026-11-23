@@ -1,8 +1,10 @@
+import { runAsSystem } from "../tenancy/context";
 import mongoose from "mongoose";
 import Notification, { NotificationType } from "../models/notificationModel";
 import { emitToUser } from "../realtime/io";
 import { AppError } from "../utils/errors";
 import { requireObjectId } from "../utils/validation";
+import { safeError } from "../utils/safe-log";
 
 export interface NewNotification {
     userId: string;
@@ -45,12 +47,21 @@ class NotificationService {
                 recordingId: n.recordingId ? oid(n.recordingId) : null,
                 text: preview(n.text),
             })));
-            const populated = await Notification.find({ _id: { $in: docs.map((d) => d._id) } })
+            // Read back unscoped (the actor's context may differ from the recipients'), then deliver
+            // each one only to a socket in the workspace the notification belongs to
+            const populated = await runAsSystem(() => Notification.find({ _id: { $in: docs.map((d) => d._id) } })
                 .populate({ path: "actorId", select: "username avatar" })
-                .lean();
-            populated.forEach((n: any) => emitToUser(String(n.userId), "notification:new", this.present(n)));
+                .lean());
+            populated.forEach((n: any) => emitToUser(String(n.userId), "notification:new", this.present(n), n.conversationId ? { conversationId: n.conversationId } : {
+                scope: {
+                    tenantId: n.tenantId ? String(n.tenantId) : null,
+                    scope: n.scope || (n.tenantId ? "tenant" : "global"),
+                    // Only a listed guest receives an external notification outside the workspace
+                    externalParticipants: (n.guestUserIds || []).map(String),
+                },
+            }));
         } catch (error) {
-            console.error("[notifications] failed to store notification", error);
+            console.error("[notifications] failed to store notification", safeError(error));
         }
     }
 
@@ -111,7 +122,7 @@ class NotificationService {
                 emitToUser(userId, "notification:read", { unread: await this.unreadCount(userId) });
             }
         } catch (error) {
-            console.error("[notifications] failed to mark conversation read", error);
+            console.error("[notifications] failed to mark conversation read", safeError(error));
         }
     }
 

@@ -17,6 +17,9 @@ import { FormBuilder, Validators, FormGroup } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { Subscription, firstValueFrom } from 'rxjs';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
+import { NewChatDialogComponent } from './new-chat-dialog.component';
+import { E2eeService, SecureContent } from 'src/app/core/crypto/e2ee.service';
+import { ClerkService } from 'src/app/core/services/clerk.service';
 import { environment } from 'src/environments/environment';
 import { UserService } from 'src/app/core/services/user.service';
 import { SocketService } from 'src/app/core/services/socket.service';
@@ -35,6 +38,9 @@ import { ShellUiService } from 'src/app/core/services/shell-ui.service';
 import { ChatUiService } from 'src/app/core/services/chat-ui.service';
 import { ReplyPreview } from './message-composer/message-composer.component';
 import { MediaOpenEvent } from './message-item/message-item.component';
+import { Channel, OrganizationService, Team, errorText } from 'src/app/core/services/organization.service';
+import { SyncTopic, ViewRefresher, WorkspaceSyncService } from 'src/app/core/services/workspace-sync.service';
+import { CreateChannelDialogComponent, CreateTeamDialogComponent } from '../organizations/team-dialogs.component';
 import { CallNotificationService } from 'src/app/core/services/call-notification.service';
 
 
@@ -44,7 +50,7 @@ type RightPanel = 'none' | 'search' | 'info';
 
 /** One row in the left list — precomputed so the template does no work per change detection. */
 interface SidebarItem {
-  kind: 'direct' | 'group' | 'contact';
+  kind: 'direct' | 'group' | 'contact' | 'channel';
   key: string;
   conversationId?: string;
   userId?: string;
@@ -58,7 +64,15 @@ interface SidebarItem {
   time?: string;
   unread: number;
   hasActiveCall: boolean;
+  /** Marked as favorite by me (listed under Favorites) */
+  favorite: boolean;
   source: any;
+}
+
+/** A team I belong to, with the channels I'm a member of */
+interface TeamSection {
+  team: Team;
+  items: SidebarItem[];
 }
 
 @Component({
@@ -78,6 +92,15 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
   sidebarMode: SidebarMode = 'chats';
   sidebarSearch = '';
   listLoading = false;
+  /** "All": Favorites, Recent chats, Teams & channels */
+  favoriteItems: SidebarItem[] = [];
+  recentItems: SidebarItem[] = [];
+  teamSections: TeamSection[] = [];
+  collapsed = new Set<string>();
+  canCreateTeams = false;
+  isOrgAdmin = false;
+  private myTeams: { team: Team; channels: Channel[] }[] = [];
+  private readonly teamsRefresher = new ViewRefresher((topics) => this.loadTeams(topics));
 
   // ---- open conversation
   messageArray: ChatMessage[] = [];
@@ -201,6 +224,8 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     private router: Router,
     private route: ActivatedRoute,
     private modalService: NgbModal,
+    private clerk: ClerkService,
+    private e2ee: E2eeService,
     private chatActions: ChatActionsService,
     private sender: MessageSenderService,
     public uploads: UploadService,
@@ -211,6 +236,8 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     private notificationCenter: NotificationCenterService,
     private shellUi: ShellUiService,
     public chatUi: ChatUiService,
+    private orgs: OrganizationService,
+    private workspaceSync: WorkspaceSyncService,
     @Inject(CHAT_CONFIG) config: ChatConfig,
   ) {
     this.pageSize = config.historyPageSize;
@@ -230,6 +257,10 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     this.loadGroupConversations();
     this.loadArchived();
     this.loadUsers();
+    if (this.inOrganization) {
+      this.subs.add(this.workspaceSync.changes$.subscribe((t) => this.teamsRefresher.notify(t)));
+      this.teamsRefresher.notify('*');
+    }
 
     this.subs.add(this.socketService.newMessageReceived().subscribe((data: any) => this.onIncomingMessage(data)));
 
@@ -270,6 +301,8 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
 
     this.subs.add(this.socketService.onReceiptsUpdated().subscribe((data) => this.onReceipts(data)));
     this.subs.add(this.socketService.onMessageUpdated().subscribe((data) => this.onMessageUpdated(data)));
+    // Keys that arrive late make "waiting for key" messages readable: decrypt them again in place
+    this.subs.add(this.e2ee.keysChanged$.subscribe(() => void this.revealPending()));
     this.subs.add(this.socketService.onMessageDeleted().subscribe((data) => this.onMessageDeleted(data)));
     this.subs.add(this.socketService.onPinsChanged().subscribe((data) => {
       if (String(data?.conversationId) === this.conversationId) {
@@ -316,6 +349,7 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     this.shellUi.setImmersive(false);
     this.notificationCenter.activeConversationId = null;
     this.subs.unsubscribe();
+    this.teamsRefresher.destroy();
     [this.markReadTimer, this.listReloadTimer, this.highlightTimer].forEach((t) => t && clearTimeout(t));
     this.typingUsers.forEach((t) => clearTimeout(t));
     this.chatWindowObserver?.disconnect();
@@ -494,6 +528,7 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
           previewRead: false,
           unread: 0,
           hasActiveCall: false,
+          favorite: false,
           source: u,
         }));
       this.sidebarItems = items;
@@ -523,6 +558,7 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
           time: c.lastMessage?.createdAt || c.timestamp,
           unread: c.unreadCount || 0,
           hasActiveCall: !!this.activeGroupCalls[c._id],
+          favorite: !!c.isFavorite,
           source: c,
         });
       });
@@ -545,6 +581,7 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
         time: g.lastMessage?.createdAt || g.timestamp,
         unread: g.unreadCount || 0,
         hasActiveCall: !!this.activeGroupCalls[g._id],
+        favorite: !!g.isFavorite,
         source: g,
       });
     });
@@ -555,6 +592,151 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     }
     result.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
     this.sidebarItems = result;
+
+    // "All": favorites first, then recent chats, then my teams with their channels
+    this.teamSections = this.myTeams
+      .map(({ team, channels }) => ({
+        team,
+        items: channels.filter((c) => matches(c.name) || matches(team.name)).map((c) => this.channelItem(team, c)),
+      }))
+      .filter((t) => !q || t.items.length);
+    const favoriteChannels = this.teamSections.flatMap((t) => t.items).filter((i) => i.favorite);
+    this.favoriteItems = [...result.filter((i) => i.favorite), ...favoriteChannels];
+    this.recentItems = result.filter((i) => !i.favorite);
+  }
+
+  /** Sections are shown for "All" in the chat list (not archive, not the other filters) */
+  get sectioned(): boolean {
+    return this.sidebarMode === 'chats' && this.sidebarFilter === 'all';
+  }
+
+  get inOrganization(): boolean {
+    return !!this.clerk.pinnedOrganization;
+  }
+
+  /** Teams I can add a channel to */
+  get channelTeams(): Team[] {
+    return this.myTeams.map((t) => t.team).filter((t) => t.myRole && t.myRole !== 'guest');
+  }
+
+  get sidebarEmpty(): boolean {
+    return !this.sidebarItems.length && !(this.sectioned && this.teamSections.length);
+  }
+
+  toggleSection(key: string): void {
+    this.collapsed.has(key) ? this.collapsed.delete(key) : this.collapsed.add(key);
+  }
+
+  private channelItem(team: Team, c: Channel): SidebarItem {
+    return {
+      kind: 'channel',
+      key: `ch:${c.channelId}`,
+      conversationId: c.channelId,
+      title: c.name,
+      preview: team.name,
+      previewIsMine: false,
+      previewRead: false,
+      unread: 0,
+      hasActiveCall: !!this.activeGroupCalls[c.channelId],
+      favorite: !!c.isFavorite,
+      source: { ...c, teamId: team.teamId, teamName: team.name },
+    };
+  }
+
+  /** My teams and their channels; refetched when teams / channels change (server events). */
+  private async loadTeams(topics: Set<SyncTopic>): Promise<void> {
+    const relevant = [...topics].some((t) => t === '*' || t === 'org' || t === 'teams' || String(t).startsWith('channels:') || String(t).startsWith('team:'));
+    if (!relevant || !this.inOrganization) return;
+    try {
+      const [overview, teams] = await Promise.all([this.orgs.overview(), this.orgs.teams()]);
+      this.canCreateTeams = !!overview.permissions?.['teams:create'];
+      this.isOrgAdmin = overview.role === 'owner' || overview.role === 'admin';
+      const mine = teams.filter((t) => t.myRole).sort((a, b) => a.name.localeCompare(b.name));
+      this.myTeams = await Promise.all(mine.map(async (team) => ({
+        team,
+        channels: (await this.orgs.channels(team.teamId).catch(() => [] as Channel[])).filter((c) => c.isMember),
+      })));
+    } catch {
+      // Organization not reachable (e.g. managed outside SpreeWe): no Teams section
+      this.myTeams = [];
+    }
+    this.rebuildSidebar();
+  }
+
+  /** Hover star: favorite / unfavorite. Shown at once; undone if the server refuses. */
+  async toggleFavorite(item: SidebarItem, event: Event): Promise<void> {
+    event.stopPropagation();
+    const id = item.conversationId;
+    if (!id) return;
+    const next = !item.favorite;
+    this.setFavoriteLocally(id, next);
+    try {
+      await this.chatActions.favorite(id, next);
+    } catch {
+      this.setFavoriteLocally(id, !next);
+      this.alertService.error(next ? "We couldn't add this to your favorites." : "We couldn't remove this from your favorites.");
+    }
+  }
+
+  private setFavoriteLocally(conversationId: string, favorite: boolean): void {
+    for (const c of [...this.chatData, ...this.groupChatData, ...this.archivedChats, ...this.archivedGroups]) {
+      if (String(c?._id) === conversationId) c.isFavorite = favorite;
+    }
+    for (const t of this.myTeams) {
+      for (const c of t.channels) if (c.channelId === conversationId) c.isFavorite = favorite;
+    }
+    this.rebuildSidebar();
+  }
+
+  // ---- Teams & channels actions (Teams-style)
+  createTeam(): void {
+    const ref = this.modalService.open(CreateTeamDialogComponent, { centered: true, windowClass: 'app-modal', ariaLabelledBy: 'create-team-title' });
+    ref.result.then(() => {
+      this.alertService.success('Team created with a General channel');
+      this.teamsRefresher.notify('teams');
+    }, () => undefined);
+  }
+
+  createChannel(team?: Team): void {
+    const ref = this.modalService.open(CreateChannelDialogComponent, { centered: true, scrollable: true, windowClass: 'app-modal', ariaLabelledBy: 'create-channel-title' });
+    const dialog = ref.componentInstance as CreateChannelDialogComponent;
+    dialog.teams = this.channelTeams;
+    dialog.teamId = team?.teamId || '';
+    ref.result.then((channel: Channel) => {
+      this.alertService.success('Channel created');
+      this.teamsRefresher.notify('teams');
+      if (channel?.channelId) void this.router.navigate(['/chat'], { queryParams: { c: channel.channelId } });
+    }, () => undefined);
+  }
+
+  async leaveTeam(team: Team): Promise<void> {
+    const ok = await this.alertService.confirm({ title: `Leave ${team.name}?`, text: "You'll leave all of its channels.", confirmText: 'Leave team', danger: true });
+    if (!ok) return;
+    try {
+      await this.orgs.removeTeamMember(team.teamId, String(this.authService.getLoggedInUser()?._id || ''));
+      this.alertService.success(`You left ${team.name}`);
+      this.teamsRefresher.notify('teams');
+    } catch (e) {
+      this.alertService.error(errorText(e, "We couldn't leave the team."));
+    }
+  }
+
+  /** Private / shared channels only (standard channels follow team membership) */
+  async leaveChannel(team: Team, item: SidebarItem): Promise<void> {
+    const ok = await this.alertService.confirm({ title: `Leave ${item.title}?`, text: 'You can be added again by the channel owner.', confirmText: 'Leave channel', danger: true });
+    if (!ok || !item.conversationId) return;
+    try {
+      await this.orgs.removeChannelMember(team.teamId, item.conversationId, String(this.authService.getLoggedInUser()?._id || ''));
+      if (this.conversationId === item.conversationId) this.closeConversation();
+      this.alertService.success(`You left ${item.title}`);
+      this.teamsRefresher.notify('teams');
+    } catch (e) {
+      this.alertService.error(errorText(e, "We couldn't leave the channel."));
+    }
+  }
+
+  trackTeam(_: number, t: TeamSection): string {
+    return t.team.teamId;
   }
 
   private previewText(last: any, withSender = false): string {
@@ -571,6 +753,12 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
 
   openSidebarItem(item: SidebarItem): void {
     this.openingUnread = item.unread || 0;
+    if (item.kind === 'channel') {
+      if (this.conversationId !== item.conversationId) {
+        void this.openChannelById(item.conversationId!).then((ok) => ok || this.alertService.info("This channel isn't available any more."));
+      }
+      return;
+    }
     if (item.kind === 'group') {
       this.openGroupConversation(item.source);
       return;
@@ -1509,8 +1697,12 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
       this.socketService.stopTyping(this.myUserId);
       this.scrollToBottom();
       return true;
-    } catch {
-      // The error interceptor already showed why the upload failed
+    } catch (error) {
+      // HTTP failures were already shown by the error interceptor (it rethrows a string); an
+      // encryption failure wasn't: say so. Nothing was sent, and the text stays in the composer.
+      if (typeof error !== 'string') {
+        this.alertService.error("Your message wasn't sent: it couldn't be encrypted. Please try again.");
+      }
       return false;
     }
   }
@@ -1666,35 +1858,59 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     const all: SidebarItem[] = [
       ...this.chatData.filter((c) => c.receiver).map((c) => ({
         kind: 'direct' as const, key: `d:${c._id}`, conversationId: c._id, title: c.receiver.username, avatar: c.receiver.avatar,
-        preview: '', previewIsMine: false, previewRead: false, unread: 0, hasActiveCall: false, source: c,
+        preview: '', previewIsMine: false, previewRead: false, unread: 0, hasActiveCall: false, favorite: false, source: c,
       })),
       ...this.groupChatData.map((g) => ({
         kind: 'group' as const, key: `g:${g._id}`, conversationId: g._id, title: g.groupName, avatar: g.groupAvatar,
-        preview: `${g.members?.length || 0} participants`, previewIsMine: false, previewRead: false, unread: 0, hasActiveCall: false, source: g,
+        preview: `${g.members?.length || 0} participants`, previewIsMine: false, previewRead: false, unread: 0, hasActiveCall: false, favorite: false, source: g,
       })),
     ];
     return q ? all.filter((i) => (i.title || '').toLowerCase().includes(q)) : all;
   }
 
-  /** Re-sends the same content/file to another conversation through the existing sendMessage event. */
-  confirmForward(target: SidebarItem): void {
-    const source = this.forwardSource;
+  /**
+   * Forward on this device: the server can't read (or re-encrypt) messages, so the copy is a new
+   * end-to-end encrypted message. An attachment's ciphertext is uploaded again into the target chat
+   * (same file key, carried inside the new message); nothing is ever sent in plaintext.
+   */
+  async confirmForward(target: SidebarItem): Promise<void> {
+    const source: any = this.forwardSource;
     if (!source || !target.conversationId || this.forwardSending) {
       return;
     }
+    if (source.e2eeState && source.e2eeState !== 'ok') {
+      this.alertService.error("This message can't be forwarded because it couldn't be decrypted.");
+      return;
+    }
     this.forwardSending = true;
-    this.socketService.sendMessage({
-      user: this.sender.currentUserPayload(),
-      conversationId: target.conversationId,
-      content: source.content || '',
-      type: source.type,
-      // The server copies content + attachment from the original (and checks you can see it)
-      forwardOf: source._id,
-    });
-    this.forwardSending = false;
-    this.forwardModalRef?.close();
-    this.forwardSource = null;
-    this.alertService.success(`Forwarded to ${target.title}`);
+    try {
+      const secure: SecureContent = { text: source.content || '', forwardedFrom: source.forwardedFrom || this.forwardOriginName(source) };
+      const payload: any = { user: this.sender.currentUserPayload(), conversationId: target.conversationId, content: '', type: source.type };
+      if (source.e2eeFile && source.e2eeCipherUrl) {
+        const res = await fetch(source.e2eeCipherUrl);
+        if (!res.ok) throw new Error('download');
+        const uploaded = await firstValueFrom(this.socketService.uploadEncrypted(await res.blob(), target.conversationId, source.type));
+        secure.file = { ...source.e2eeFile, storageKey: uploaded.storageKey };
+        payload.storageKey = uploaded.storageKey;
+      } else if (source.type !== 'text') {
+        throw new Error('legacy attachment');
+      }
+      payload.e2ee = await this.e2ee.encrypt(target.conversationId, secure);
+      this.socketService.sendMessage(payload);
+      this.forwardModalRef?.close();
+      this.forwardSource = null;
+      this.alertService.success(`Forwarded to ${target.title}`);
+    } catch {
+      this.alertService.error("We couldn't forward this message. Nothing was sent.");
+    } finally {
+      this.forwardSending = false;
+    }
+  }
+
+  /** Name shown on a forwarded copy: the original chat (group) or author. */
+  private forwardOriginName(source: any): string {
+    if (this.isGroupChat) return this.groupname || '';
+    return String(source.user?.username || source.senderName || (this.isMineId(source.userId) ? this.sender.currentUserPayload().username : this.peerName) || '').slice(0, 120);
   }
 
   // ================================================================ profile / group modals
@@ -1743,6 +1959,16 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
       this.peerAvatar = data.avatar;
     }
     this.rebuildSidebar();
+  }
+
+  /** New chat: people I can reach here, filtered as I type; anyone else by exact email. */
+  openNewChat(): void {
+    const ref = this.modalService.open(NewChatDialogComponent, { centered: true, scrollable: true, windowClass: 'app-modal', ariaLabelledBy: 'new-chat-title' });
+    const dialog = ref.componentInstance as NewChatDialogComponent;
+    dialog.inOrganization = this.inOrganization;
+    dialog.externalPeople = this.chatData
+      .filter((c) => c?.scope === 'external' && c.receiver?._id)
+      .map((c) => ({ _id: String(c.receiver._id), username: c.receiver.username, avatar: c.receiver.avatar }));
   }
 
   openCreateGroup(): void {
@@ -1863,6 +2089,51 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
     void this.tryOpenDeepLink();
   }
 
+  /**
+   * Team channels aren't in the chat lists; open one by id. The server only answers for members
+   * (GET /conversations/:id/group), so this can't open a channel the user may not read.
+   */
+  private async revealPending(): Promise<void> {
+    const pending = this.messageArray.filter((m: any) => m.e2ee && m.e2eeState !== 'ok');
+    for (const m of pending) await this.e2ee.reveal(m as any, String(this.conversationId));
+    for (const c of [...this.chatData, ...this.groupChatData] as any[]) {
+      if (c?.lastMessage?.e2ee && c.lastMessage.e2eeState !== 'ok') await this.e2ee.reveal(c.lastMessage, String(c._id));
+    }
+    if (pending.length) this.messageArray = [...this.messageArray];
+    this.cdr.markForCheck();
+  }
+
+  /** Sending is impossible without encryption on this device (no plaintext fallback). */
+  get e2eeBlocked(): boolean {
+    const s = this.e2ee.status$.value;
+    return s === 'error' || s === 'unsupported';
+  }
+
+  get e2eeBlockedMessage(): string {
+    return this.e2ee.statusMessage || "Encryption isn't available on this device, so messages can't be sent from it.";
+  }
+
+  /** The open conversation includes people outside the organization (shown as an External badge). */
+  get openIsExternal(): boolean {
+    const id = this.conversationId ? String(this.conversationId) : '';
+    if (!id) return false;
+    const all: any[] = [...this.chatData, ...this.archivedChats, ...this.groupChatData, ...this.archivedGroups];
+    return all.some((c) => String(c?._id) === id && c?.scope === 'external');
+  }
+
+  private async openChannelById(conversationId: string): Promise<boolean> {
+    const res: any = await firstValueFrom(this.userService.getGroupInfo(conversationId)).catch(() => null);
+    const info = Array.isArray(res?.data) ? res.data[0] : res?.data ?? null;
+    if (!info?._id) return false;
+    this.openGroupConversation({
+      _id: info._id,
+      groupName: info.groupName,
+      groupAvatar: info.groupAvatar || '',
+      members: (info.members || info.membersDetails || []).map((m: any) => (typeof m === 'object' ? m._id : m)),
+    });
+    return true;
+  }
+
   private async tryOpenDeepLink(): Promise<void> {
     const link = this.pendingDeepLink;
     if (!link || this.loadedLists.size < 4) {
@@ -1898,8 +2169,12 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
         this.alertService.info("We couldn't find that person.");
         return;
       }
-      this.startOrResumeChat(user.username, user.avatar, !!user.isOnline, '', String(user._id), user.lastSeen as any);
+      // A chat just opened by email (not in the lists yet) is resumed by its id: re-creating it would
+      // refuse an external person, who is not a member of this organization
+      this.startOrResumeChat(user.username, user.avatar, !!user.isOnline, link.conversationId || '', String(user._id), user.lastSeen as any);
       return;
+    } else if (link.conversationId && (await this.openChannelById(link.conversationId))) {
+      // A team channel: not in the chat lists (channels live under their team), opened by id
     } else {
       this.alertService.info("This chat isn't available any more.");
       return;
@@ -2036,6 +2311,8 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
 
   private setPins(pins: PinnedMessage[]): void {
     this.pins = pins;
+    // Pinned previews are decrypted on this device (the server only has ciphertext)
+    void Promise.all(pins.map((p) => this.e2ee.revealRef(p))).then(() => this.cdr.markForCheck());
     this.pinnedIds = new Set(pins.map((p) => String(p.messageId)));
     if (pins.length <= 1) {
       this.pinsExpanded = false;
@@ -2070,7 +2347,7 @@ export class ChatComponent implements OnInit, AfterViewInit, DoCheck, OnDestroy 
       return true;
     }
     try {
-      await this.chatActions.editMessage(id, text, mentionIds);
+      await this.chatActions.editMessage(id, String(this.conversationId), text, mentionIds);
       this.editing = null;
       return true;
     } catch (error: any) {

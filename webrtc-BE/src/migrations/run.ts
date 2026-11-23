@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import connectDB from "../config/database";
 import { runMigrations } from "./index";
+import { safeError } from "../utils/safe-log";
 
 /** `npm run migrate` — apply pending migrations without starting the server. */
 connectDB()
@@ -10,7 +11,7 @@ connectDB()
         return mongoose.disconnect();
     })
     .catch(async (error) => {
-        console.error("[migrations] failed:", error);
+        console.error("[migrations] failed:", safeError(error));
         await mongoose.disconnect().catch(() => undefined);
         process.exit(1);
     });

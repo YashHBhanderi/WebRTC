@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import dns from 'dns';
 import net from 'net';
 import type { types as msTypes } from 'mediasoup';
+import { safeError } from "./safe-log";
 
 /**
  * Media / ICE configuration. Everything infrastructure-specific comes from env,
@@ -269,7 +270,7 @@ export async function withTestTunnelCandidate(
       },
     ];
   } catch (error) {
-    console.warn(`[media] TEST tunnel host ${host} did not resolve — candidate skipped`, error);
+    console.warn(`[media] TEST tunnel host ${host} did not resolve — candidate skipped`, safeError(error));
     return candidates;
   }
 }

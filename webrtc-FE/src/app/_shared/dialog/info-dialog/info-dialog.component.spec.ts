@@ -1,25 +1,21 @@
-import { ComponentFixture, TestBed, waitForAsync } from '@angular/core/testing';
-
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { InfoDialogComponent } from './info-dialog.component';
 
 describe('InfoDialogComponent', () => {
-  let component: InfoDialogComponent;
   let fixture: ComponentFixture<InfoDialogComponent>;
-
-  beforeEach(waitForAsync(() => {
-    TestBed.configureTestingModule({
-      declarations: [ InfoDialogComponent ]
-    })
-    .compileComponents();
-  }));
+  let modal: jasmine.SpyObj<NgbActiveModal>;
 
   beforeEach(() => {
+    modal = jasmine.createSpyObj<NgbActiveModal>('NgbActiveModal', ['close', 'dismiss']);
+    TestBed.configureTestingModule({ declarations: [InfoDialogComponent], providers: [{ provide: NgbActiveModal, useValue: modal }] });
     fixture = TestBed.createComponent(InfoDialogComponent);
-    component = fixture.componentInstance;
     fixture.detectChanges();
   });
 
-  it('should create', () => {
-    expect(component).toBeTruthy();
+  it('the OK button closes the dialog', () => {
+    const buttons = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('button'));
+    buttons[buttons.length - 1].click();
+    expect(modal.close).toHaveBeenCalled();
   });
 });

@@ -35,6 +35,8 @@ interface PendingUrlCall {
 export class CallManagerService {
   activeCall: CallLaunch | null = null;
   incomingCall: IncomingCall | null = null;
+  /** When the current ring started (to tell rings from before / after a reconnect apart) */
+  private incomingRingAt = 0;
   minimized = false;
   meetings: { [groupId: string]: ActiveGroupMeeting } = {};
 
@@ -80,6 +82,25 @@ export class CallManagerService {
       } else if (action === 'decline') {
         this.declineIncoming();
       }
+    }));
+
+    // After every (re)connect the server lists the calls still ringing for me: show one I missed while
+    // disconnected, and drop a ring shown before this connection that was cancelled / answered meanwhile
+    let connectedAt = 0;
+    this.subs.add(this.socket.onConnect().subscribe(() => (connectedAt = Date.now())));
+    this.subs.add(this.socket.onPendingRings().subscribe((data) => {
+      const calls = Array.isArray(data?.calls) ? data.calls.filter((c: any) => c?.callId && c.mode !== 'meetNow') : [];
+      const pending = new Set(calls.map((c: any) => String(c.callId)));
+      if (this.incomingCall && !pending.has(this.incomingCall.callId) && this.incomingRingAt < connectedAt) {
+        this.incomingCall = null;
+        this.emit();
+      }
+      if (this.activeCall || this.incomingCall || !calls.length) {
+        return;
+      }
+      const next = calls[0];
+      this.setMeeting(String(next.groupId), { callId: String(next.callId), callType: next.callType || 'audio', mode: 'ring' });
+      void this.ring(next);
     }));
 
     // Audio / video ring for group + 1:1 (both use mediasoup)
@@ -385,6 +406,7 @@ export class CallManagerService {
     const groupId = String(data.groupId);
     const callerId = String(data.initiatedBy || '');
     const callId = String(data.callId);
+    this.incomingRingAt = Date.now();
     // Show the ring immediately; fill in names once known
     this.incomingCall = {
       callId,

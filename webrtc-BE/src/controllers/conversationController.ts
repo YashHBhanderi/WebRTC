@@ -9,7 +9,7 @@ import { directPeerId, getConversationForMember } from "../services/authorizatio
 import { memberRemoved, membersAdded } from "../realtime/group.events";
 import { AppError, sendError } from "../utils/errors";
 import receiptsService from "../services/receipts.service";
-import { emitToUsers } from "../realtime/io";
+import { closeRooms, notifyUserEverywhere } from "../realtime/io";
 import messageActions from "../services/message-actions.service";
 import { discardTempFile } from "../utils/multer";
 
@@ -155,7 +155,9 @@ export default class ConversationController {
             if (!conversationId) throw new AppError("Conversation ID is required");
             if (!userId) throw new AppError("User ID is required");
             const { memberIds } = await ConversationService.deleteConversation(conversationId, userId);
-            emitToUsers(memberIds, "group:removed", { groupId: conversationId, reason: "deleted", by: userId });
+            // Every connection of every member stops receiving the deleted group's room broadcasts
+            closeRooms([conversationId]);
+            memberIds.forEach((id: unknown) => notifyUserEverywhere(id, "group:removed", { groupId: conversationId, reason: "deleted", by: userId }));
             res.status(200).json({ status: true, data: null, message: 'Group deleted' });
         } catch (error) {
             fail(res, error);

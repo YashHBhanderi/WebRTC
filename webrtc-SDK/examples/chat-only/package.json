@@ -1,0 +1,17 @@
+{
+  "name": "example-chat-only",
+  "private": true,
+  "type": "module",
+  "description": "Chat only: OAuth 2.0 + PKCE in the browser, <spreewe-chat> with end-to-end encryption. No calling code is bundled.",
+  "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
+  "dependencies": {
+    "@spreewe/core": "^0.1.0",
+    "@spreewe/ui": "^0.1.0",
+    "@spreewe/chat": "^0.1.0",
+    "@spreewe/e2ee": "^0.1.0",
+    "@matrix-org/matrix-sdk-crypto-wasm": "18.9.0",
+    "lit": "^3.3.0",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": { "vite": "~6.4.5" }
+}

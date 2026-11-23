@@ -970,3 +970,13 @@
     color: var(--app-muted);
   }
 }
+
+// Encryption state / trust warning under a message
+.bubble__e2ee {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 0.74rem;
+  opacity: 0.85;
+}

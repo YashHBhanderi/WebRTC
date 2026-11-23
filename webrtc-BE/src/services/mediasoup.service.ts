@@ -1,6 +1,7 @@
 import * as mediasoup from 'mediasoup';
 import { MediasoupPeer } from '../types/mediasoup.types';
 import { describeMediaConfig, mediaConfig } from '../utils/network';
+import { safeError } from "../utils/safe-log";
 
 // VP8 first: best simulcast support across Chrome/Edge/Firefox/Safari.
 // H264 kept for Safari/iOS hardware encoders.
@@ -40,6 +41,13 @@ class MediasoupService {
     /** Keyed by userId so brief socket reconnects keep media alive */
     private peersByUserId = new Map<string, MediasoupPeer>();
     private socketToUserId = new Map<string, string>();
+
+    /** Graceful shutdown: closes the worker (and with it every router, transport, producer, consumer). */
+    close(): void {
+        if (this.worker && !this.worker.closed) {
+            this.worker.close();
+        }
+    }
 
     async init(): Promise<void> {
         console.log(`Starting mediasoup worker (${describeMediaConfig()})`);
@@ -122,7 +130,7 @@ class MediasoupService {
                 await transport.setMaxOutgoingBitrate(mediaConfig.maxOutgoingBitrate);
             }
         } catch (error) {
-            console.warn(`mediasoup bitrate cap failed (${transport.id}):`, error);
+            console.warn(`mediasoup bitrate cap failed (${transport.id}):`, safeError(error));
         }
 
         transport.on('iceselectedtuplechange', (tuple) => {
@@ -366,7 +374,7 @@ class MediasoupService {
             try {
                 listener(String(callId), String(userId), joined);
             } catch (error) {
-                console.error('[mediasoup] peer call listener failed', error);
+                console.error('[mediasoup] peer call listener failed', safeError(error));
             }
         }
     }
@@ -479,7 +487,7 @@ class MediasoupService {
             await observer.addProducer({ producerId: producer.id });
         } catch (error) {
             // Speaking indicators are best-effort; never fail the produce over them
-            console.warn(`audio level observer failed for call ${key}:`, error);
+            console.warn(`audio level observer failed for call ${key}:`, safeError(error));
         }
     }
 

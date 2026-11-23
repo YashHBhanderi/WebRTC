@@ -12,6 +12,18 @@ import { CalendarPageComponent } from './shell/calendar-page.component';
 import { MeetJoinComponent } from './shell/meet-join.component';
 import { RecordingPageComponent } from './shell/recording-page.component';
 import { ProfilePageComponent, SectionPlaceholderComponent, SettingsPageComponent } from './shell/section-pages.component';
+import { CreateOrganizationComponent } from './organizations/create-organization.component';
+import { DeveloperAppsComponent } from './developer/developer-apps.component';
+import { DeveloperAppComponent } from './developer/developer-app.component';
+import { DeveloperDocsComponent } from './developer/developer-docs.component';
+import { ConsentComponent } from './developer/consent.component';
+import { DeveloperShellComponent } from './developer/developer-shell.component';
+import { requirePortal } from '../core/guards/portal.guard';
+import { JoinOrganizationComponent } from './organizations/join-organization.component';
+import { InvitationAcceptComponent } from './organizations/invitation-accept.component';
+import { OrganizationHomeComponent } from './organizations/organization-home.component';
+import { OrganizationSettingsComponent } from './organizations/organization-settings.component';
+import { TeamPageComponent } from './organizations/team-page.component';
 
 const placeholder = (title: string, icon: string, emptyTitle: string, emptyText: string) => ({
   component: SectionPlaceholderComponent,
@@ -20,14 +32,49 @@ const placeholder = (title: string, icon: string, emptyTitle: string, emptyText:
 });
 
 const routes: Routes = [
+  // End-user consent for a third-party application (OAuth). Portal-neutral: whoever the app sends
+  // here approves for their own account, whichever portal this browser last used.
+  {
+    path: 'consent',
+    component: ConsentComponent,
+    canActivate: [AuthGuard],
+    data: { realtime: false },
+    title: 'Authorize application',
+  },
+  // Developer Portal: its own frame, developer modules only (no chat, calls or realtime socket).
+  // Credentials, permissions, webhooks, usage and audit are tabs of an application.
+  {
+    path: 'developer',
+    component: DeveloperShellComponent,
+    canActivate: [AuthGuard, requirePortal('developer')],
+    data: { realtime: false },
+    children: [
+      { path: '', pathMatch: 'full', component: DeveloperAppsComponent, title: 'Applications · SpreeWe Developers' },
+      { path: 'docs', component: DeveloperDocsComponent, title: 'API documentation · SpreeWe Developers' },
+      { path: 'apps/:appId', component: DeveloperAppComponent, title: 'Application · SpreeWe Developers' },
+      { path: '**', redirectTo: '' },
+    ],
+  },
+  // Personal SpreeWe app
   {
     path: '',
     component: ShellComponent,
-    canActivate: [AuthGuard],
+    canActivate: [AuthGuard, requirePortal('personal')],
     children: [
       { path: 'chat', component: ChatComponent, title: 'Chat' },
       { path: 'profile', component: ProfilePageComponent, title: 'Profile' },
       { path: 'settings', component: SettingsPageComponent, title: 'Settings' },
+      { path: 'organizations/new', component: CreateOrganizationComponent, title: 'Create an organization' },
+      { path: 'organizations/join', component: JoinOrganizationComponent, title: 'Join an organization' },
+      { path: 'organizations/invitation', component: InvitationAcceptComponent, title: 'Organization invitation' },
+      { path: 'organization', component: OrganizationHomeComponent, title: 'Organization' },
+      { path: 'organization/settings', component: OrganizationSettingsComponent, title: 'Organization settings' },
+      // Canonical: members, invitations and join requests live in the settings' Members section
+      { path: 'organization/members', redirectTo: 'organization/settings?tab=members', pathMatch: 'full' },
+      { path: 'organization/invitations', redirectTo: 'organization/settings?tab=members&invite=1', pathMatch: 'full' },
+      // Former Account & organizations page: its parts now live in the profile menu and on Profile
+      { path: 'account', redirectTo: 'profile', pathMatch: 'full' },
+      { path: 'teams/:teamId', component: TeamPageComponent, title: 'Team' },
       { path: 'activity', component: ActivityPageComponent, title: 'Activity' },
       { path: 'saved', component: SavedPageComponent, title: 'Saved messages' },
       { path: 'calls', component: CallsPageComponent, title: 'Calls' },

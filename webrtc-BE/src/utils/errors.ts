@@ -1,4 +1,5 @@
 import { Response } from "express";
+import { safeError } from "./safe-log";
 
 /**
  * Expected, user-facing failures (validation, permission, not found).
@@ -56,7 +57,8 @@ export function errorCodeFor(status: number): ErrorCode {
 export function sendError(res: Response, error: unknown, fallback = "Something went wrong. Please try again."): void {
     const status = error instanceof AppError ? error.status : 500;
     if (status >= 500) {
-        console.error("[api]", res.req?.method, res.req?.originalUrl, error);
+        // Path only (no query string: search text, signatures); the error is redacted by safe-log
+        console.error("[api]", res.req?.method, res.req?.originalUrl?.split("?")[0], safeError(error));
     }
     const message = publicMessage(error, fallback);
     res.status(status).json({

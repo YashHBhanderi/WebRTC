@@ -18,7 +18,11 @@ export class AuthGuard implements CanActivate {
     private socket: SocketService,
   ) { }
 
-  async canActivate(_route?: ActivatedRouteSnapshot, state?: RouterStateSnapshot): Promise<boolean | UrlTree> {
+  /**
+   * Routes with `data: { realtime: false }` (Developer Portal, consent) need the account but not the
+   * chat / call socket.
+   */
+  async canActivate(route?: ActivatedRouteSnapshot, state?: RouterStateSnapshot): Promise<boolean | UrlTree> {
     if (!(await this.clerk.waitForSession())) {
       // Come back here after signing in (e.g. a meeting link)
       const returnUrl = state?.url && state.url !== '/' && !state.url.startsWith('/chat') ? state.url : null;
@@ -26,7 +30,9 @@ export class AuthGuard implements CanActivate {
     }
     try {
       await this.authService.ensureAppUser();
-      this.socket.ensureConnected();
+      if (route?.data?.['realtime'] !== false) {
+        this.socket.ensureConnected();
+      }
       return true;
     } catch (error: any) {
       // Signed in to Clerk but no usable app account (e.g. unverified email): sign out so the

@@ -1,3 +1,6 @@
+import { runAsSystem } from "../tenancy/context";
+import { assertCanInclude } from "../tenancy/tenant.service";
+import { userContext } from "../tenancy/context";
 import crypto from "crypto";
 import mongoose from "mongoose";
 import Meeting, { IMeeting, IRecurrence, RecurrenceFreq } from "../models/meetingModel";
@@ -156,7 +159,7 @@ class MeetingService {
 
         await this.invite(meeting, invitees, organizerId, "invited you to");
         emitToUsers(members, "group:added", { groupId: String(conversation._id) });
-        emitToUsers(members, "meeting:updated", { meetingId: String(meeting._id) });
+        emitToUsers(members, "meeting:updated", { meetingId: String(meeting._id) }, undefined, { conversationId: meeting.conversationId });
         return this.present(meeting, organizerId);
     }
 
@@ -195,7 +198,7 @@ class MeetingService {
         const everyone = [userId, ...meeting.invitees.map(String)];
         await this.invite(meeting, added, userId, "invited you to");
         emitToUsers(added, "group:added", { groupId: String(meeting.conversationId) });
-        emitToUsers(everyone, "meeting:updated", { meetingId: String(meeting._id) });
+        emitToUsers(everyone, "meeting:updated", { meetingId: String(meeting._id) }, undefined, { conversationId: meeting.conversationId });
         return this.present(meeting, userId);
     }
 
@@ -218,7 +221,7 @@ class MeetingService {
             meetingId: String(meeting._id),
             text: `Cancelled: ${meeting.title}`,
         })));
-        emitToUsers([userId, ...invitees], "meeting:updated", { meetingId: String(meeting._id) });
+        emitToUsers([userId, ...invitees], "meeting:updated", { meetingId: String(meeting._id) }, undefined, { conversationId: meeting.conversationId });
     }
 
     /** My meetings (organised or invited) with an occurrence in [from, to), one entry per occurrence. */
@@ -317,12 +320,20 @@ class MeetingService {
 
     private reminderTimer: ReturnType<typeof setInterval> | null = null;
 
+    stopReminders(): void {
+        if (this.reminderTimer) {
+            clearInterval(this.reminderTimer);
+            this.reminderTimer = null;
+        }
+    }
+
     /** Once a minute: invitees get a reminder ~5 minutes before each occurrence (once). */
     startReminders(): void {
         if (this.reminderTimer) {
             return;
         }
-        this.reminderTimer = setInterval(() => void this.sendReminders().catch((e) => console.error("[meetings] reminders failed", e)), 60_000);
+        // Scheduled job: explicit system scope (reminds invitees of every workspace)
+        this.reminderTimer = setInterval(() => void runAsSystem(() => this.sendReminders(), "meeting-reminders").catch((e) => console.error("[meetings] reminders failed", e)), 60_000);
     }
 
     private async sendReminders(): Promise<void> {
@@ -365,7 +376,10 @@ class MeetingService {
         }
         const ids = list.filter((id) => mongoose.isValidObjectId(id));
         const found = await User.find({ _id: { $in: ids.map(oid) } }).select("_id").lean();
-        return found.map((u) => String(u._id));
+        const invitees = found.map((u) => String(u._id));
+        // Workspace meetings invite workspace members only
+        await assertCanInclude(userContext(), invitees);
+        return invitees;
     }
 
     private async organized(meetingId: unknown, userId: string) {

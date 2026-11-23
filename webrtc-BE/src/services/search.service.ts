@@ -1,3 +1,6 @@
+import TenantMembership from "../models/tenantMembershipModel";
+import { runAsSystem, userContext } from "../tenancy/context";
+import { guestContacts, isGuest } from "../tenancy/tenant.service";
 import mongoose from "mongoose";
 import Conversation from "../models/conversationModel";
 import ConversationUserState from "../models/conversationUserStateModel";
@@ -97,7 +100,21 @@ class SearchService {
     }
 
     private async users(userId: string, pattern: object, limit: number) {
-        const docs = await User.find({ _id: { $ne: oid(userId) }, username: pattern })
+        // Same audience as the directory: workspace members, or globally discoverable users
+        const ctx = userContext();
+        const scopeFilter: Record<string, unknown> = {};
+        if (ctx && isGuest(ctx)) {
+            scopeFilter._id = { $in: await guestContacts(ctx), $ne: oid(userId) };
+        } else if (ctx?.tenantId) {
+            const rows = await runAsSystem(() => TenantMembership.find({ tenantId: oid(ctx.tenantId!), status: "active" }).select("userId").lean());
+            scopeFilter._id = { $in: rows.map((r) => r.userId), $ne: oid(userId) };
+        } else if (ctx) {
+            // Personal context: people I already talk to (no public directory)
+            scopeFilter._id = { $in: await guestContacts(ctx), $ne: oid(userId) };
+        } else {
+            scopeFilter._id = { $in: [] };
+        }
+        const docs = await User.find({ _id: { $ne: oid(userId) }, ...scopeFilter, username: pattern })
             .select("username avatar isOnline lastSeen status statusMessage autoAway bio")
             .sort({ username: 1 })
             .limit(limit)

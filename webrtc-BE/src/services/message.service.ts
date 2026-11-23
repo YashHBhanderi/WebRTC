@@ -41,6 +41,10 @@ export default class MessageService {
         if (message.userId.toString() !== userId) {
             throw new AppError("You can only delete your own messages", 403);
         }
+        // Still a member, and the conversation is visible in the active workspace context
+        if (message.conversationId) {
+            await getConversationForMember(String(message.conversationId), userId);
+        }
         message.isDeleted = true;
         await message.save();
         // Remove the stored attachment unless a forwarded copy still shows it
@@ -63,7 +67,7 @@ export default class MessageService {
             .skip((safePage - 1) * safeLimit)
             .limit(safeLimit)
             .populate({ path: "userId", select: "username email avatar isOnline lastSeen" })
-            .populate({ path: "replyTo", select: "content type userId" })
+            .populate({ path: "replyTo", select: "content type userId e2ee" })
             .lean();
 
         const receipts = await receiptsService.forConversation(conversationId, conversation.members.map(String));
@@ -75,7 +79,10 @@ export default class MessageService {
             const status = receiptsService.statusOf(m.createdAt, authorId, receipts);
             return {
                 _id: m._id,
+                conversationId: String(m.conversationId),
                 content: m.content,
+                // End-to-end encrypted body: decrypted on the client only (content is "")
+                e2ee: m.e2ee || undefined,
                 type: m.type,
                 ...(await messageMedia(m)),
                 isDeleted: m.isDeleted,
@@ -100,9 +107,45 @@ export default class MessageService {
                         lastSeen: author.lastSeen,
                     }
                     : {},
-                replyTo: m.replyTo ? { _id: m.replyTo._id, content: m.replyTo.content, type: m.replyTo.type, userId: m.replyTo.userId } : null,
+                replyTo: m.replyTo ? { _id: m.replyTo._id, content: m.replyTo.content, e2ee: m.replyTo.e2ee || undefined, type: m.replyTo.type, userId: m.replyTo.userId } : null,
             };
         }));
+    }
+
+    /**
+     * Cursor page for the /v1 API: newest first, `before` = id of the oldest message already seen.
+     * Same visibility rules as history() (membership, cleared chat, deleted, legacy call notices);
+     * authors are public profile fields only (no email).
+     */
+    public static async historyPage(conversationId: string, userId: string, opts: { before?: string; limit: number }) {
+        await getConversationForMember(conversationId, userId);
+        const clearedAt = await chatState.clearedAt(userId, conversationId);
+        const filter: Record<string, unknown> = visibleFilter(conversationId, clearedAt);
+        if (opts.before) {
+            filter._id = { $lt: oid(opts.before) };
+        }
+        const docs = await Message.find(filter)
+            .sort({ _id: -1 })
+            .limit(opts.limit + 1)
+            .populate({ path: "userId", select: "username avatar" })
+            .lean();
+        const page = docs.slice(0, opts.limit);
+        const items = await Promise.all(page.map(async (m: any) => {
+            const author = m.userId && typeof m.userId === "object" ? m.userId : null;
+            return {
+                _id: String(m._id),
+                conversationId: String(m.conversationId),
+                type: m.type,
+                content: m.content,
+                e2ee: m.e2ee || undefined,
+                ...(await messageMedia(m)),
+                author: author ? { _id: String(author._id), username: author.username, avatar: author.avatar || "" } : { _id: String(m.userId) },
+                replyToId: m.replyTo ? String(m.replyTo) : null,
+                editedAt: m.editedAt || null,
+                createdAt: m.createdAt,
+            };
+        }));
+        return { items, nextCursor: docs.length > opts.limit ? String(page[page.length - 1]._id) : null };
     }
 
     /**
@@ -195,10 +238,14 @@ export default class MessageService {
         const docs = await Message.find({ ...visibleFilter(conversationId, clearedAt), type: { $in: MEDIA_TYPES } })
             .sort({ createdAt: -1 })
             .limit(300)
-            .select("file fileUrl thumbnailUrl type createdAt")
+            .select("file fileUrl thumbnailUrl type createdAt e2ee userId conversationId")
             .lean();
         return Promise.all(docs.map(async (m: any) => ({
             _id: m._id,
+            // Encrypted files: the client decrypts them with the key inside the message ciphertext
+            conversationId: String(m.conversationId),
+            userId: m.userId,
+            e2ee: m.e2ee || undefined,
             ...(await messageMedia(m)),
             type: m.type,
             createdAt: m.createdAt,

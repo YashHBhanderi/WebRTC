@@ -1,9 +1,11 @@
 import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpContext } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import { environment } from 'src/environments/environment';
 import { ClerkService } from './clerk.service';
+import { RAW_ERRORS } from '../interceptors/error.interceptor';
+import { clearPortal, portalHome } from './portal';
 
 const USER_KEY = 'user';
 const USER_CLERK_KEY = 'userClerkId';
@@ -44,14 +46,30 @@ export class AuthService {
   }
 
   /** Make sure the app user for the current Clerk session is loaded. Throws the server's message on failure. */
+  /** Set when sign-in had to leave an organization the server refused (shown once by the shell). */
+  workspaceFallback = false;
+
   async ensureAppUser(): Promise<void> {
     if (!this.clerk.isSignedIn) {
       throw new Error('Not signed in');
     }
     if (this.loggedIn()) {
+      await this.checkWorkspaceOnce();
       return;
     }
-    const res = await firstValueFrom(this.http.get<any>(`${environment.apiUrl}/web/user/me`, { headers: { skipInterceptorToast: 'true' } }));
+    this.workspaceChecked = true;
+    let res: any;
+    try {
+      res = await firstValueFrom(this.http.get<any>(`${environment.apiUrl}/web/user/me`, { headers: { skipInterceptorToast: 'true' } }));
+    } catch (error) {
+      // Clerk restores the last active organization at sign-in. If the server refuses it (removed from
+      // it, organization deleted / suspended), continue in the personal workspace instead of being
+      // locked out of the app. The server still refuses the organization itself.
+      if (!this.clerk.activeOrganizationId) throw error;
+      await this.clerk.setActiveOrganization(null);
+      res = await firstValueFrom(this.http.get<any>(`${environment.apiUrl}/web/user/me`, { headers: { skipInterceptorToast: 'true' } }));
+      this.workspaceFallback = true;
+    }
     if (!res?.data?._id) {
       throw new Error('Could not load your account');
     }
@@ -59,11 +77,44 @@ export class AuthService {
     localStorage.setItem(USER_CLERK_KEY, this.clerk.userId || '');
   }
 
+  private workspaceChecked = false;
+
+  /**
+   * With a cached app user the request above is skipped, so an organization the server no longer
+   * accepts (removed, deleted) would stay selected after a reload. Ask once per app load.
+   */
+  private async checkWorkspaceOnce(): Promise<void> {
+    if (this.workspaceChecked || !this.clerk.activeOrganizationId) {
+      this.workspaceChecked = true;
+      return;
+    }
+    this.workspaceChecked = true;
+    try {
+      await firstValueFrom(this.http.get(`${environment.apiUrl}/v1/workspace`, { context: new HttpContext().set(RAW_ERRORS, true) }));
+    } catch (error: any) {
+      // Only a refusal of the organization; network or server errors are left to the pages
+      if (error?.status === 403 || error?.status === 404) {
+        await this.clerk.setActiveOrganization(null);
+        this.workspaceFallback = true;
+      }
+    }
+  }
+
+  /**
+   * Sign out of this account. When another account is still signed in on this browser, the app
+   * restarts as that account (full reload: nothing of this account stays in memory).
+   */
   async logout(navigate = true): Promise<void> {
     clearStoredSession();
-    await this.clerk.signOut();
+    const continued = await this.clerk.signOut();
+    if (continued) {
+      window.location.assign(portalHome());
+      return;
+    }
+    // The next person on this browser chooses their portal again on the landing page
+    clearPortal();
     if (navigate) {
-      this.router.navigate(['/auth/login']);
+      this.router.navigate(['/']);
     }
   }
 

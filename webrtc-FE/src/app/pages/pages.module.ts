@@ -2,6 +2,7 @@ import { NgModule } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PageRoutingModule } from './pages-routing.module';
 import { ChatComponent } from './chat/chat.component';
+import { NewChatDialogComponent } from './chat/new-chat-dialog.component';
 import { GroupCallComponent } from './group-call/group-call.component';
 import { NgbModule } from '@ng-bootstrap/ng-bootstrap';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
@@ -42,10 +43,25 @@ import { MeetingEditorComponent } from './shell/meeting-editor.component';
 import { MeetJoinComponent } from './shell/meet-join.component';
 import { RecordingPageComponent } from './shell/recording-page.component';
 import { ProfilePageComponent, SectionPlaceholderComponent, SettingsPageComponent } from './shell/section-pages.component';
+import { WorkspaceListComponent } from './shell/workspace-list.component';
+import { CreateOrganizationComponent } from './organizations/create-organization.component';
+import { DeveloperAppsComponent } from './developer/developer-apps.component';
+import { DeveloperAppComponent } from './developer/developer-app.component';
+import { DeveloperDocsComponent } from './developer/developer-docs.component';
+import { ConsentComponent } from './developer/consent.component';
+import { DeveloperShellComponent } from './developer/developer-shell.component';
+import { JoinOrganizationComponent } from './organizations/join-organization.component';
+import { InvitationAcceptComponent } from './organizations/invitation-accept.component';
+import { OrganizationHomeComponent } from './organizations/organization-home.component';
+import { OrganizationSettingsComponent } from './organizations/organization-settings.component';
+import { TeamPageComponent } from './organizations/team-page.component';
+import { CreateChannelDialogComponent, CreateTeamDialogComponent } from './organizations/team-dialogs.component';
+import { PersonPickerComponent } from './shared/person-picker.component';
 
 @NgModule({
   declarations: [
     ChatComponent,
+    NewChatDialogComponent,
     GroupCallComponent,
     CallTileComponent,
     CallPrejoinComponent,
@@ -80,6 +96,21 @@ import { ProfilePageComponent, SectionPlaceholderComponent, SettingsPageComponen
     SectionPlaceholderComponent,
     ProfilePageComponent,
     SettingsPageComponent,
+    WorkspaceListComponent,
+    CreateOrganizationComponent,
+    DeveloperAppsComponent,
+    DeveloperAppComponent,
+    DeveloperDocsComponent,
+    ConsentComponent,
+    DeveloperShellComponent,
+    JoinOrganizationComponent,
+    InvitationAcceptComponent,
+    OrganizationHomeComponent,
+    OrganizationSettingsComponent,
+    TeamPageComponent,
+    CreateTeamDialogComponent,
+    CreateChannelDialogComponent,
+    PersonPickerComponent,
   ],
   imports: [
     SharedModule,

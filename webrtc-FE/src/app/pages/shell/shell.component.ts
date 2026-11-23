@@ -11,6 +11,13 @@ import { ShellUiService } from 'src/app/core/services/shell-ui.service';
 import { ChosenStatus, PresenceKey, STATUS_OPTIONS } from 'src/app/core/utils/presence.util';
 import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
+import { ClerkService, SignedInAccount } from 'src/app/core/services/clerk.service';
+import { OrganizationService } from 'src/app/core/services/organization.service';
+import { NgbDropdown } from '@ng-bootstrap/ng-bootstrap';
+import { WorkspaceSyncService, takeNotice } from 'src/app/core/services/workspace-sync.service';
+import { E2eeService } from 'src/app/core/crypto/e2ee.service';
+import { WorkspaceListComponent } from './workspace-list.component';
+import { setPortal } from 'src/app/core/services/portal';
 
 export interface NavItem {
   path: string;
@@ -39,14 +46,31 @@ export class ShellComponent implements OnInit, OnDestroy {
     { path: '/calendar', label: 'Calendar', icon: 'ti-calendar', shortcut: '4' },
     { path: '/files', label: 'Files', icon: 'ti-folder', shortcut: '5' },
   ];
-  /** Not in the sidebar (account menu / Settings button) but still reachable with Alt+6 / Alt+7. */
+  /**
+   * Not in the sidebar but still reachable with Alt+6 / Alt+7 / Alt+8: Profile and Settings (account menu /
+   * Settings button) and, in an organization, the Teams page (teams and channels are in the chat list).
+   */
   readonly secondaryNav: NavItem[] = [
     { path: '/profile', label: 'Profile', icon: 'ti-user', shortcut: '6' },
     { path: '/settings', label: 'Settings', icon: 'ti-settings', shortcut: '7' },
+    // Organization workspaces only (switching workspace reloads the app, so this is decided once)
+    ...(this.clerk.activeOrganizationId ? [{ path: '/organization', label: 'Teams', icon: 'ti-users-group', shortcut: '8' }] : []),
   ];
 
   readonly statusOptions = STATUS_OPTIONS;
+  readonly statusPresets = ['In a meeting', 'Commuting', 'Focusing', 'Out sick', 'On vacation', 'Working remotely'];
+  /** Account menu: statuses are listed only after "Set status" is clicked */
+  statusExpanded = false;
+  /** Account menu: organization actions (create / join / settings) shown after "Manage" */
+  manageExpanded = false;
+  /** Pending organization invitations for me (badge on "Join organization") */
+  invitationCount = 0;
+  /** Other accounts signed in on this browser (Clerk multi-session) */
+  otherAccounts: SignedInAccount[] = [];
+  /** Session being switched to */
+  switchingAccount: string | null = null;
   @ViewChild('statusMessageTpl', { static: true }) statusMessageTpl!: TemplateRef<unknown>;
+  @ViewChild('workspaces') workspaces?: WorkspaceListComponent;
   statusDraft = '';
   savingStatus = false;
   private statusModal: NgbModalRef | null = null;
@@ -68,10 +92,32 @@ export class ShellComponent implements OnInit, OnDestroy {
     private alert: AlertService,
     private router: Router,
     private cdr: ChangeDetectorRef,
+    private clerk: ClerkService,
+    private sync: WorkspaceSyncService,
+    private e2ee: E2eeService,
+    private orgs: OrganizationService,
   ) {}
 
   ngOnInit(): void {
     this.me = this.auth.getLoggedInUser();
+    if (this.auth.workspaceFallback) {
+      this.auth.workspaceFallback = false;
+      this.alert.info("You no longer have access to that organization, so you're in your personal workspace.");
+    }
+    // Left a workspace with a full reload (removed, deleted, switched in another tab): say why, once
+    const notice = takeNotice();
+    if (notice) this.alert.info(notice);
+    this.sync.start();
+    // End-to-end encryption: this browser's device keys, then device messages (room keys) as they arrive
+    if (this.me?._id) {
+      this.e2ee.start(String(this.me._id)).catch(() => {
+        this.alert.error(this.e2ee.statusMessage || "Encryption couldn't start on this device, so messages can't be sent or read here.");
+      });
+    }
+    for (const event of ['e2ee:to-device', 'e2ee:devices-changed']) {
+      this.subs.add(this.socket.onEvent(event).subscribe(() => void this.e2ee.sync()));
+    }
+    this.subs.add(this.socket.onConnect().subscribe(() => void this.e2ee.sync()));
     this.calls.start();
     this.notifications.start();
     this.presence.start();
@@ -106,9 +152,23 @@ export class ShellComponent implements OnInit, OnDestroy {
     this.calls.stop();
     this.notifications.stop();
     this.presence.stop();
+    this.e2ee.stop();
     this.socket.disconnectSocket();
     await this.auth.logout();
     this.alert.success('Signed out.');
+  }
+
+  /**
+   * Switch this browser to the Developer Portal. Full reload so the socket, call, presence and
+   * encryption state of the personal app don't stay running behind it.
+   */
+  openDeveloperPortal(): void {
+    if (this.calls.activeCall) {
+      this.alert.info('Leave the call before opening the Developer Portal.');
+      return;
+    }
+    setPortal('developer');
+    window.location.assign('/developer');
   }
 
   /** My dot: what others see (Away when idle is decided by the server, so show the chosen status). */
@@ -118,6 +178,47 @@ export class ShellComponent implements OnInit, OnDestroy {
 
   get myStatusLabel(): string {
     return STATUS_OPTIONS.find((o) => o.value === this.presence.mine.status)?.label || 'Available';
+  }
+
+  onAccountMenu(open: boolean): void {
+    if (open) {
+      this.workspaces?.refresh();
+      this.otherAccounts = this.clerk.accounts().filter((a) => !a.current);
+      void this.orgs.myInvitations().then((list) => {
+        this.invitationCount = list.length;
+        this.cdr.markForCheck();
+      }, () => undefined);
+    } else {
+      this.statusExpanded = false;
+      this.manageExpanded = false;
+    }
+  }
+
+  trackAccount = (_: number, a: SignedInAccount) => a.sessionId;
+
+  /** Another account signed in on this browser: the app restarts as that account. */
+  async switchAccount(account: SignedInAccount): Promise<void> {
+    if (this.switchingAccount) return;
+    this.switchingAccount = account.sessionId;
+    this.cdr.markForCheck();
+    try {
+      await this.clerk.switchAccount(account.sessionId);
+      this.sync.restartForAccount(`You're now using ${account.name}.`);
+    } catch {
+      this.switchingAccount = null;
+      this.alert.error("We couldn't switch to that account. Please sign in to it again.");
+      this.cdr.markForCheck();
+    }
+  }
+
+  /** Sign in to one more account (Clerk's screen). When it completes the app restarts as that account. */
+  addAccount(menu: NgbDropdown): void {
+    menu.close();
+    if (!this.clerk.multiAccountEnabled) {
+      this.alert.info("Signing in to more than one account isn't enabled for SpreeWe yet. Ask your administrator to turn it on.");
+      return;
+    }
+    this.clerk.addAccount();
   }
 
   async chooseStatus(status: ChosenStatus): Promise<void> {

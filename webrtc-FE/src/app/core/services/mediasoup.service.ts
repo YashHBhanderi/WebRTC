@@ -148,8 +148,7 @@ export class MediasoupService {
       this.listenForNewProducers();
     }
 
-    await this.createSendTransport();
-    await this.createRecvTransport();
+    // Transports are created in joinCall, after the server admits us (SEC-005: none before admission / in the lobby)
 
     if (typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.onVisibilityChange);
@@ -803,13 +802,21 @@ export class MediasoupService {
       this.socketService.emitWithAck(
         'mediasoup:joinCall',
         { callId, callType },
-        (response: JoinCallResponse & { error?: string }) => {
+        async (response: JoinCallResponse & { error?: string }) => {
           if (response?.error) {
             reject(new Error(response.error));
             return;
           }
           if (response?.lobby) {
             resolve(response);
+            return;
+          }
+          try {
+            // Admitted: only now may the server allocate transports (it answers NOT_JOINED before this)
+            await this.createSendTransport();
+            await this.createRecvTransport();
+          } catch (error) {
+            reject(error);
             return;
           }
           this.startProducerSyncLoop(callId);

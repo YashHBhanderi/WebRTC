@@ -69,7 +69,13 @@ export interface CaptureHandle {
     stop: () => Promise<void>;
 }
 
-function ffmpegArgs(kind: mediasoup.types.MediaKind, sdpPath: string, file: string): string[] {
+/**
+ * Write each packet through and close a Matroska cluster every second. Without this a crash lost the
+ * whole audio track (0 bytes) and the last seconds of video; with it about 1 s at most (measured).
+ */
+export const CRASH_SAFE = ["-flush_packets", "1", "-cluster_time_limit", "1000"];
+
+export function ffmpegArgs(kind: mediasoup.types.MediaKind, sdpPath: string, file: string): string[] {
     const input = [
         "-hide_banner", "-loglevel", "error", "-nostats",
         "-protocol_whitelist", "file,udp,rtp",
@@ -84,10 +90,11 @@ function ffmpegArgs(kind: mediasoup.types.MediaKind, sdpPath: string, file: stri
             "-af", "aresample=async=1:min_hard_comp=0.100000:first_pts=0",
             "-ac", "1", "-ar", "48000",
             "-c:a", "aac", "-b:a", "96k",
+            ...CRASH_SAFE,
             "-y", file,
         ];
     }
-    return [...input, "-map", "0:v:0", "-c", "copy", "-y", file];
+    return [...input, "-map", "0:v:0", "-c", "copy", ...CRASH_SAFE, "-y", file];
 }
 
 export async function captureProducer(

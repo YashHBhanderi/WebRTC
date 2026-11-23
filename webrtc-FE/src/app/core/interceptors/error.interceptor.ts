@@ -15,6 +15,11 @@ let sessionEndedAt = 0;
  * interceptor doesn't also raise a toast: `{ context: new HttpContext().set(SKIP_ERROR_TOAST, true) }`.
  */
 export const SKIP_ERROR_TOAST = new HttpContextToken<boolean>(() => false);
+/**
+ * Set on requests whose caller needs the HTTP status (e.g. "refused" vs "offline"): failures other than
+ * 401 are rethrown as the original HttpErrorResponse, with no toast.
+ */
+export const RAW_ERRORS = new HttpContextToken<boolean>(() => false);
 /** Marks the one retry after a 401, so a second 401 really ends the session. */
 const RETRIED_AFTER_401 = new HttpContextToken<boolean>(() => false);
 
@@ -30,6 +35,10 @@ export class ErrorInterceptor implements HttpInterceptor {
   intercept(req: HttpRequest<any>, next: HttpHandler): Observable<HttpEvent<any>> {
     return next.handle(req).pipe(
       catchError((error: HttpErrorResponse) => {
+        // Not an expired session: the tab is reloading into the session's current workspace
+        if (this.clerk.workspaceMismatch) {
+          return throwError(() => 'Your workspace changed. Reloading…');
+        }
         if (error.status === 401) {
           // A cached token can be expired by the server's clock (e.g. this device's clock is off):
           // retry once with a freshly issued token before signing out
@@ -37,7 +46,7 @@ export class ErrorInterceptor implements HttpInterceptor {
             return from(this.clerk.getToken({ skipCache: true })).pipe(
               switchMap((token) => {
                 if (!token) {
-                  return this.endSession(error);
+                  return this.clerk.workspaceMismatch ? throwError(() => 'Your workspace changed. Reloading…') : this.endSession(error);
                 }
                 const retry = req.clone({ setHeaders: { Authorization: `Bearer ${token}` }, context: req.context.set(RETRIED_AFTER_401, true) });
                 return next.handle(retry).pipe(
@@ -47,6 +56,9 @@ export class ErrorInterceptor implements HttpInterceptor {
             );
           }
           return this.endSession(error);
+        }
+        if (req.context.get(RAW_ERRORS)) {
+          return throwError(() => error);
         }
         const normalized = normalizeError(error);
         if (!req.context.get(SKIP_ERROR_TOAST)) {
@@ -67,7 +79,8 @@ export class ErrorInterceptor implements HttpInterceptor {
     const message = 'Your session has expired. Please sign in again.';
     clearStoredSession();
     // Clerk too, or the sign-in page would send a still-signed-in user straight back to /chat
-    void this.clerk.signOut();
+    // Another account still signed in on this browser: restart as that account (nothing of this one stays)
+    void this.clerk.signOut().then((continued) => { if (continued) window.location.assign('/chat'); });
     if (Date.now() - sessionEndedAt > 3000 && !this.router.url.startsWith('/auth')) {
       sessionEndedAt = Date.now();
       this.alertService.error(message);

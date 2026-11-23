@@ -1,10 +1,12 @@
+import { assertExternalAllowed } from "../tenancy/tenant.service";
 import { Request, Response } from "express";
 import CustomRequest from "../types/customRequest";
 import blockService from "../services/block.service";
 import { directPeerId, getConversationForMember, getGroupForAdmin } from "../services/authorization.service";
-import { signedMediaUrl, storeUpload, UploadTarget } from "../services/file.service";
+import { storeEncryptedUpload, storeUpload, UploadTarget } from "../services/file.service";
 import { discardTempFile } from "../utils/multer";
 import { AppError, ForbiddenError, publicMessage } from "../utils/errors";
+import { safeError } from "../utils/safe-log";
 
 /**
  * POST /upload (multipart: file, purpose, conversationId | groupId). Requires a logged-in user.
@@ -25,7 +27,12 @@ export default async function uploadFile(req: Request, res: Response) {
             if (peerId && (await blockService.isBlockedEitherWay(userId, peerId))) {
                 throw new ForbiddenError("You can't send files in this chat");
             }
-            target = { purpose, conversationId: String(conversation._id) };
+            await assertExternalAllowed(conversation._id, "file");
+            // Mandatory end-to-end encryption: chat attachments arrive as ciphertext only
+            if (req.body?.encrypted !== "1") throw new AppError("Attachments must be end-to-end encrypted", 400);
+            const { stored, kind } = await storeEncryptedUpload(req.file, String(conversation._id), req.body?.kind, userId);
+            res.status(200).json({ storageKey: stored.storageKey, type: kind, size: stored.size, encrypted: true });
+            return;
         } else if (purpose === "group-avatar") {
             const group = await getGroupForAdmin(req.body?.groupId, userId);
             target = { purpose, groupId: String(group._id) };
@@ -34,7 +41,8 @@ export default async function uploadFile(req: Request, res: Response) {
         }
 
         const { stored, kind } = await storeUpload(req.file, target, userId);
-        const url = target.purpose === "message" ? await signedMediaUrl(stored.storageKey) : stored.storageKey;
+        // Group photo (public object): the client prefixes its storage base URL
+        const url = stored.storageKey;
         res.status(200).json({
             storageKey: stored.storageKey,
             fileUrl: url,
@@ -47,7 +55,7 @@ export default async function uploadFile(req: Request, res: Response) {
     } catch (error) {
         await discardTempFile(req.file);
         if (!(error instanceof AppError)) {
-            console.error("Upload failed:", error);
+            console.error("Upload failed:", safeError(error));
         }
         res.status(error instanceof AppError ? error.status : 500).json({ status: false, data: null, message: publicMessage(error, "Upload failed") });
     }

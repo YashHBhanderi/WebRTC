@@ -20,30 +20,70 @@
     </a>
     <span class="topbar__divider" aria-hidden="true"></span>
 
-    <div ngbDropdown placement="bottom-end" class="d-inline-block">
+    <div ngbDropdown #accountMenu="ngbDropdown" placement="bottom-end" autoClose="outside" class="d-inline-block"
+         (openChange)="onAccountMenu($event)">
       <button type="button" class="topbar__me" ngbDropdownToggle aria-label="Account menu" [title]="(me?.username || '') + ' (' + myStatusLabel + ')'">
         <app-avatar [src]="me?.avatar" [name]="me?.username || ''" [size]="28" [presence]="myPresenceKey"></app-avatar>
       </button>
-      <div ngbDropdownMenu class="app-menu">
-        <div class="menu-user">
-          <div class="menu-user__name">{{ me?.username }}</div>
-          <div class="menu-user__status">{{ myStatusLabel }}<span *ngIf="presence.mine.statusMessage"> · {{ presence.mine.statusMessage }}</span></div>
+      <div ngbDropdownMenu class="app-menu me-menu">
+        <div class="me-menu__head">
+          <app-avatar [src]="me?.avatar" [name]="me?.username || ''" [size]="40" [presence]="myPresenceKey"></app-avatar>
+          <div class="me-menu__who">
+            <div class="me-menu__name">{{ me?.username }}</div>
+            <div class="me-menu__status">{{ myStatusLabel }}<span *ngIf="presence.mine.statusMessage"> · {{ presence.mine.statusMessage }}</span></div>
+          </div>
         </div>
-        <div class="dropdown-divider"></div>
-        <button ngbDropdownItem type="button" *ngFor="let opt of statusOptions" (click)="chooseStatus(opt.value)"
-                [attr.aria-pressed]="presence.mine.status === opt.value">
-          <span class="status-dot status-dot--{{ opt.key }}" aria-hidden="true"></span>{{ opt.label }}
-          <i class="ti ti-check ms-auto" *ngIf="presence.mine.status === opt.value" aria-hidden="true"></i>
+
+        <!-- A. Status: collapsed until asked for -->
+        <button ngbDropdownItem type="button" (click)="statusExpanded = !statusExpanded" [attr.aria-expanded]="statusExpanded" aria-controls="me-status-list" [attr.aria-label]="'Status: ' + myStatusLabel + '. Change status'">
+          <span class="m-1 status-dot status-dot--{{ myPresenceKey }}" aria-hidden="true"></span>{{ myStatusLabel }}
         </button>
-        <button ngbDropdownItem type="button" (click)="openStatusMessage()">
-          <i class="ti ti-message" aria-hidden="true"></i>{{ presence.mine.statusMessage ? 'Edit status message' : 'Set status message' }}
+        <div class="me-menu__statuses" id="me-status-list" *ngIf="statusExpanded" role="group" aria-label="Status">
+          <button ngbDropdownItem type="button" *ngFor="let opt of statusOptions" (click)="chooseStatus(opt.value)"
+                  [attr.aria-pressed]="presence.mine.status === opt.value">
+            <span class="status-dot status-dot--{{ opt.key }}" aria-hidden="true"></span>{{ opt.label }}
+            <i class="ti ti-check ms-auto me-menu__check" *ngIf="presence.mine.status === opt.value" aria-label="Current status"></i>
+          </button>
+        </div>
+        <!-- B. Status message -->
+        <button ngbDropdownItem type="button" (click)="accountMenu.close(); openStatusMessage()">
+          <i class="ti ti-message-circle-2" aria-hidden="true"></i>{{ presence.mine.statusMessage ? 'Edit status message' : 'Set status message' }}
         </button>
+
         <div class="dropdown-divider"></div>
-        <a ngbDropdownItem routerLink="/profile"><i class="ti ti-user" aria-hidden="true"></i>Profile</a>
-        <a ngbDropdownItem routerLink="/saved"><i class="ti ti-bookmark" aria-hidden="true"></i>Saved messages</a>
-        <a ngbDropdownItem routerLink="/settings"><i class="ti ti-settings" aria-hidden="true"></i>Settings</a>
+        <!-- C. Profile actions -->
+        <a ngbDropdownItem routerLink="/profile" (click)="accountMenu.close()"><i class="ti ti-user" aria-hidden="true"></i>Profile</a>
+        <a ngbDropdownItem routerLink="/settings" (click)="accountMenu.close()"><i class="ti ti-settings" aria-hidden="true"></i>Settings</a>
+        <button ngbDropdownItem type="button" (click)="accountMenu.close(); openDeveloperPortal()"><i class="ti ti-code" aria-hidden="true"></i>Developer portal</button>
+
         <div class="dropdown-divider"></div>
-        <button ngbDropdownItem type="button" class="text-danger" (click)="signOut()">
+        <!-- D. Account & organization: switch scope, manage organizations, accounts on this browser -->
+        <div class="me-menu__heading">
+          <span>Account &amp; organization</span>
+          <button type="button" class="me-menu__manage" (click)="manageExpanded = !manageExpanded"
+                  [attr.aria-expanded]="manageExpanded" aria-controls="me-manage-list">Manage</button>
+        </div>
+        <div class="me-menu__sub" id="me-manage-list" *ngIf="manageExpanded" role="group" aria-label="Manage organizations">
+          <a ngbDropdownItem routerLink="/organizations/new" (click)="accountMenu.close()"><i class="ti ti-building-plus" aria-hidden="true"></i>Create organization</a>
+          <a ngbDropdownItem routerLink="/organizations/join" (click)="accountMenu.close()"><i class="ti ti-door-enter" aria-hidden="true"></i>Join organization
+            <span class="me-menu__badge" *ngIf="invitationCount" [attr.aria-label]="invitationCount + ' pending invitations'">{{ invitationCount }}</span></a>
+        </div>
+        <app-workspace-list #workspaces></app-workspace-list>
+
+        <div class="me-menu__accounts" *ngIf="otherAccounts.length" role="group" aria-label="Other accounts on this browser">
+          <button ngbDropdownItem type="button" *ngFor="let a of otherAccounts; trackBy: trackAccount" (click)="switchAccount(a)" [disabled]="!!switchingAccount">
+            <app-avatar [src]="a.avatar" [name]="a.name" [size]="28"></app-avatar>
+            <span class="me-menu__account"><span class="me-menu__account-name">{{ a.name }}</span><span class="me-menu__account-mail">{{ a.email }}</span></span>
+            <span class="spinner-border spinner-border-sm ms-auto" *ngIf="switchingAccount === a.sessionId" aria-hidden="true"></span>
+          </button>
+        </div>
+        <button ngbDropdownItem type="button" (click)="addAccount(accountMenu)" [disabled]="!!switchingAccount">
+          <i class="m-1 ti ti-user-plus" aria-hidden="true"></i>Add another account
+        </button>
+
+        <div class="dropdown-divider"></div>
+        <!-- E. Sign out -->
+        <button ngbDropdownItem type="button" class="text-danger" (click)="accountMenu.close(); signOut()">
           <i class="ti ti-logout" aria-hidden="true"></i>Sign out
         </button>
       </div>
@@ -97,21 +137,42 @@
 ></app-group-call>
 
 <ng-template #statusMessageTpl let-modal>
-  <div class="modal-header">
-    <h2 class="modal-title h5" id="status-message-title">Status message</h2>
-    <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
+  <div class="status-modal">
+    <div class="modal-header">
+      <div class="status-modal__title">
+        <span class="status-modal__icon" aria-hidden="true"><i class="ti ti-message-circle-2"></i></span>
+        <div>
+          <h2 class="modal-title h5 mb-0" id="status-message-title">Status message</h2>
+          <div class="status-modal__sub">Shown next to your name in chats and search.</div>
+        </div>
+      </div>
+      <button type="button" class="btn-close" aria-label="Close" (click)="modal.dismiss()"></button>
+    </div>
+    <form (ngSubmit)="saveStatusMessage()">
+      <div class="modal-body">
+        <label for="status-message" class="visually-hidden">Status message</label>
+        <div class="status-modal__field">
+          <app-avatar [src]="me?.avatar" [name]="me?.username || ''" [size]="32" [presence]="myPresenceKey"></app-avatar>
+          <input id="status-message" class="status-modal__input" name="statusMessage" maxlength="140" [(ngModel)]="statusDraft"
+                 placeholder="What's your status?" autocomplete="off" ngbAutofocus aria-describedby="status-message-count" />
+          <button type="button" class="status-modal__clear" *ngIf="statusDraft" (click)="statusDraft = ''" aria-label="Clear text">
+            <i class="ti ti-x" aria-hidden="true"></i>
+          </button>
+        </div>
+        <div class="status-modal__count" id="status-message-count">{{ statusDraft.length }}/140</div>
+        <div class="status-modal__presets" role="group" aria-label="Suggestions">
+          <button type="button" class="status-modal__chip" *ngFor="let p of statusPresets" (click)="statusDraft = p">{{ p }}</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light me-auto" *ngIf="presence.mine.statusMessage" (click)="saveStatusMessage(true)" [disabled]="savingStatus">
+          <i class="ti ti-trash" aria-hidden="true"></i> Clear status
+        </button>
+        <button type="button" class="btn btn-light" (click)="modal.dismiss()">Cancel</button>
+        <button type="submit" class="btn btn-primary" [disabled]="savingStatus || statusDraft.trim() === presence.mine.statusMessage">
+          <span class="spinner-border spinner-border-sm me-1" *ngIf="savingStatus" aria-hidden="true"></span>Save
+        </button>
+      </div>
+    </form>
   </div>
-  <form (ngSubmit)="saveStatusMessage()">
-    <div class="modal-body">
-      <label for="status-message" class="form-label">What do you want people to know?</label>
-      <input id="status-message" class="form-control" name="statusMessage" maxlength="140" [(ngModel)]="statusDraft"
-             placeholder="e.g. In a workshop until 3pm" autocomplete="off" ngbAutofocus />
-      <div class="form-text">{{ statusDraft.length }}/140 · Shown next to your name in chats and search.</div>
-    </div>
-    <div class="modal-footer">
-      <button type="button" class="btn btn-light me-auto" *ngIf="presence.mine.statusMessage" (click)="saveStatusMessage(true)" [disabled]="savingStatus">Clear</button>
-      <button type="button" class="btn btn-light" (click)="modal.dismiss()">Cancel</button>
-      <button type="submit" class="btn btn-primary" [disabled]="savingStatus">Save</button>
-    </div>
-  </form>
 </ng-template>

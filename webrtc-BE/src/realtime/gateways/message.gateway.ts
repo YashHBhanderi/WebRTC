@@ -1,3 +1,4 @@
+import { assertExternalAllowed } from "../../tenancy/tenant.service";
 import mongoose from "mongoose";
 import Message from "../../models/messageModel";
 import Conversation from "../../models/conversationModel";
@@ -9,11 +10,13 @@ import { attachMessageFile, messageMedia } from "../../services/file.service";
 import { IStoredFile } from "../../models/storedFile.schema";
 import notificationService from "../../services/notification.service";
 import receiptsService from "../../services/receipts.service";
-import messageActions, { MAX_MESSAGE_LENGTH, validateMessageText, validMentions } from "../../services/message-actions.service";
+import messageActions, { MAX_MESSAGE_LENGTH, validMentions } from "../../services/message-actions.service";
 import { broadcastMessage } from "../../services/call-session.service";
 import { PUBLIC_USER_FIELDS } from "../../utils/validation";
 import { publicMessage } from "../../utils/errors";
 import { AuthedSocket, emitToUsers, io } from "../io";
+import { safeError } from "../../utils/safe-log";
+import { EncryptedPayload, validateEncryptedPayload } from "../../e2ee/payload";
 
 interface SendMessagePayload {
     user: IUser;
@@ -29,6 +32,8 @@ interface SendMessagePayload {
     forwardOf?: string;
     /** User ids @mentioned in the text (must be members). */
     mentions?: string[];
+    /** End-to-end encrypted content (required for text and media; see e2ee/payload.ts) */
+    e2ee?: unknown;
 }
 
 type Ack = ((response: { success?: boolean; error?: string; [key: string]: unknown }) => void) | undefined;
@@ -48,33 +53,13 @@ interface MessageBody {
 
 /**
  * What gets stored for a send. Attachments must be files this user uploaded into this
- * conversation's folder; forwards are copied server-side from a message the user can see.
+ * conversation's folder. Forwarding is done by clients (the server can't read encrypted messages).
  */
 async function resolveBody(data: SendMessagePayload, conversationId: string, userId: string): Promise<MessageBody | null> {
     if (data.forwardOf) {
-        if (!mongoose.isValidObjectId(data.forwardOf)) {
-            return null;
-        }
-        const source = await Message.findOne({ _id: data.forwardOf, isDeleted: { $ne: true } }).lean();
-        if (!source || source.type === "system" || !source.conversationId) {
-            return null;
-        }
-        const origin = await Conversation.findOne({ _id: source.conversationId, members: userId }).select("isGroup groupName").lean();
-        if (!origin) {
-            return null;
-        }
-        // A forward of a forward keeps naming where it first came from
-        const forwardedFrom = source.forwardedFrom
-            || (origin.isGroup ? origin.groupName : (await User.findById(source.userId).select("username").lean())?.username)
-            || "";
-        return {
-            type: source.type,
-            content: source.content,
-            file: source.file || undefined,
-            fileUrl: source.fileUrl || "",
-            thumbnailUrl: source.thumbnailUrl || "",
-            forwardedFrom: forwardedFrom.slice(0, 120),
-        };
+        // End-to-end encryption: the server can't read the source message, so it can't copy it.
+        // Clients forward by decrypting and sending a new encrypted message.
+        return null;
     }
     const content = typeof data.content === "string" ? data.content : "";
     if (MEDIA_TYPES.has(data.type)) {
@@ -109,6 +94,16 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 console.warn(`sendMessage rejected: ${me()} is not a member of ${messageData.conversationId}`);
                 return;
             }
+            // External conversations follow the owning workspace's policy (chat, and files separately)
+            try {
+                await assertExternalAllowed(conversation._id, "chat");
+                if (messageData.type && messageData.type !== "text") {
+                    await assertExternalAllowed(conversation._id, "file");
+                }
+            } catch (error) {
+                socket.emit("message:rejected", { conversationId: String(conversation._id), reason: "policy", message: publicMessage(error) });
+                return;
+            }
             // Blocked either way → nothing is delivered (1:1 only)
             const peerId = directPeerId(conversation, me());
             if (peerId && (await blockService.isBlockedEitherWay(me(), peerId))) {
@@ -128,13 +123,17 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 return;
             }
 
-            if (body.type === "text") {
+            // Mandatory end-to-end encryption: text and media carry ciphertext only, never plaintext.
+            // No fallback: an unencrypted send is refused, not stored in the clear.
+            let e2ee: EncryptedPayload | undefined;
+            if (body.type === "text" || MEDIA_TYPES.has(body.type)) {
                 try {
-                    body.content = validateMessageText(body.content);
+                    e2ee = validateEncryptedPayload(messageData.e2ee);
                 } catch (error) {
-                    socket.emit("message:rejected", { conversationId: String(conversation._id), reason: "invalid", message: publicMessage(error, "Message not sent") });
+                    socket.emit("message:rejected", { conversationId: String(conversation._id), reason: "unencrypted", message: publicMessage(error, "Messages must be end-to-end encrypted") });
                     return;
                 }
+                body.content = "";
             } else if (body.content.length > MAX_MESSAGE_LENGTH) {
                 body.content = body.content.slice(0, MAX_MESSAGE_LENGTH);
             }
@@ -150,6 +149,7 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 userId: me(),
                 conversationId: conversation._id,
                 content: body.content,
+                e2ee,
                 file: body.file,
                 fileUrl: body.fileUrl,
                 thumbnailUrl: body.thumbnailUrl,
@@ -161,7 +161,7 @@ export function registerMessageGateway(socket: AuthedSocket): void {
             });
             await newMessage.save();
 
-            const populatedMessage = await Message.findById(newMessage._id).populate({ path: "replyTo", select: "content type userId" });
+            const populatedMessage = await Message.findById(newMessage._id).populate({ path: "replyTo", select: "content type userId e2ee" });
             const conversationId = String(conversation._id);
             // Author details from the database — never the name/avatar the client sent
             const author = await User.findById(me()).select(PUBLIC_USER_FIELDS).lean();
@@ -175,7 +175,8 @@ export function registerMessageGateway(socket: AuthedSocket): void {
             broadcastMessage(conversationId, conversation.members, payload);
 
             // Mentions and replies → Activity (a mentioned author of the quoted message gets one entry)
-            const preview = body.type === "text" ? body.content : `Sent ${body.type === "pdf" ? "a document" : `a ${body.type}`}`;
+            // The server can't read encrypted messages: activity entries never carry their text
+            const preview = e2ee ? "New message" : body.type === "text" ? body.content : `Sent ${body.type === "pdf" ? "a document" : `a ${body.type}`}`;
             const mentioned = new Set(mentions.map(String));
             const quoted = populatedMessage?.replyTo as any;
             void notificationService.notify([
@@ -192,7 +193,7 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                     : []),
             ]);
         } catch (error) {
-            console.error("Error sending message:", error);
+            console.error("Error sending message:", safeError(error));
         }
     });
 
@@ -229,7 +230,7 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 });
             }
         } catch (error) {
-            console.error("Error adding reaction:", error);
+            console.error("Error adding reaction:", safeError(error));
         }
     });
 
@@ -246,7 +247,7 @@ export function registerMessageGateway(socket: AuthedSocket): void {
             io().to(id).emit("messagesMarkedRead", { conversationId: id, userId: me() });
             void notificationService.markConversationRead(me(), id);
         } catch (error) {
-            console.error("Error marking messages as read:", error);
+            console.error("Error marking messages as read:", safeError(error));
         }
     });
 
@@ -257,18 +258,20 @@ export function registerMessageGateway(socket: AuthedSocket): void {
             const mine = await Conversation.find({ _id: { $in: ids.filter((id) => mongoose.isValidObjectId(id)) }, members: me() }).select("_id").lean();
             await receiptsService.markDelivered(me(), mine.map((c) => String(c._id)));
         } catch (error) {
-            console.error("Error marking messages delivered:", error);
+            console.error("Error marking messages delivered:", safeError(error));
         }
     });
 
-    socket.on("message:edit", async (data: { messageId?: string; content?: string; mentions?: string[] }, ack: Ack) => {
+    socket.on("message:edit", async (data: { messageId?: string; e2ee?: unknown; mentions?: string[] }, ack: Ack) => {
         try {
-            const { message, conversation, addedMentions } = await messageActions.edit(data?.messageId, me(), data?.content, data?.mentions);
+            const { message, conversation, addedMentions } = await messageActions.edit(data?.messageId, me(), data?.e2ee, data?.mentions);
             const conversationId = String(conversation._id);
             emitToUsers(conversation.members, "message:updated", {
                 conversationId,
                 messageId: String(message._id),
-                content: message.content,
+                // Author: recipients check the ciphertext really came from this person's device
+                userId: String(message.userId),
+                e2ee: message.e2ee,
                 editedAt: message.editedAt,
                 mentions: (message.mentions || []).map(String),
             });
@@ -278,7 +281,7 @@ export function registerMessageGateway(socket: AuthedSocket): void {
                 actorId: me(),
                 conversationId,
                 messageId: String(message._id),
-                text: message.content,
+                text: "New message",
             })));
             ack?.({ success: true });
         } catch (error) {

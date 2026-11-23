@@ -1,3 +1,5 @@
+import { publish as publishWebhook } from "../../webhooks/events";
+import { assertExternalAllowed } from "../../tenancy/tenant.service";
 import Conversation from "../../models/conversationModel";
 import callService from "../../services/call.service";
 import callRoom, { CALL_REACTIONS } from "../../services/call-room.service";
@@ -23,6 +25,11 @@ import meetingControls from "../../services/meeting-controls.service";
 import meetingService from "../../services/meeting.service";
 import recordingService from "../../services/recording.service";
 import { publicMessage } from "../../utils/errors";
+import { safeError } from "../../utils/safe-log";
+import mongoose from "mongoose";
+import Call from "../../models/callModel";
+import { RING_TIMEOUT_MS } from "../../services/call-session.service";
+import { conversationScope, visibleIn } from "../../tenancy/scope";
 
 const errorMessage = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback);
 
@@ -56,6 +63,13 @@ export function registerCallGateway(socket: AuthedSocket): void {
                 socket.emit("call:error", { message: "You can't call this contact" });
                 return;
             }
+            // Calls with external people need the owning workspace's policy
+            try {
+                await assertExternalAllowed(group._id, "call");
+            } catch (error) {
+                socket.emit("call:error", { message: publicMessage(error) });
+                return;
+            }
 
             const existing = await callService.getActiveCall(groupId);
             if (existing) {
@@ -87,6 +101,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
             socket.join(call._id.toString());
 
             const payload = { callId: call._id, groupId, callType, mode, initiatedBy: me() };
+            publishWebhook({ type: "call.started", conversationId: String(groupId), data: { callId: String(call._id), conversationId: String(groupId), callType, mode, initiatorId: me(), startedAt: new Date().toISOString() } });
             socket.emit("call:started", payload);
 
             // Meet Now: soft Join state for everyone (no ring popup). Ring: incoming-call screen.
@@ -99,7 +114,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
 
             console.log(`Group call started for ${groupId} by ${me()} (${mode})`);
         } catch (error) {
-            console.error("Error starting call:", error);
+            console.error("Error starting call:", safeError(error));
             socket.emit("call:error", { message: errorMessage(error, "Failed to start call") });
         }
     });
@@ -161,7 +176,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
             }
             callback?.({ success: true });
         } catch (error) {
-            console.error("Error taking over call session:", error);
+            console.error("Error taking over call session:", safeError(error));
             callback?.({ error: errorMessage(error, "Could not move the call to this device") });
         }
     });
@@ -184,7 +199,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
             }
             callback?.({ success: true, callId: call._id });
         } catch (error) {
-            console.error("Error accepting call:", error);
+            console.error("Error accepting call:", safeError(error));
             const message = errorMessage(error, "Failed to accept call");
             socket.emit("call:error", { message });
             callback?.({ error: message });
@@ -204,7 +219,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
                 }
             }
         } catch (error) {
-            console.error("Error rejecting call:", error);
+            console.error("Error rejecting call:", safeError(error));
             socket.emit("call:error", { message: errorMessage(error, "Failed to reject call") });
         }
     });
@@ -223,7 +238,7 @@ export function registerCallGateway(socket: AuthedSocket): void {
             // Meet stays up until the LAST member leaves (DB + live media)
             await endIfEmpty(call, me());
         } catch (error) {
-            console.error("Error leaving call:", error);
+            console.error("Error leaving call:", safeError(error));
             socket.emit("call:error", { message: errorMessage(error, "Failed to leave call") });
         }
     });
@@ -250,15 +265,22 @@ export function registerCallGateway(socket: AuthedSocket): void {
         } catch (error) {
             const message = errorMessage(error, "Failed to end call");
             callback?.({ error: message });
-            console.error("Error ending call:", error);
+            console.error("Error ending call:", safeError(error));
             socket.emit("call:error", { message });
         }
     });
 
     // ---------------------------------------------------------------- screen share lock
-    socket.on("screen:join", ({ callId } = {} as any) => {
-        if (callId) {
-            socket.join(callId.toString());
+    // Joining a call room delivers all of that call's broadcasts: participants only (was unchecked)
+    socket.on("screen:join", async ({ callId } = {} as any, callback?: (r: unknown) => void) => {
+        try {
+            if (!callId || !(await callService.isActiveParticipant(String(callId), me()))) {
+                return callback?.({ error: "Not a participant of this call" });
+            }
+            socket.join(String(callId));
+            callback?.({ success: true });
+        } catch {
+            callback?.({ error: "Not a participant of this call" });
         }
     });
 
@@ -297,9 +319,16 @@ export function registerCallGateway(socket: AuthedSocket): void {
         }
     });
 
-    socket.on("screen:getState", ({ callId } = {} as any, callback) => {
-        const current = callId ? getScreenSharer(callId.toString()) : undefined;
-        callback?.({ sharerUserId: current?.userId || null });
+    socket.on("screen:getState", async ({ callId } = {} as any, callback) => {
+        try {
+            if (!callId || !(await callService.isActiveParticipant(String(callId), me()))) {
+                return callback?.({ sharerUserId: null, error: "Not a participant of this call" });
+            }
+            const current = getScreenSharer(String(callId));
+            callback?.({ sharerUserId: current?.userId || null });
+        } catch {
+            callback?.({ sharerUserId: null, error: "Not a participant of this call" });
+        }
     });
 
     // ---------------------------------------------------------------- in-call state for the meeting UI
@@ -471,4 +500,31 @@ export function registerCallGateway(socket: AuthedSocket): void {
     // ---------------------------------------------------------------- recording (host / co-host; visible to everyone)
     socket.on("call:record-start", (data: any, callback) => ack(callback, () => recordingService.start(data?.callId, me()), "We couldn't start recording. Please try again."));
     socket.on("call:record-stop", (data: any, callback) => ack(callback, () => recordingService.stop(data?.callId, me()), "We couldn't stop recording. Please try again."));
+
+    // A ring that went out while this device was (re)connecting must not be lost: send the calls still
+    // ringing for this user (authoritative list, possibly empty, so the client can also drop a ring that
+    // was cancelled or answered elsewhere meanwhile). Runs in this socket's verified context.
+    void sendPendingRings(socket).catch((error) => console.error("[call] pending rings failed:", safeError(error)));
+}
+
+/** Calls still ringing for the socket's user and visible in its workspace (see the end of registerCallGateway). */
+export async function pendingRings(userId: string, tenantId: string | null): Promise<Record<string, unknown>[]> {
+    const calls = await Call.find({
+        mode: "ring",
+        callStatus: { $in: ["ringing", "active"] },
+        createdAt: { $gt: new Date(Date.now() - RING_TIMEOUT_MS) },
+        participants: { $elemMatch: { userId: new mongoose.Types.ObjectId(userId), status: "ringing" } },
+    }).select("conversationId callType mode initiatedBy createdAt").lean();
+    const out: Record<string, unknown>[] = [];
+    for (const c of calls) {
+        const info = await conversationScope(String(c.conversationId));
+        if (!info || !visibleIn(info, tenantId, userId)) continue;
+        out.push({ callId: c._id, groupId: c.conversationId, callType: c.callType, mode: c.mode, initiatedBy: c.initiatedBy, resent: true });
+    }
+    return out;
+}
+
+async function sendPendingRings(socket: AuthedSocket): Promise<void> {
+    const calls = await pendingRings(String(socket.data.userId), socket.data.ctx?.tenantId ?? null);
+    socket.emit("call:pending-rings", { calls });
 }

@@ -1,9 +1,13 @@
+import { assertCanInclude } from "../tenancy/tenant.service";
+import { runAsSystem, userContext } from "../tenancy/context";
+import User from "../models/userModel";
+import blockService from "./block.service";
 import mongoose, { PipelineStage } from "mongoose";
 import Conversation from "../models/conversationModel";
 import Message from "../models/messageModel";
 import groupService from "./group.service";
 import { getGroupForMember, isGroupAdmin } from "./authorization.service";
-import { AppError, NotFoundError } from "../utils/errors";
+import { AppError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { LEGACY_MISSED_CALL } from "./message.service";
 import { optionalString, requireObjectId, requireObjectIds } from "../utils/validation";
 import { releaseFile, releaseMessageFiles, storeUpload } from "./file.service";
@@ -36,7 +40,7 @@ const userStateLookup = (userId: mongoose.Types.ObjectId): PipelineStage[] => [
             let: { cid: "$_id" },
             pipeline: [
                 { $match: { $expr: { $and: [{ $eq: ["$userId", userId] }, { $eq: ["$conversationId", "$$cid"] }] } } },
-                { $project: { isArchived: 1, clearedAt: 1, lastReadAt: 1 } },
+                { $project: { isArchived: 1, isFavorite: 1, clearedAt: 1, lastReadAt: 1 } },
             ],
             as: "userState",
         },
@@ -73,7 +77,7 @@ const listStages = (userId: mongoose.Types.ObjectId): PipelineStage[] => [
                 { $match: { isDeleted: { $ne: true }, $nor: [{ type: "call", content: LEGACY_MISSED_CALL }], $expr: { $gt: ["$createdAt", "$$cleared"] } } },
                 { $sort: { createdAt: -1 } },
                 { $limit: 1 },
-                { $project: { userId: 1, content: 1, type: 1, createdAt: 1, call: 1 } },
+                { $project: { userId: 1, content: 1, e2ee: 1, type: 1, createdAt: 1, call: 1 } },
             ],
             as: "lastMessage",
         },
@@ -153,6 +157,8 @@ const lastMessageFields = {
     _id: "$lastMessage._id",
     userId: "$lastMessage.userId",
     content: "$lastMessage.content",
+    // End-to-end encrypted previews are decrypted by the client
+    e2ee: "$lastMessage.e2ee",
     type: "$lastMessage.type",
     call: "$lastMessage.call",
     isRead: { $and: [{ $gt: ["$_othersCount", 0] }, { $gte: ["$_readers", "$_othersCount"] }] },
@@ -191,7 +197,11 @@ export default class ConversationService {
                 $project: {
                     _id: 1,
                     unreadCount: 1,
+                    // Workspace scope (additive fields): lets clients label external chats / guests
+                    scope: { $ifNull: ["$scope", "global"] },
+                    externalParticipants: { $ifNull: ["$externalParticipants", []] },
                     isArchived: { $ifNull: ["$userState.isArchived", false] },
+                    isFavorite: { $ifNull: ["$userState.isFavorite", false] },
                     sender: {
                         $arrayElemAt: [{ $filter: { input: "$membersData", as: "member", cond: { $eq: ["$$member._id", objectId] } } }, 0],
                     },
@@ -207,9 +217,24 @@ export default class ConversationService {
     }
 
     public static async createOrGetConversation(userId: string, receiverId: string) {
-        let conversation = await Conversation.findOne({ members: { $all: [userId, receiverId] }, isGroup: false });
+        const receiver = requireObjectId(receiverId, "receiverId");
+        if (receiver === String(userId)) throw new AppError("You can't start a chat with yourself");
+        // In a workspace, only its members (outsiders need an explicit external chat)
+        await assertCanInclude(userContext(), [receiver]);
+        let conversation = await Conversation.findOne({ members: { $all: [userId, receiver] }, isGroup: false });
 
         if (!conversation) {
+            // An existing chat stays reachable (e.g. to unblock); a NEW one needs both sides unblocked
+            if (await blockService.isBlockedEitherWay(String(userId), receiver)) {
+                throw new ForbiddenError("You can't start a chat with this person.");
+            }
+            // Personal context: a NEW chat only with people who can be found (no messaging arbitrary ids)
+            if (!userContext()?.tenantId) {
+                const target = await runAsSystem(() => User.findOne({ _id: receiver, tenantId: null }).select("globalDiscoverable clerkDeletedAt clerkBanned").lean(), "conversation-start");
+                if (!target || target.globalDiscoverable === false || target.clerkDeletedAt || target.clerkBanned) {
+                    throw new NotFoundError("No eligible account found.");
+                }
+            }
             conversation = new Conversation({ members: [userId, receiverId], messages: [], timestamp: new Date() });
             await conversation.save();
         }
@@ -228,6 +253,7 @@ export default class ConversationService {
         if (!memberIds.includes(String(groupAdmin))) {
             memberIds.push(String(groupAdmin));
         }
+        await assertCanInclude(userContext(), memberIds);
         const name = optionalString(groupName, "Group name", 100);
         if (!name || memberIds.length < 3) throw new AppError("A group must have a name and at least 2 members");
         const description = optionalString(groupDescription, "Description", 500) || "";
@@ -264,7 +290,8 @@ export default class ConversationService {
     public static async getUserGroupsConversations(userId: string, archived = false) {
         const userObjectId = new mongoose.Types.ObjectId(userId);
         return Conversation.aggregate([
-            { $match: { members: userObjectId, isGroup: true } },
+            // Team channels are listed under their team, not with chat groups
+            { $match: { members: userObjectId, isGroup: true, teamId: null } },
             ...userStateLookup(userObjectId),
             { $match: archived ? { "userState.isArchived": true } : { "userState.isArchived": { $ne: true } } },
             { $lookup: { from: "users", localField: "members", foreignField: "_id", as: "membersData" } },
@@ -272,6 +299,8 @@ export default class ConversationService {
             {
                 $project: {
                     _id: 1,
+                    scope: { $ifNull: ["$scope", "global"] },
+                    externalParticipants: { $ifNull: ["$externalParticipants", []] },
                     groupName: 1,
                     groupAvatar: 1,
                     groupDescription: 1,
@@ -280,6 +309,7 @@ export default class ConversationService {
                     members: publicUsers("$membersData"),
                     unreadCount: 1,
                     isArchived: { $ifNull: ["$userState.isArchived", false] },
+                    isFavorite: { $ifNull: ["$userState.isFavorite", false] },
                     lastMessage: { $cond: [{ $ne: ["$lastMessage", null] }, lastMessageFields, null] },
                     timestamp: { $ifNull: ["$lastMessage.createdAt", "$createdAt"] },
                 },

@@ -12,6 +12,10 @@ import { Router } from '@angular/router';
 import { Subject, Subscription, catchError, debounceTime, distinctUntilChanged, of, switchMap, tap } from 'rxjs';
 import { SearchMessage, SearchResults, SearchService } from 'src/app/core/services/search.service';
 import { UserService } from 'src/app/core/services/user.service';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { ClerkService } from 'src/app/core/services/clerk.service';
+import { EMAIL_PATTERN } from 'src/app/core/services/contact.service';
+import { NewChatDialogComponent } from '../chat/new-chat-dialog.component';
 import { PRESENCE_LABEL, PresenceKey, presenceOf } from 'src/app/core/utils/presence.util';
 
 type DateFilter = 'any' | '7d' | '30d' | '365d';
@@ -76,7 +80,23 @@ export class GlobalSearchComponent implements OnInit, OnDestroy {
     private router: Router,
     private host: ElementRef<HTMLElement>,
     private cdr: ChangeDetectorRef,
+    private modal: NgbModal,
+    private clerk: ClerkService,
   ) {}
+
+  /** The query is an email address: offer to find that person (there is no public people list). */
+  get emailQuery(): string | null {
+    const q = this.query.trim();
+    return EMAIL_PATTERN.test(q) ? q : null;
+  }
+
+  findByEmail(email: string): void {
+    this.close();
+    const ref = this.modal.open(NewChatDialogComponent, { centered: true, windowClass: 'app-modal', ariaLabelledBy: 'new-chat-title' });
+    const dialog = ref.componentInstance as NewChatDialogComponent;
+    dialog.inOrganization = !!this.clerk.pinnedOrganization;
+    dialog.initialEmail = email;
+  }
 
   ngOnInit(): void {
     this.sub = this.input$

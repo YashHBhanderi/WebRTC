@@ -1,3 +1,5 @@
+import { runAsSystem } from "../tenancy/context";
+import { E2eeDevice, E2eeOneTimeKey, E2eeToDevice } from "../e2ee/models";
 import mongoose from "mongoose";
 import Conversation from "../models/conversationModel";
 import User from "../models/userModel";
@@ -9,6 +11,12 @@ import Notification from "../models/notificationModel";
 import SavedMessage from "../models/savedMessageModel";
 import Meeting from "../models/meetingModel";
 import Recording from "../models/recordingModel";
+import Tenant from "../models/tenantModel";
+import TenantMembership from "../models/tenantMembershipModel";
+import { checkScopeConsistency } from "../tenancy/consistency";
+import { AppAuditEvent, AppCredential, AppGrant, AppUsage, ConsentRequest, DeveloperApp, RevokedToken } from "../developer/models";
+import { WebhookDelivery, WebhookEndpoint } from "../webhooks/models";
+import { JoinRequest, OrgAuditEvent, OrgInvitation, Team, TeamMembership } from "../organizations/models";
 
 /**
  * Additive, idempotent data migrations. Each runs once and is recorded in the
@@ -192,9 +200,143 @@ const migrations: Migration[] = [
             return "indexes ensured";
         },
     },
+    {
+        id: "2026-10-20-tenancy-foundation",
+        description: "Multi-tenancy: tenant / membership collections and tenantId indexes (no data is rewritten)",
+        up: async () => {
+            // Existing data stays global: a missing tenantId reads as null (= global) in every
+            // scope filter, so nothing is backfilled and nothing is assigned to a workspace.
+            await Tenant.createIndexes();
+            await TenantMembership.createIndexes();
+            for (const model of [Conversation, Call, Meeting, Recording, Notification, SavedMessage] as any[]) {
+                await model.createIndexes();
+            }
+            // Verification: before tenancy no record can belong to a workspace
+            const scoped = await Conversation.countDocuments({ tenantId: { $nin: [null] } });
+            return `indexes ensured; conversations already in a workspace: ${scoped}`;
+        },
+    },
+    {
+        id: "2026-10-21-message-scope",
+        description: "Messages carry their conversation's tenantId/scope (backfill workspace chats only) + consistency report",
+        up: async () => {
+            await Message.createIndexes();
+            // Legacy messages of global chats need nothing (missing tenantId = global). Only chats that
+            // already belong to a workspace / are external get their messages stamped.
+            let stamped = 0;
+            const cursor = Conversation.find({ tenantId: { $nin: [null] } }).select("_id tenantId scope").lean().cursor();
+            for await (const c of cursor) {
+                const res = await Message.collection.updateMany(
+                    { conversationId: c._id, $or: [{ tenantId: { $exists: false } }, { tenantId: null }] },
+                    { $set: { tenantId: c.tenantId, scope: c.scope || "tenant" } },
+                );
+                stamped += res.modifiedCount;
+            }
+            const report = await checkScopeConsistency();
+            const issues = report.filter((r) => r.mismatched || r.orphaned).map((r) => `${r.model}: ${r.mismatched} mismatched, ${r.orphaned} orphaned`);
+            return `${stamped} message(s) stamped; consistency: ${issues.length ? issues.join("; ") : "no mismatches"}`;
+        },
+    },
+    {
+        id: "2026-10-22-external-guest-lists",
+        description: "External conversation records carry their guest list (Phase 4B isolation); repair scope copies",
+        up: async () => {
+            // Records of external conversations without guestUserIds would be hidden from guests
+            // (fail closed); copy the conversation's guests onto them. Also repairs any scope drift.
+            const report = await checkScopeConsistency({ fix: true });
+            const touched = report.filter((r) => r.mismatched || r.orphaned).map((r) => `${r.model}: ${r.fixed} fixed, ${r.orphaned} orphaned`);
+            return touched.length ? touched.join("; ") : "nothing to fix";
+        },
+    },
+    {
+        id: "2026-10-28-saved-message-scope",
+        description: "Saved messages made in an organization were stored as personal (upsert skipped the scope hook): re-derive each record's scope from its conversation. Updates scope fields only; nothing is deleted",
+        up: async () => {
+            const report = await checkScopeConsistency({ fix: true });
+            const touched = report.filter((r) => r.mismatched || r.orphaned).map((r) => `${r.model}: ${r.fixed} fixed, ${r.orphaned} orphaned`);
+            return touched.length ? touched.join("; ") : "nothing to fix";
+        },
+    },
+    {
+        id: "2026-10-28-e2ee",
+        description: "End-to-end encryption: device keys (unique per user+device), one-time prekeys (unique, consumed once), device-message queue (TTL, retry-safe unique). Index-only; existing messages are not touched",
+        up: async () => {
+            for (const model of [E2eeDevice, E2eeOneTimeKey, E2eeToDevice] as any[]) {
+                await model.createIndexes();
+            }
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-27-organizations",
+        description: "SpreeWe-managed organizations: indexes for tenants (unique slug), invitations, join requests, audit, teams, team memberships, channel lookup. No data changes: existing tenants stay Clerk-managed",
+        up: async () => {
+            for (const model of [Tenant, TenantMembership, OrgInvitation, JoinRequest, OrgAuditEvent, Team, TeamMembership, Conversation] as any[]) {
+                await model.createIndexes();
+            }
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-24-webhooks-and-consent",
+        description: "Outbound webhook endpoints / deliveries (unique endpoint+event, TTL) and consent requests (TTL)",
+        up: async () => {
+            for (const model of [WebhookEndpoint, WebhookDelivery, ConsentRequest] as any[]) {
+                await model.createIndexes();
+            }
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-10-23-developer-platform",
+        description: "Developer platform collections: apps, credentials, grants, revoked tokens (TTL), usage (unique per day), audit",
+        up: async () => {
+            // Unique indexes carry correctness here (one credential per keyId, one grant per app+user,
+            // one usage row per app+day), so they are built explicitly before the feature is used
+            for (const model of [DeveloperApp, AppCredential, AppGrant, RevokedToken, AppUsage, AppAuditEvent] as any[]) {
+                await model.createIndexes();
+            }
+            return "indexes ensured";
+        },
+    },
+    {
+        id: "2026-11-16-app-tenants",
+        description: "Application tenants and app-managed users: partial unique indexes on tenants.clerkOrgId and users.email, new indexes",
+        up: async () => {
+            // Application tenants have no Clerk organization and app-managed users have no account email.
+            // Both old indexes were unique over ALL documents (a missing value counts as null), which
+            // would allow only one of each. Replace them with indexes that are unique among the
+            // documents that have a value: existing data satisfies the new index because it satisfied
+            // the old one. Nothing is deleted or rewritten.
+            const replaced: string[] = [];
+            for (const [model, name] of [[Tenant, "clerkOrgId_1"], [User, "email_1"]] as [mongoose.Model<any>, string][]) {
+                const existing = (await model.collection.indexes().catch(() => [])).find((i) => i.name === name);
+                if (existing && !(existing as any).partialFilterExpression) {
+                    await model.collection.dropIndex(name);
+                    replaced.push(`${model.collection.collectionName}.${name}`);
+                }
+                // Recreated at once (unique, partial), together with the model's new indexes
+                await model.createIndexes();
+            }
+            for (const model of [TenantMembership, DeveloperApp, AppGrant, AppUsage] as mongoose.Model<any>[]) {
+                await model.createIndexes();
+            }
+            // Explicit values for the new fields (absent already means the same thing)
+            const apps = await DeveloperApp.updateMany({ dedicatedTenant: { $exists: false } }, { $set: { dedicatedTenant: false } });
+            const tenants = await Tenant.updateMany({ kind: { $exists: false } }, { $set: { kind: "organization" } });
+            // Existing apps are left as they are: global apps (consent / OAuth with SpreeWe accounts) and
+            // workspace apps keep working. Only apps created from now on get a dedicated tenant.
+            return `${replaced.length ? `replaced ${replaced.join(", ")}` : "indexes already current"}; ${apps.modifiedCount} app(s) marked legacy, ${tenants.modifiedCount} tenant(s) marked organization`;
+        },
+    },
 ];
 
 export async function runMigrations(): Promise<void> {
+    // Explicit system scope: migrations read and write every workspace
+    return runAsSystem(() => applyMigrations(), "migrations");
+}
+
+async function applyMigrations(): Promise<void> {
     const db = mongoose.connection.db;
     if (!db) {
         throw new Error("Database is not connected");

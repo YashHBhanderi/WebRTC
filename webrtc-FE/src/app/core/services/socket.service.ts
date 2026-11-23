@@ -4,7 +4,8 @@ import { HttpClient } from '@angular/common/http';
 import { AuthService } from './auth.service';
 import { environment } from 'src/environments/environment';
 import { AlertService } from 'src/app/_shared/alert/alert.service';
-import { Observable } from 'rxjs';
+import { Observable, concatMap, from } from 'rxjs';
+import { E2eeService } from '../crypto/e2ee.service';
 import { UploadResult, UploadTarget } from '../interfaces/chat';
 import { callDeviceId } from '../utils/device-id';
 
@@ -59,6 +60,7 @@ export class SocketService {
     private http: HttpClient,
     private authService: AuthService,
     private alertService: AlertService,
+    private e2ee: E2eeService,
 
   ) {
     this.autoReconnect();
@@ -90,9 +92,12 @@ export class SocketService {
     this.connectWithToken();
   }
 
-  /** After sign-in: connect once the app account is known (no-op when already connected). */
+  /**
+   * After sign-in: connect once the app account is known. No-op when connected OR still connecting:
+   * restarting a connection that is being established opened a gap in which a ring could be lost.
+   */
   ensureConnected() {
-    if (!this.socket.ioSocket.connected) {
+    if (!this.socket.ioSocket.connected && !this.socket.ioSocket.active) {
       this.connectWithToken();
     }
   }
@@ -168,12 +173,25 @@ export class SocketService {
     return this.socket.fromEvent('disconnect');
   }
 
+  private readonly events = new Map<string, Observable<any>>();
+
+  /** Any server event by name; one shared observable per name (no duplicate raw listeners). */
+  onEvent<T = unknown>(event: string): Observable<T> {
+    let obs = this.events.get(event);
+    if (!obs) {
+      obs = this.socket.fromEvent(event) as Observable<T>;
+      this.events.set(event, obs);
+    }
+    return obs as Observable<T>;
+  }
+
   receivedTyping() {
     return this.socket.fromEvent('userTyping');
   }
 
+  /** Live messages, decrypted in arrival order (concatMap keeps the order). */
   newMessageReceived() {
-    return this.socket.fromEvent('receiveMessage');
+    return this.onEvent<any>('receiveMessage').pipe(concatMap((m) => from(this.e2ee.reveal(m))));
   }
   messagesMarkedRead() {
     return this.socket.fromEvent("messagesMarkedRead");
@@ -196,9 +214,6 @@ export class SocketService {
     this.socket.emit('sendMessage', messageData);
   }
 
-  newGroupMessageReceived() {
-    return this.socket.fromEvent('receiveMessage');
-  }
 
   startGroupCall(groupId: string, callType: 'audio' | 'video', mode?: 'ring' | 'meetNow') {
     this.socket.emit('call:start', {
@@ -239,6 +254,11 @@ export class SocketService {
 
   onIncomingGroupCall() {
     return this.socket.fromEvent('call:incoming');
+  }
+
+  /** Sent by the server on every (re)connect: the calls still ringing for me in this workspace. */
+  onPendingRings() {
+    return this.socket.fromEvent('call:pending-rings') as Observable<{ calls?: any[] }>;
   }
 
   onMeetingActive() {
@@ -510,8 +530,20 @@ export class SocketService {
     return this.socket.fromEvent('message:rejected');
   }
 
-  onMessageUpdated(): Observable<{ conversationId: string; messageId: string; content: string; editedAt: string; mentions: string[] }> {
-    return this.socket.fromEvent('message:updated');
+  /** Edits carry new ciphertext: decrypted here, so listeners get the text as before. */
+  onMessageUpdated(): Observable<{ conversationId: string; messageId: string; content: string; editedAt: string; mentions: string[]; e2eeState?: string }> {
+    return this.onEvent<any>('message:updated').pipe(concatMap((u) => from(this.e2ee.reveal({ ...u, _id: `${u.messageId}:edit:${u.editedAt}` }))));
+  }
+
+  /** Upload an already-encrypted attachment (ciphertext only; the kind is visible metadata). */
+  uploadEncrypted(ciphertext: Blob, conversationId: string, kind: string) {
+    const formData = new FormData();
+    formData.append('purpose', 'message');
+    formData.append('conversationId', conversationId);
+    formData.append('encrypted', '1');
+    formData.append('kind', kind);
+    formData.append('file', ciphertext, 'encrypted.bin');
+    return this.http.post<{ storageKey: string; type: string; size: number }>(`${environment.apiUrl}/upload`, formData);
   }
 
   onMessageDeleted(): Observable<{ conversationId: string; messageId: string }> {

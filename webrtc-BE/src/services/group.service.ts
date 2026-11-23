@@ -1,3 +1,5 @@
+import { assertCanInclude } from "../tenancy/tenant.service";
+import { userContext } from "../tenancy/context";
 import mongoose from "mongoose";
 import Conversation, { IConversation } from "../models/conversationModel";
 import User from "../models/userModel";
@@ -28,6 +30,13 @@ export interface GroupUpdateInput {
  * Group membership and admin rules. Every method resolves the actor's rights from the
  * database; ids/roles in the request are only treated as targets.
  */
+/** Team channels look like groups, but their membership is managed by the team (organizations/team.service). */
+function notChannel(group: IConversation): void {
+    if ((group as any).teamId) {
+        throw new AppError("This is a team channel: manage it from the team");
+    }
+}
+
 class GroupService {
     /** Group as clients render it: public member fields + admin ids. */
     async summary(groupId: string): Promise<GroupSummary> {
@@ -51,6 +60,7 @@ class GroupService {
 
     async update(groupId: unknown, actorId: string, input: GroupUpdateInput): Promise<GroupSummary> {
         const group = await getGroupForAdmin(groupId, actorId);
+        notChannel(group);
         const set: Record<string, unknown> = {};
         const name = optionalString(input.groupName, "Group name", 100);
         if (name !== undefined) {
@@ -82,6 +92,7 @@ class GroupService {
     /** Returns the ids that were actually added (existing users who were not members yet). */
     async addMembers(groupId: unknown, actorId: string, userIds: unknown): Promise<{ group: GroupSummary; added: string[] }> {
         const group = await getGroupForAdmin(groupId, actorId);
+        notChannel(group);
         const requested = requireObjectIds(userIds, "userIds", 100);
         const candidates = requested.filter((id) => !isMember(group, id));
         if (!candidates.length) {
@@ -92,12 +103,15 @@ class GroupService {
         if (!added.length) {
             throw new NotFoundError("Users not found");
         }
+        // A workspace group can only gain members of that workspace
+        await assertCanInclude(userContext(), added);
         await Conversation.updateOne({ _id: group._id }, { $addToSet: { members: { $each: added.map(oid) } } });
         return { group: await this.summary(String(group._id)), added };
     }
 
     async removeMember(groupId: unknown, actorId: string, memberId: unknown): Promise<GroupSummary> {
         const group = await getGroupForAdmin(groupId, actorId);
+        notChannel(group);
         const targetId = requireObjectId(memberId, "userId");
         if (targetId === String(actorId)) {
             throw new AppError("Use Leave group to remove yourself");
@@ -111,6 +125,7 @@ class GroupService {
 
     async promoteAdmin(groupId: unknown, actorId: string, memberId: unknown): Promise<GroupSummary> {
         const group = await getGroupForAdmin(groupId, actorId);
+        notChannel(group);
         const targetId = requireObjectId(memberId, "userId");
         if (!isMember(group, targetId)) {
             throw new AppError("User is not a member of this group");
@@ -121,6 +136,7 @@ class GroupService {
 
     async demoteAdmin(groupId: unknown, actorId: string, memberId: unknown): Promise<GroupSummary> {
         const group = await getGroupForAdmin(groupId, actorId);
+        notChannel(group);
         const targetId = requireObjectId(memberId, "userId");
         const admins = adminIds(group);
         if (!admins.has(targetId)) {
@@ -140,6 +156,7 @@ class GroupService {
      */
     async leave(groupId: unknown, userId: string): Promise<{ group: GroupSummary | null; remainingMembers: string[] }> {
         const group = await getGroupForMember(groupId, userId);
+        notChannel(group);
         await this.detach(group, userId);
         const after = await Conversation.findById(group._id).select("members").lean();
         const remaining = (after?.members || []).map(String);
