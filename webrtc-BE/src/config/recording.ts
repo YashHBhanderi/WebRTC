@@ -16,6 +16,8 @@ import path from "path";
  *                              if denied, set an equivalent rule on the bucket for the recordings/ prefix)
  *   RECORDING_FPS              frame rate of the composed meeting video (default 25)
  *   RECORDING_FONT_FILE        TTF/OTF used for names / initials in the video (default: a system font)
+ *   RECORDING_CAMERA_FIT       "contain" (default): the whole camera picture is shown in its tile, with bars
+ *                              where its shape differs (a phone held upright); "cover": fill the tile, cropping
  *
  *   TRANSCRIPTION_PROVIDER     "whisper-cpp" (default) or "none"
  *   TRANSCRIPTION_LANGUAGE     "auto" or a language code such as "en" (default "auto")
@@ -44,6 +46,7 @@ export const recordingConfig = {
     retentionDays: int(process.env.RECORDING_RETENTION_DAYS, 30),
     fps: Math.min(30, int(process.env.RECORDING_FPS, 25)),
     fontFile: process.env.RECORDING_FONT_FILE || "",
+    cameraFit: ((process.env.RECORDING_CAMERA_FIT || "").trim().toLowerCase() === "cover" ? "cover" : "contain") as "contain" | "cover",
 };
 
 export type TranscriptionProviderName = "whisper-cpp" | "none";

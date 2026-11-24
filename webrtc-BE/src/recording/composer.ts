@@ -430,6 +430,55 @@ function placeTiles(people: Person[], rects: (n: number) => Rect[], max: number)
     return tiles.filter((t) => !!t.rect);
 }
 
+// ---------------------------------------------------------------- camera fitting
+
+/**
+ * How a camera picture is placed in its tile.
+ * "contain" (default): the whole picture, scaled to fit and centred on the tile colour — a phone held upright
+ * keeps all four edges, with bars at the sides. "cover": fill the tile and crop the overflow (the old
+ * behaviour, which cut the top and bottom off portrait phone video).
+ */
+function cameraFilter(w: number, h: number): string {
+    if (recordingConfig.cameraFit === "cover") {
+        return `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`;
+    }
+    return `scale=${w}:${h}:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
+        `pad=w=${w}:h=${h}:x=(ow-iw)/2:y=(oh-ih)/2:color=${COLOR_TILE},setsar=1`;
+}
+
+/** Normalised camera size: 16:9 like every tile (gallery and presenter strip) */
+const FIT_W = 1280;
+const FIT_H = 720;
+
+/**
+ * Re-renders one camera track as a steady 1280x720 picture with the camera image fitted inside.
+ *
+ * A camera track can change size mid-recording (the phone is rotated, the camera is switched). Segments are
+ * rendered with -reinit_filter 0 (several inputs share one graph), so a size change there would be squeezed
+ * into the first size's shape. Fitting each track on its own, with FFmpeg's normal reconfiguration on every
+ * size change, gives every frame the right shape; the segment then only scales 16:9 into a 16:9 tile.
+ * Timestamps are kept (-copyts, passthrough), so the track stays in sync with the audio.
+ */
+async function fitCameraTrack(caps: Capabilities, dir: string, track: UsableTrack, index: number): Promise<UsableTrack> {
+    const out = path.join(dir, `camfit_${index}.mkv`);
+    const sync = caps.major >= 6 ? ["-fps_mode", "passthrough"] : ["-vsync", "0"];
+    await runFfmpeg([
+        "-i", track.file,
+        "-map", "0:v:0",
+        "-vf", `scale=${FIT_W}:${FIT_H}:force_original_aspect_ratio=decrease:force_divisible_by=2,` +
+            `pad=w=${FIT_W}:h=${FIT_H}:x=(ow-iw)/2:y=(oh-ih)/2:color=${COLOR_TILE},setsar=1,format=yuv420p`,
+        "-copyts", ...sync,
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+        "-an",
+        "-y", out,
+    ], dir);
+    const info = await probe(out);
+    if (!info.hasVideo) {
+        throw new Error("fitted camera track has no video");
+    }
+    return { ...track, file: out, fileStart: info.start };
+}
+
 // ---------------------------------------------------------------- rendering
 
 interface RenderContext {
@@ -552,7 +601,7 @@ async function renderSegment(ctx: RenderContext, seg: Segment, index: number): P
             if (!on.length) {
                 continue;
             }
-            const src = videoInput(cam.track, `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1`);
+            const src = videoInput(cam.track, cameraFilter(w, h));
             overlay(src, x, y, `eof_action=pass:enable='${enableExpr(on)}'`);
         }
 
@@ -621,6 +670,20 @@ export async function composeRecording(input: ComposeInput, output: string): Pro
     }
     if (!usable.length) {
         throw new Error("Nothing was captured");
+    }
+    if (recordingConfig.cameraFit === "contain") {
+        for (let i = 0; i < usable.length; i++) {
+            const t = usable[i];
+            if (t.kind !== "video" || t.source !== "camera") {
+                continue;
+            }
+            try {
+                usable[i] = await fitCameraTrack(caps, input.dir, t, i);
+            } catch (error) {
+                // Still fitted (no crop) in the segment; only a mid-track size change may then be distorted
+                console.warn(`[recording] could not normalise camera track ${path.basename(t.file)}:`, (error as Error).message);
+            }
+        }
     }
     const audioTracks = usable.filter((t) => t.kind === "audio");
     const screenTracks = usable.filter((t) => t.kind === "video" && t.source === "screen").sort((x, y) => x.start - y.start);
